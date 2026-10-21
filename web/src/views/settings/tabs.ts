@@ -1,0 +1,149 @@
+import type { Component } from "vue";
+import {
+  BookOpen,
+  CalendarClock,
+  Database,
+  FileCog,
+  Plug,
+  RefreshCw,
+  ScrollText,
+  Settings2,
+  SlidersHorizontal,
+} from "lucide-vue-next";
+import type { MessageKey } from "../../lib/i18n";
+import { isDesktop } from "../../lib/desktop";
+import GeneralTab from "./GeneralTab.vue";
+import ClientSettingsTab from "./ClientSettingsTab.vue";
+import ScheduleTab from "./ScheduleTab.vue";
+import EnvironmentTab from "./EnvironmentTab.vue";
+import BackupTab from "./BackupTab.vue";
+import ApiDocsTab from "./ApiDocsTab.vue";
+import WikiTab from "./WikiTab.vue";
+import LogsTab from "./LogsTab.vue";
+import UpdateTab from "./UpdateTab.vue";
+
+/**
+ * 设置 tab 的唯一登记处。加一个 tab 只改这里。
+ *
+ * `permission` 字段暂时留空：本项目还没有 RBAC 体系。
+ * 真加权限时规则是「容器不设 permission、权限下沉到每个 tab」，
+ * 否则只有文档权限的人会被挡在设置外面 —— 而接口文档与 Wiki 是通用能力。
+ */
+export interface SettingsTab {
+  key: string;
+  labelKey: MessageKey;
+  hintKey: MessageKey;
+  icon: Component;
+  component: Component;
+  /** 页面自己管滚动（iframe / 双栏文档），容器不再套一层滚动与内边距。 */
+  selfScroll?: boolean;
+  /** 只在桌面端出现（需要 Electron 主进程能力，浏览器里做不到）。 */
+  desktopOnly?: boolean;
+  /**
+   * 桌面端隐藏。接口文档与 Wiki 都是「同源 iframe 套一层文档」，
+   * 在桌面壳里既没有地址栏也没有多标签页，体验明显不如浏览器，
+   * 所以桌面端不展示这两项，需要时到浏览器打开。
+   */
+  hideOnDesktop?: boolean;
+}
+
+export const SETTINGS_ROUTE = "/settings";
+export const SETTINGS_DEFAULT_KEY = "general";
+
+export const SETTINGS_TABS: SettingsTab[] = [
+  {
+    key: "general",
+    labelKey: "settings.general.label",
+    hintKey: "settings.general.hint",
+    icon: Settings2,
+    component: GeneralTab,
+  },
+  {
+    key: "schedule",
+    labelKey: "settings.schedule.label",
+    hintKey: "settings.schedule.hint",
+    icon: CalendarClock,
+    component: ScheduleTab,
+  },
+  {
+    key: "client",
+    labelKey: "settings.client.label",
+    hintKey: "settings.client.hint",
+    icon: FileCog,
+    component: ClientSettingsTab,
+  },
+  {
+    key: "env",
+    labelKey: "settings.env.label",
+    hintKey: "settings.env.hint",
+    icon: SlidersHorizontal,
+    component: EnvironmentTab,
+  },
+  {
+    key: "backup",
+    labelKey: "settings.backup.label",
+    hintKey: "settings.backup.hint",
+    icon: Database,
+    component: BackupTab,
+  },
+  {
+    key: "api",
+    labelKey: "settings.api.label",
+    hintKey: "settings.api.hint",
+    icon: Plug,
+    component: ApiDocsTab,
+    selfScroll: true,
+    hideOnDesktop: true,
+  },
+  {
+    key: "wiki",
+    labelKey: "settings.wiki.label",
+    hintKey: "settings.wiki.hint",
+    icon: BookOpen,
+    component: WikiTab,
+    selfScroll: true,
+    hideOnDesktop: true,
+  },
+  {
+    key: "logs",
+    labelKey: "settings.logs.label",
+    hintKey: "settings.logs.hint",
+    icon: ScrollText,
+    component: LogsTab,
+  },
+  {
+    key: "update",
+    labelKey: "settings.update.label",
+    hintKey: "settings.update.hint",
+    icon: RefreshCw,
+    component: UpdateTab,
+    desktopOnly: true,
+  },
+];
+
+/**
+ * 当前环境可见的分栏。左栏、内容区、`?tab=` 归一必须共用这一份，
+ * 否则会出现「左栏没有这一项，但地址栏进去是空白」。
+ */
+export function visibleSettingsTabs(desktopMode: boolean = isDesktop): SettingsTab[] {
+  return SETTINGS_TABS.filter((tab) => {
+    if (tab.desktopOnly && !desktopMode) return false;
+    if (tab.hideOnDesktop && desktopMode) return false;
+    return true;
+  });
+}
+
+/** 在「可见分栏」里查，所以桌面端查不到 api / wiki。 */
+export function findSettingsTab(key: unknown, desktopMode: boolean = isDesktop): SettingsTab | null {
+  if (typeof key !== "string") return null;
+  return visibleSettingsTabs(desktopMode).find((tab) => tab.key === key) ?? null;
+}
+
+/** 激活项解析顺序：合法 ?tab= → 默认项 → 第一个可见项。 */
+export function resolveSettingsKey(raw: unknown, desktopMode: boolean = isDesktop): string {
+  const tabs = visibleSettingsTabs(desktopMode);
+  const matched = findSettingsTab(raw, desktopMode);
+  if (matched) return matched.key;
+  const fallback = tabs.find((tab) => tab.key === SETTINGS_DEFAULT_KEY);
+  return fallback?.key ?? tabs[0]?.key ?? "";
+}
