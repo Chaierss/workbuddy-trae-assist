@@ -19,6 +19,12 @@ from typing import Any
 
 FILENAME = "preferences.json"
 
+#: 自动备份的默认分区，与 backup.DEFAULT_GLOBAL_PARTS 保持一致（只有不含凭据的 config）。
+#: 这里用字面量而不是从 backup 导入，是为了避开 backup↔preferences 的循环导入：
+#: backup 只需要本文件的 FILENAME，本文件又需要 backup 的分区表 —— 白名单在
+#: `clean_global_parts` 里做延迟导入解决。
+_DEFAULT_PARTS: tuple[str, ...] = ("config",)
+
 DEFAULTS: dict[str, Any] = {
     # 切换时迁移哪些数据（记忆 / 连接器 / 会话 / 档案 / 工作区），默认全开
     "migrateMemory": True,
@@ -32,6 +38,10 @@ DEFAULTS: dict[str, Any] = {
     # 每日自动做一份「全局备份」（默认分区 = 不含凭据，保留最近 7 份）。
     # 设置 → 备份 页「全局备份」卡片右上角那个开关就是它。
     "autoGlobalBackup": True,
+    # 自动备份收录哪些分区。默认只有 config（不含凭据）。
+    # 用户手动勾选含凭据分区（gateway / accounts）并确认后，这里跟着更新，
+    # 之后自动备份也把它们纳入 —— 「勾选即确认」，不再每次弹二次确认。
+    "autoGlobalParts": list(_DEFAULT_PARTS),
 }
 
 
@@ -44,6 +54,7 @@ class Preferences:
     migrate_workspaces: bool = True
     auto_backup: bool = True
     auto_global_backup: bool = True
+    auto_global_parts: tuple[str, ...] = _DEFAULT_PARTS
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -54,6 +65,7 @@ class Preferences:
             "migrateWorkspaces": self.migrate_workspaces,
             "autoBackup": self.auto_backup,
             "autoGlobalBackup": self.auto_global_backup,
+            "autoGlobalParts": list(self.auto_global_parts),
         }
 
 
@@ -82,6 +94,7 @@ class PreferencesStore:
             migrate_workspaces=flag("migrateWorkspaces"),
             auto_backup=flag("autoBackup"),
             auto_global_backup=flag("autoGlobalBackup"),
+            auto_global_parts=clean_global_parts(data.get("autoGlobalParts")),
         )
 
     def save(self, prefs: Preferences) -> Preferences:
@@ -90,3 +103,19 @@ class PreferencesStore:
             json.dumps(prefs.payload(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return prefs
+
+
+def clean_global_parts(raw: Any) -> tuple[str, ...]:
+    """把 `autoGlobalParts` 收敛成可信的分区元组。
+
+    只认白名单内的分区 key，未知/非法的直接丢弃；结果去重且保序。
+    空列表（非法）回落到默认的 config，保证自动备份永远不会空跑。
+
+    白名单来自 backup 模块，这里延迟导入避免模块加载期的循环依赖。
+    """
+    from chaierww.domain.backup import DEFAULT_GLOBAL_PARTS, GLOBAL_PARTS
+
+    if not isinstance(raw, list):
+        return DEFAULT_GLOBAL_PARTS
+    cleaned = tuple(dict.fromkeys(item for item in raw if item in GLOBAL_PARTS))
+    return cleaned if cleaned else DEFAULT_GLOBAL_PARTS

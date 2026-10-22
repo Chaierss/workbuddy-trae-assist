@@ -38,6 +38,7 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | **写前有备份** | 切换前强制备份，中途失败自动回滚到切换前快照 |
 | **只读预演** | 「预演」只读不写，能先看到会改动哪些文件 |
 | **不碰程序本体** | 只读写客户端的**状态文件**，不打补丁、不改可执行文件 |
+| **备份默认不含凭据** | `GLOBAL_PARTS` 把 `gateway` / `accounts` 标为 `CREDENTIAL_PARTS`，全局备份默认只收 `config`。勾选含凭据分区要显式确认，确认后自动备份沿用该范围（见下条） |
 
 ## 这些不算漏洞
 

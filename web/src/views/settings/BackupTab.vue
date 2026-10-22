@@ -56,12 +56,22 @@ async function toggleAuto(): Promise<void> {
 const parts = ref<GlobalBackupPart[]>([]);
 const globalSnapshots = ref<Snapshot[]>([]);
 const selectedParts = ref<string[]>([]);
-/** 勾了含凭据的分区时先停在确认态：再点一次才真的写。 */
-const confirming = ref(false);
+/**
+ * 待确认的含凭据分区：勾它时不立刻生效，先在界面上停一拍。
+ *
+ * 语义是「勾选即确认」—— 确认一次就够了，之后手动「立即备份」不再弹二次确认，
+ * 自动备份也把这个范围接过去。取消勾选不需要确认，直接生效。
+ */
+const pendingPart = ref<string | null>(null);
 const globalMessage = ref<string | null>(null);
 const globalFailed = ref(false);
 
-/** 本次勾选里含凭据的分区，用于确认文案与按钮态。 */
+/** 待确认分区的展示信息，用于提示文案。 */
+const pendingInfo = computed(() =>
+  parts.value.find((part) => part.key === pendingPart.value),
+);
+
+/** 本次勾选里含凭据的分区，用于提示用户「自动备份也会收录」。 */
 const riskySelected = computed(() =>
   parts.value.filter((part) => part.credential && selectedParts.value.includes(part.key)),
 );
@@ -74,27 +84,80 @@ async function loadGlobal(): Promise<void> {
     const data = await api.globalBackups();
     parts.value = data.parts;
     globalSnapshots.value = data.snapshots;
-    // 首次进来按后端给的默认分区勾选（不含凭据），之后不再覆盖用户的选择。
-    if (!selectedParts.value.length) selectedParts.value = [...data.defaultParts];
+    // 首次进来按后端给的「自动备份范围」勾选：它默认就是不含凭据的 config，
+    // 且用户之前确认过的含凭据分区会保留在这里，刷新页面不会丢。
+    if (!selectedParts.value.length) selectedParts.value = [...data.autoParts];
   } catch (error) {
     globalFailed.value = true;
     globalMessage.value = (error as Error).message;
   }
 }
 
-function togglePart(key: string): void {
-  confirming.value = false;
-  selectedParts.value = selectedParts.value.includes(key)
-    ? selectedParts.value.filter((item) => item !== key)
-    : [...selectedParts.value, key];
+/** 把当前勾选写进偏好，自动备份从此用这个范围。 */
+async function persistParts(next: string[]): Promise<void> {
+  try {
+    prefs.value = await api.savePreferences({ autoGlobalParts: next });
+  } catch (error) {
+    globalFailed.value = true;
+    globalMessage.value = (error as Error).message;
+    throw error;
+  }
+}
+
+/**
+ * 勾选分区。含凭据分区不直接勾上，先进入确认态；取消勾选直接生效。
+ */
+async function togglePart(key: string): Promise<void> {
+  const part = parts.value.find((item) => item.key === key);
+  const selected = selectedParts.value.includes(key);
+
+  if (selected) {
+    // 取消勾选不需要确认，但要同步收窄自动备份范围。
+    const next = selectedParts.value.filter((item) => item !== key);
+    selectedParts.value = next;
+    try {
+      await persistParts(next);
+    } catch {
+      /* 提示已在 persistParts 里写好，勾选状态保持用户看到的最新值 */
+    }
+    return;
+  }
+
+  if (part?.credential) {
+    // 含凭据分区：停在确认态，等用户明确点头。
+    pendingPart.value = key;
+    return;
+  }
+
+  const next = [...selectedParts.value, key];
+  selectedParts.value = next;
+  try {
+    await persistParts(next);
+  } catch {
+    /* 同上 */
+  }
+}
+
+/** 确认纳入含凭据分区：勾上 + 写进自动备份范围。 */
+async function confirmPart(): Promise<void> {
+  const key = pendingPart.value;
+  if (!key) return;
+  const next = [...selectedParts.value, key];
+  try {
+    await persistParts(next);
+    selectedParts.value = next;
+    pendingPart.value = null;
+  } catch {
+    /* 失败时保持待确认态，用户可以重试 */
+  }
+}
+
+function cancelPart(): void {
+  pendingPart.value = null;
 }
 
 async function createGlobal(): Promise<void> {
-  // 第一次点击只做确认：含凭据的分区不允许「顺手就备份」。
-  if (riskySelected.value.length && !confirming.value) {
-    confirming.value = true;
-    return;
-  }
+  // 勾选时已经确认过，这里不再二次确认，直接备份。
   busy.value = true;
   globalMessage.value = null;
   globalFailed.value = false;
@@ -102,13 +165,12 @@ async function createGlobal(): Promise<void> {
     const snapshot = await api.createGlobalBackup(
       selectedParts.value,
       t("settings.backup.noteManual"),
-      confirming.value,
+      true,
     );
     globalMessage.value = t("settings.backup.backupDone", {
       count: snapshot.fileCount,
       size: formatBytes(snapshot.totalBytes),
     });
-    confirming.value = false;
     await loadGlobal();
   } catch (error) {
     globalFailed.value = true;
@@ -165,16 +227,11 @@ onMounted(() => {
           </label>
           <button
             type="button"
-            class="rounded-[8px] border px-2.5 py-1.5 text-[12px] transition-colors disabled:opacity-50"
-            :class="
-              confirming
-                ? 'border-danger text-danger'
-                : 'border-line text-ink-soft hover:border-[#d5d8d3] hover:text-ink'
-            "
+            class="rounded-[8px] border border-line px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-50"
             :disabled="busy || selectedParts.length === 0"
             @click="createGlobal"
           >
-            {{ confirming ? t("settings.backup.backupNowRisky") : t("settings.backup.backupNow") }}
+            {{ t("settings.backup.backupNow") }}
           </button>
         </div>
       </template>
@@ -202,14 +259,48 @@ onMounted(() => {
           </span>
         </label>
 
-        <p
-          v-if="confirming"
+        <!-- 勾含凭据分区时停一拍：确认一次，之后手动与自动备份都不再问 -->
+        <div
+          v-if="pendingPart && pendingInfo"
           class="mt-1.5 flex items-start gap-2 rounded-[9px] bg-warn-soft px-3 py-2 text-[12px] leading-relaxed text-warn"
         >
           <ShieldAlert :size="14" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+          <div class="min-w-0 flex-1">
+            <p>
+              {{
+                t("settings.backup.partConfirm", {
+                  names: pendingInfo.label,
+                })
+              }}
+            </p>
+            <div class="mt-1.5 flex items-center gap-2">
+              <button
+                type="button"
+                class="rounded-[7px] bg-warn px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90"
+                @click="confirmPart"
+              >
+                {{ t("settings.backup.confirmPart") }}
+              </button>
+              <button
+                type="button"
+                class="rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:text-ink"
+                @click="cancelPart"
+              >
+                {{ t("settings.backup.cancelPart") }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 已勾了含凭据分区：告知用户自动备份也会收录，避免默默写入 -->
+        <p
+          v-else-if="riskySelected.length"
+          class="mt-1.5 flex items-start gap-2 rounded-[9px] bg-line-soft px-3 py-2 text-[11.5px] leading-relaxed text-muted"
+        >
+          <ShieldAlert :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
           <span>
             {{
-              t("settings.backup.riskyWarn", {
+              t("settings.backup.autoScopeNote", {
                 names: riskySelected.map((part) => part.label).join("、"),
               })
             }}

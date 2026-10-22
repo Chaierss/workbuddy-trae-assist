@@ -10,6 +10,22 @@
 
 （下次发版前在这里累积改动，按「新增 / 修复 / 变更」分组；发版时把本节改成版本号与日期。）
 
+## [0.1.4] - 2026-10-22
+
+### 新增
+
+- **含凭据分区可以纳入自动备份范围。** 原先每日自动备份固定只收「常规偏好与计划任务」，
+  就算手动勾了「网关配置与 Key」「账号库与登录凭据」，自动备份也不带它们。
+  现在勾选含凭据分区并确认一次后，这个范围会被记住，之后的手动与自动备份都收录。
+
+### 变更
+
+- **确认时机从「点备份时」提前到「勾选时」。** 以前是点「立即备份」时弹二次确认；
+  现在勾选含凭据分区的那一刻就确认一次，之后点「立即备份」不再反复询问。
+- 备份页在已勾选含凭据分区时提示「手动与每日自动备份都会收录」，避免凭据被默默写入。
+- 自动备份开关的说明改为「按下面勾选的分区备份」，不再写死「不含凭据」。
+
+
 ## [0.1.3] - 2026-10-22
 
 ### 修复
@@ -123,7 +139,8 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.3...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.1

@@ -211,9 +211,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lambda: preferences.load().auto_backup,
         auto_backup_targets,
         backups,
-        # 全局备份：只用默认分区（config，不含凭据），开关在设置 → 备份页。
+        # 全局备份：分区随偏好现读（默认 config 不含凭据；用户勾选含凭据分区确认后
+        # 自动备份也跟着纳入），开关在设置 → 备份页。
         global_enabled=lambda: preferences.load().auto_global_backup,
         global_home=lambda: resolved.home,
+        global_parts=lambda: preferences.load().auto_global_parts,
     )
 
     @asynccontextmanager

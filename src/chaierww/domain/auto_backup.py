@@ -68,7 +68,7 @@ class AutoBackupRunner:
         *,
         global_enabled: Callable[[], bool] | None = None,
         global_home: Callable[[], Path] | None = None,
-        global_parts: tuple[str, ...] = DEFAULT_GLOBAL_PARTS,
+        global_parts: tuple[str, ...] | Callable[[], tuple[str, ...]] = DEFAULT_GLOBAL_PARTS,
         tick_seconds: float = AUTO_TICK_SECONDS,
         interval_seconds: float = AUTO_INTERVAL_SECONDS,
         keep: int = AUTO_KEEP,
@@ -143,16 +143,17 @@ class AutoBackupRunner:
         return created
 
     def _tick_global(self) -> int:
-        """每日一份全局备份：只用默认分区（不含凭据），开关关掉就一次都不跑。"""
+        """每日一份全局备份：分区现读（默认不含凭据，可随偏好含凭据分区），开关关掉就一次都不跑。"""
         if self._global_enabled is None or self._global_home is None:
             return 0
         if not self._global_enabled():
             return 0
         home = self._global_home()
-        # 默认分区一个文件都没有时（全新安装）直接跳过，别每 10 分钟记一次失败。
+        parts = self._global_parts() if callable(self._global_parts) else self._global_parts
+        # 勾选的分区一个文件都没有时（全新安装）直接跳过，别每 10 分钟记一次失败。
         if not any(
             (home / name).is_file()
-            for part in self._global_parts
+            for part in parts
             for name in GLOBAL_PARTS.get(part, ())
         ):
             return 0
@@ -161,10 +162,11 @@ class AutoBackupRunner:
         try:
             self._backups.create_global(
                 home,
-                self._global_parts,
+                parts,
                 note="自动备份",
                 reason=AUTO_REASON,
                 keep=self._keep,
+                confirm_credentials=True,
             )
         except (BackupError, OSError, ValueError) as exc:
             logger.warning("自动备份：全局备份失败（%s）", exc)

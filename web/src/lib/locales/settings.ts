@@ -25,7 +25,6 @@ export const settingsZh = {
   "settings.rail.subtitle": "返回主站",
 
   "settings.backup.backupNow": "立即备份",
-  "settings.backup.backupNowRisky": "确认含凭据，继续备份",
   "settings.backup.fileCount": "{count} 个文件",
   "settings.backup.verified": "已校验",
   "settings.backup.unverified": "未校验",
@@ -37,14 +36,18 @@ export const settingsZh = {
   "settings.backup.globalTitle": "全局备份",
   "settings.backup.autoGlobalLabel": "自动备份",
   "settings.backup.autoGlobalHint":
-    "每天自动备份一次默认分区（只有常规偏好与计划任务，不含凭据），滚动保留最近 7 份",
+    "每天自动备份一次下面勾选的分区，滚动保留最近 7 份；默认只有不含凭据的常规偏好与计划任务",
   "settings.backup.globalSubtitle":
     "按分区备份本工具自己的数据，已有 {count} 个（用于换机或导出，不支持原地恢复）",
   "settings.backup.credential": "含凭据",
   "settings.backup.globalEmpty":
     "还没有全局备份。勾选分区后点「立即备份」。全局备份用于换机或导出，不支持原地恢复。",
-  "settings.backup.riskyWarn":
-    "勾选的「{names}」含登录凭据，备份文件会带上它们；默认只勾不含凭据的分区。确认后请再点一次上方按钮。",
+  "settings.backup.partConfirm":
+    "「{names}」含登录凭据。确认后它会写进备份文件，且之后的每日自动备份也会一并收录。",
+  "settings.backup.confirmPart": "确认纳入",
+  "settings.backup.cancelPart": "取消",
+  "settings.backup.autoScopeNote":
+    "已勾选「{names}」：手动与每日自动备份都会收录它们。取消勾选即可退出这个范围。",
   "settings.backup.rulesTitle": "备份说明",
   "settings.backup.rulesSubtitle": "全局备份用于换机或导出，不做原地恢复",
   "settings.backup.rule4":
@@ -145,7 +148,6 @@ export const settingsEn = {
   "settings.rail.subtitle": "Back to main site",
 
   "settings.backup.backupNow": "Back up now",
-  "settings.backup.backupNowRisky": "Confirm credentials, back up anyway",
   "settings.backup.fileCount": "{count} files",
   "settings.backup.verified": "Verified",
   "settings.backup.unverified": "Unverified",
@@ -157,14 +159,18 @@ export const settingsEn = {
   "settings.backup.globalTitle": "Global backup",
   "settings.backup.autoGlobalLabel": "Auto backup",
   "settings.backup.autoGlobalHint":
-    "Backs up the default sections (preferences and schedules only, no credentials) once a day and keeps the latest 7",
+    "Backs up the sections you pick below once a day and keeps the latest 7; by default only preferences and schedules (no credentials)",
   "settings.backup.globalSubtitle":
     "Back up this tool's own data by section; {count} available (for migration or export, no in-place restore)",
   "settings.backup.credential": "Includes credentials",
   "settings.backup.globalEmpty":
     "No global backups yet. Pick sections, then click “Back up now”. Global backups are for migration or export and cannot be restored in place.",
-  "settings.backup.riskyWarn":
-    "The selected “{names}” sections contain login credentials and will be included in the backup. Only credential-free sections are picked by default. Confirm, then click the button above once more.",
+  "settings.backup.partConfirm":
+    "“{names}” contains login credentials. Confirm to write it into backups — the daily auto backup will include it from now on.",
+  "settings.backup.confirmPart": "Confirm",
+  "settings.backup.cancelPart": "Cancel",
+  "settings.backup.autoScopeNote":
+    "“{names}” is selected: both manual and daily auto backups will include them. Clear the checkbox to opt out.",
   "settings.backup.rulesTitle": "Backup notes",
   "settings.backup.rulesSubtitle":
     "Global backups are for migration or export; there is no in-place restore",

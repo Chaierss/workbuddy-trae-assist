@@ -24,6 +24,7 @@ from chaierww.domain.backup import (
     SnapshotNotFound,
 )
 from chaierww.domain.client_settings import ClientSettingsError
+from chaierww.domain.preferences import clean_global_parts
 from chaierww.domain.rotation import RotationError
 from chaierww.domain.scheduler import SchedulerError
 from chaierww.domain.scopes import (
@@ -188,6 +189,8 @@ class PreferencesRequest(BaseModel):
     migrateWorkspaces: bool | None = None
     autoBackup: bool | None = None
     autoGlobalBackup: bool | None = None
+    #: 自动备份收录的分区（含凭据分区需在前端勾选确认后传）。省略 = 不修改。
+    autoGlobalParts: list[str] | None = None
 
 
 class ActivityRunRequest(BaseModel):
@@ -1181,6 +1184,7 @@ def list_global_backups(request: Request, limit: int = 50) -> dict[str, Any]:
         "scope": GLOBAL_SCOPE,
         "parts": parts,
         "defaultParts": list(DEFAULT_GLOBAL_PARTS),
+        "autoParts": list(request.app.state.preferences.load().auto_global_parts),
         "snapshots": [_snapshot_payload(s) for s in items],
     }
 
@@ -1226,6 +1230,11 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
         migrate_workspaces=pick(body.migrateWorkspaces, current.migrate_workspaces),
         auto_backup=pick(body.autoBackup, current.auto_backup),
         auto_global_backup=pick(body.autoGlobalBackup, current.auto_global_backup),
+        auto_global_parts=(
+            current.auto_global_parts
+            if body.autoGlobalParts is None
+            else clean_global_parts(body.autoGlobalParts)
+        ),
     )
     try:
         saved = request.app.state.preferences.save(updated)

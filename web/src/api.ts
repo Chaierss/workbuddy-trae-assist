@@ -345,6 +345,8 @@ export interface GlobalBackupOverview {
   parts: GlobalBackupPart[];
   /** 默认勾选的分区，按设计不含凭据。 */
   defaultParts: string[];
+  /** 自动备份当前收录的分区（用户勾选含凭据分区确认后随之更新）。 */
+  autoParts: string[];
   snapshots: Snapshot[];
 }
 
@@ -495,6 +497,8 @@ export interface Preferences {
   autoBackup: boolean;
   /** 每日自动做一份全局备份（默认分区，不含凭据），默认开启。开关在设置 → 备份页。 */
   autoGlobalBackup: boolean;
+  /** 自动备份收录的分区；勾选含凭据分区并确认后会随之更新。 */
+  autoGlobalParts: string[];
 }
 
 /** 一个计划任务：保活 / 签到 / 全部活动。 */

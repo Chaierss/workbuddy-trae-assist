@@ -276,6 +276,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "autoBackup": True,
         # 全局备份的每日自动备份：默认开，开关在设置 → 备份页。
         "autoGlobalBackup": True,
+        # 自动备份收录的分区：默认只有不含凭据的 config。
+        "autoGlobalParts": ["config"],
     }
 
     # 局部更新：不传的字段保持原值
@@ -291,6 +293,7 @@ def test_preferences_defaults_and_roundtrip(client):
         "migrateWorkspaces": True,
         "autoBackup": True,
         "autoGlobalBackup": True,
+        "autoGlobalParts": ["config"],
     }
 
     # 自动备份开关能单独关掉，且不影响切换迁移那组
@@ -301,6 +304,27 @@ def test_preferences_defaults_and_roundtrip(client):
 
     # 持久化：重新读取一致
     assert client.get("/api/preferences").json() == off.json()
+
+
+def test_preferences_auto_global_parts_cleaned(client):
+    """自动备份分区：只认白名单内的 key，未知的被丢弃，空列表回落 config。"""
+    # 勾选含凭据分区（gateway / accounts）后持久化
+    saved = client.put(
+        "/api/preferences",
+        json={"autoGlobalParts": ["config", "gateway", "accounts"]},
+    )
+    assert saved.json()["autoGlobalParts"] == ["config", "gateway", "accounts"]
+
+    # 掺入未知 key + 重复：去重、丢未知
+    cleaned = client.put(
+        "/api/preferences",
+        json={"autoGlobalParts": ["accounts", "evil", "accounts", "gateway"]},
+    )
+    assert cleaned.json()["autoGlobalParts"] == ["accounts", "gateway"]
+
+    # 空列表回落默认（不含凭据的 config）
+    empty = client.put("/api/preferences", json={"autoGlobalParts": []})
+    assert empty.json()["autoGlobalParts"] == ["config"]
 
 
 def test_migration_preview_is_read_only(client, tmp_path, monkeypatch):

@@ -337,6 +337,44 @@ def test_auto_global_backup_once_per_day_and_respects_switch(
     assert len(service.list(GLOBAL_SCOPE)) == 1
 
 
+def test_auto_global_backup_follows_dynamic_parts(service: BackupService, home: Path) -> None:
+    """自动备份分区随偏好现读：勾选含凭据的 gateway 后，自动备份也会收录它。"""
+    from chaierww.domain.auto_backup import AUTO_REASON, AutoBackupRunner
+
+    parts = [["config"]]  # 模拟偏好里的 autoGlobalParts，先默认后加含凭据分区
+    runner = AutoBackupRunner(
+        lambda: False,
+        lambda: [],
+        service,
+        global_enabled=lambda: True,
+        global_home=lambda: home,
+        global_parts=lambda: tuple(parts[0]),
+        interval_seconds=24 * 3600,
+        keep=7,
+    )
+
+    # 默认只有 config：不含 gateway 文件
+    assert runner.tick() == 1
+    first = service.list(GLOBAL_SCOPE)[0]
+    assert _manifest(first)["parts"] == ["config"]
+
+    # 用户勾选了 gateway（含凭据）并确认 → 偏好更新，下次自动备份带上它
+    parts[0] = ["config", "gateway"]
+    # 重置「今天已备」的间隔，让下一轮能再落一份
+    runner._interval_seconds = 0  # noqa: SLF001 - 测试里强制让 age 判定过期
+    assert runner.tick() == 1
+    # 两份快照 created_at 可能落在同一秒，排序不可靠，按 parts 定位带凭据的那份
+    snapshots = service.list(GLOBAL_SCOPE)
+    gateway_snap = next(
+        s for s in snapshots if _manifest(s)["parts"] == ["config", "gateway"]
+    )
+    names = sorted(entry["name"] for entry in _manifest(gateway_snap)["files"])
+    assert "gateway.json" in names
+    assert "gateway-keys.json" in names
+    assert _manifest(gateway_snap)["parts"] == ["config", "gateway"]
+    assert gateway_snap.reason == AUTO_REASON
+
+
 def test_auto_global_backup_skips_when_no_source_files(tmp_path: Path) -> None:
     """全新安装、默认分区一个文件都没有时静默跳过，不刷失败日志。"""
     from chaierww.domain.auto_backup import AutoBackupRunner
