@@ -10,6 +10,20 @@
 
 （下次发版前在这里累积改动，按「新增 / 修复 / 变更」分组；发版时把本节改成版本号与日期。）
 
+## [0.1.3] - 2026-10-22
+
+### 修复
+
+- **运行时升级 Electron 33 → 43。** 33 这条线已停止维护，上游不再发安全补丁，
+  Dependabot 因此报了 38 条高危/中危告警。升级到仍在支持的 43 后告警清零。
+  对使用者没有可见变化，纯属打安全补丁。
+- 顺带升级打包工具链：electron-builder 25 → 26、electron-updater 6.3.9 → 6.8.9，
+  清掉一批只在构建机上出现的开发期告警（`tar`、`extract-zip`、`builder-util-runtime`）。
+
+### 变更
+
+- CI 的 Node 从 20 升到 22：Electron 40+ 要求 Node ≥ 22.12.0，不升打包会失败。
+
 ## [0.1.2] - 2026-10-22
 
 这一版主要修桌面端：**装上后程序没认出自己是桌面版**，连带设置里的若干入口都不对。
@@ -108,6 +122,7 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.2...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.1
