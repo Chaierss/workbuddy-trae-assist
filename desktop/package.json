@@ -117,7 +117,8 @@
       {
         "provider": "github",
         "owner": "Chaierss",
-        "repo": "workbuddy-trae-assist"
+        "repo": "workbuddy-trae-assist",
+        "releaseType": "release"
       }
     ]
   }
