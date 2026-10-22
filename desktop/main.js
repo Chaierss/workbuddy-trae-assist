@@ -178,6 +178,12 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // 版本号经启动参数传给 preload。
+      // 不能用 require('electron').app.getVersion() —— `app` 只有主进程有，
+      // preload 跑在渲染进程里拿到的是 undefined，一调用就抛，整个 contextBridge
+      // 注入随之失败，前端会以为自己在浏览器里（表现为：设置里冒出接口文档/Wiki、
+      // 「更新」入口消失、检查更新点了没反应）。
+      additionalArguments: [`--chaierww-version=${app.getVersion()}`],
     },
   });
 
@@ -258,16 +264,16 @@ function createTray() {
   });
 }
 
+/**
+ * 托盘右键菜单。
+ *
+ * 故意不放「检查更新」：更新入口统一收在「设置 → 常规」里，那里能看到版本号、
+ * 检查结果、下载进度和重启按钮。托盘上只留打开窗口和退出两件事。
+ */
 function refreshTrayMenu() {
   if (!tray) return;
   const menu = Menu.buildFromTemplate([
     { label: '打开 chaierww', click: () => showWindow() },
-    { type: 'separator' },
-    {
-      label: updateState.status === 'checking' ? '正在检查更新…' : '检查更新',
-      enabled: updateState.status !== 'checking',
-      click: () => { void checkForUpdates({ manual: true }); },
-    },
     { type: 'separator' },
     { label: '退出', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -282,6 +288,43 @@ function showWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+// ---------------------------------------------------------------------------
+// 更新偏好
+// ---------------------------------------------------------------------------
+/**
+ * 只有一个开关，不值得上 electron-store，直接写一个小 JSON 到 userData。
+ *
+ * 路径用函数延迟求值：`app.getPath()` 必须先等 app ready，模块加载时就调用会抛。
+ * 读失败一律回落到默认值——配置文件坏了不该让应用起不来。
+ */
+function updatePrefsPath() {
+  return path.join(app.getPath('userData'), 'update-prefs.json');
+}
+
+const updatePrefs = { autoCheck: true };
+
+function loadUpdatePrefs() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(updatePrefsPath(), 'utf8'));
+    if (typeof parsed.autoCheck === 'boolean') updatePrefs.autoCheck = parsed.autoCheck;
+  } catch {
+    /* 首次启动没有这个文件，或内容坏了 —— 保持默认值 */
+  }
+  return updatePrefs;
+}
+
+function saveUpdatePrefs(patch) {
+  if (patch && typeof patch.autoCheck === 'boolean') {
+    updatePrefs.autoCheck = patch.autoCheck;
+  }
+  try {
+    fs.writeFileSync(updatePrefsPath(), JSON.stringify(updatePrefs, null, 2), 'utf8');
+  } catch {
+    /* 写不进去也不影响本次会话，下次启动回到旧值 */
+  }
+  return updatePrefs;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +358,6 @@ function setUpdateState(patch) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('update:state', updateState);
   }
-  refreshTrayMenu();
 }
 
 function releaseNotesText(info) {
@@ -478,7 +520,10 @@ function setupAutoUpdater() {
   });
 
   // 启动 8 秒后静默查一次；查不到就算了，查到就弹「发现新版本」。
-  setTimeout(() => { void checkForUpdates({ manual: false }); }, 8000);
+  // 用户可以在「设置 → 常规」里关掉自动检查，关掉后只有手动点才查。
+  if (updatePrefs.autoCheck) {
+    setTimeout(() => { void checkForUpdates({ manual: false }); }, 8000);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +545,8 @@ ipcMain.handle('update:install', () => {
   if (updateState.status === 'downloaded') installUpdate();
   return true;
 });
+ipcMain.handle('update:get-prefs', () => updatePrefs);
+ipcMain.handle('update:set-prefs', (_event, patch) => saveUpdatePrefs(patch || {}));
 
 // ---------------------------------------------------------------------------
 // 应用生命周期
@@ -518,6 +565,7 @@ app.whenReady().then(async () => {
 
   createWindow();
   createTray();
+  loadUpdatePrefs(); // 必须在 setupAutoUpdater 之前：那里要读 autoCheck 决定是否定时检查
   setupAutoUpdater();
 
   app.on('activate', () => {

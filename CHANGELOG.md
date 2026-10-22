@@ -10,6 +10,36 @@
 
 （下次发版前在这里累积改动，按「新增 / 修复 / 变更」分组；发版时把本节改成版本号与日期。）
 
+## [0.1.2] - 2026-10-22
+
+这一版主要修桌面端：**装上后程序没认出自己是桌面版**，连带设置里的若干入口都不对。
+
+### 修复
+
+- **桌面端读不到「自己是桌面版」。** 根因在 `preload.js`：它在渲染进程里调用
+  `require('electron').app.getVersion()`，而 `app` 只存在于主进程，这一行直接抛错，
+  导致后面的 `contextBridge.exposeInMainWorld` 整段没有执行，`window.chaierwwDesktop`
+  恒为 `undefined`。表现是：设置里本该隐藏的「接口文档」「Wiki 文档」照样出现，
+  而「检查更新」入口反而消失——点也点不到。现在版本号由主进程启动时通过
+  `webPreferences.additionalArguments` 传给 preload，不再在渲染进程里碰 `app`。
+- **凭据里的 `host` 字段可以指向任意域名。** 上游请求地址取自凭据文件的 `host`，
+  改动这个字段就能把访问令牌发到别人的服务器。现在只接受 `trae.cn` 及其子域，
+  且协议必须是 https，否则回落到官方地址。
+
+### 变更
+
+- **检查更新挪进「设置 → 常规」。** 原先它是一个独立分栏，一年点不了几次却占一个位置。
+  现在版本号、检查 / 下载 / 重启按钮都在常规页顶部；下载完成后可以选择立即重启安装，
+  选「稍后」则在退出程序时自动安装。
+- **托盘右键菜单去掉「检查更新」**，只留「打开 chaierww」和「退出」，更新入口只保留一处。
+
+### 新增
+
+- **「启动时自动检查更新」开关。** 关掉后启动不再静默查询更新。偏好写在
+  `%APPDATA%/chaierww/update-prefs.json`，默认开启。
+- `SECURITY.md` 新增「上线前自查」一节：发版前的四项检查、危险 API 扫描命令及当前基线、
+  信任边界复核要点，以及已修问题记录。
+
 ## [0.1.1] - 2026-10-22
 
 **首个公开发布版本。**
@@ -78,5 +108,6 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.1...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.2
 [0.1.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.1

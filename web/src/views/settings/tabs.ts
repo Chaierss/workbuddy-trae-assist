@@ -5,7 +5,6 @@ import {
   Database,
   FileCog,
   Plug,
-  RefreshCw,
   ScrollText,
   Settings2,
   SlidersHorizontal,
@@ -20,7 +19,6 @@ import BackupTab from "./BackupTab.vue";
 import ApiDocsTab from "./ApiDocsTab.vue";
 import WikiTab from "./WikiTab.vue";
 import LogsTab from "./LogsTab.vue";
-import UpdateTab from "./UpdateTab.vue";
 
 /**
  * 设置 tab 的唯一登记处。加一个 tab 只改这里。
@@ -28,6 +26,9 @@ import UpdateTab from "./UpdateTab.vue";
  * `permission` 字段暂时留空：本项目还没有 RBAC 体系。
  * 真加权限时规则是「容器不设 permission、权限下沉到每个 tab」，
  * 否则只有文档权限的人会被挡在设置外面 —— 而接口文档与 Wiki 是通用能力。
+ *
+ * 「版本更新」不在这里：它是桌面端独有的能力，已经并进「常规」页的
+ * `UpdateSection`，不再单独占一个分栏。
  */
 export interface SettingsTab {
   key: string;
@@ -37,8 +38,6 @@ export interface SettingsTab {
   component: Component;
   /** 页面自己管滚动（iframe / 双栏文档），容器不再套一层滚动与内边距。 */
   selfScroll?: boolean;
-  /** 只在桌面端出现（需要 Electron 主进程能力，浏览器里做不到）。 */
-  desktopOnly?: boolean;
   /**
    * 桌面端隐藏。接口文档与 Wiki 都是「同源 iframe 套一层文档」，
    * 在桌面壳里既没有地址栏也没有多标签页，体验明显不如浏览器，
@@ -111,14 +110,6 @@ export const SETTINGS_TABS: SettingsTab[] = [
     icon: ScrollText,
     component: LogsTab,
   },
-  {
-    key: "update",
-    labelKey: "settings.update.label",
-    hintKey: "settings.update.hint",
-    icon: RefreshCw,
-    component: UpdateTab,
-    desktopOnly: true,
-  },
 ];
 
 /**
@@ -126,11 +117,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
  * 否则会出现「左栏没有这一项，但地址栏进去是空白」。
  */
 export function visibleSettingsTabs(desktopMode: boolean = isDesktop): SettingsTab[] {
-  return SETTINGS_TABS.filter((tab) => {
-    if (tab.desktopOnly && !desktopMode) return false;
-    if (tab.hideOnDesktop && desktopMode) return false;
-    return true;
-  });
+  return SETTINGS_TABS.filter((tab) => !(tab.hideOnDesktop && desktopMode));
 }
 
 /** 在「可见分栏」里查，所以桌面端查不到 api / wiki。 */

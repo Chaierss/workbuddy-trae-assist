@@ -84,3 +84,76 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 - **仓库内的第三方二进制**：`desktop/build/tools/rcedit-x64.exe`（打包时改 exe 资源，
   取自官方 winCodeSign-2.6.0 包，未做修改，仅 Windows 构建用）
 - **CI**：跑在 GitHub Actions 上，构建产物不签名，但附 `latest.yml` 供校验
+
+## 上线前自查
+
+每次发版前按下面四步过一遍。一、二步跑命令，第三步是人工判断，第四步留个记录——
+**不要跳**，本工具碰的是别人的登录态，回归一次代价远高于多花十分钟。
+
+### 一、自动化检查全绿
+
+```bash
+.venv/Scripts/python.exe -m pytest -q          # 后端全量，必须 0 failed
+cd web && node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+node node_modules/vite/bin/vite.js build
+node --check desktop/main.js && node --check desktop/preload.js
+```
+
+`node --check` 那行不是形式主义：桌面端的功能全部经 `preload.js` 暴露，
+**preload 里任何一行抛错，`exposeInMainWorld` 就整段不执行**，前端会把自己当成普通
+浏览器，该隐藏的桌面专属入口全部失效，而主进程日志里通常什么都看不到。
+
+### 二、危险 API 扫描
+
+**必须排除第三方产物**：`src/chaierww/webassets/` 下是 swagger-ui 的压缩包，单行 1.5 MB，
+不排除会把输出淹掉，清单就废了。用 `git grep` 而不 `rg`，因为前者随仓库自带、无需额外安装。
+
+```bash
+EX=':(exclude)src/chaierww/webassets'
+G() { git grep -nE "$1" -- . "$EX" ':(exclude)SECURITY.md' ':(exclude)CHANGELOG.md'; }
+
+G '\beval\(|\bexec\(|pickle\.load|yaml\.load\('            # 动态执行
+G 'shell=True|os\.system|popen\('                         # 命令注入
+git grep -nE 'v-html|innerHTML' -- web/src                # XSS（前端单独扫）
+G "(api[_-]?key|secret|token)[[:space:]]*=[[:space:]]*[\"'][A-Za-z0-9]{16,}"
+G '0\.0\.0\.0'                                            # 监听地址
+```
+
+排除 `SECURITY.md` / `CHANGELOG.md` 是因为它们会命中自己写的示例命令。
+
+**v0.1.2 自查基线**——下次跑出来比这多，就要逐个看：
+
+| 检查 | 命中 | 判定 |
+| :-- | :-- | :-- |
+| 动态执行 | `AppShell.vue` 的 `RegExp.exec` | 良性，正则匹配不是求值 |
+| 命令注入 | 0 | 唯一的外部进程启动是 `subprocess.Popen([列表])`，无 `shell=True` |
+| XSS | `WikiTab.vue` 的 `v-html` | 良性，上游是 `MarkdownIt({ html: false })`，原始 HTML 不注入 |
+| 硬编码密钥 | `test_trae_adapter.py` 的拼装 JWT | 良性，测试用假串 |
+| 监听地址 | `scripts/shots.py`（日志脱敏）、`ServiceTab.vue`（提示文案）、`test_gateway.py`（**断言被拒**） | 良性，`domain/gateway.py:163` 保证非回环地址必须显式开 `allowNonLoopback` |
+
+### 三、信任边界复核
+
+新增或改动**任何接收外部输入**的代码时，问三个问题：
+
+1. **谁给的？** 用户输入 / 凭据文件 / 上游响应 / 渲染进程 —— 后两者一律按不可信处理。
+2. **会不会拼进 URL、路径、命令行？** 拼 URL 要有域名白名单（见
+   `domain/platform_api.py` 的 `TRAE_ALLOWED_HOSTS`），拼路径要 `Path.resolve()` 后
+   校验前缀，拼命令行只能传列表。
+3. **失败时落在哪？** 校验不通过必须回落到**安全默认值**，不能抛出异常把页面打崩，
+   也不能「校验失败就放行」。
+
+桌面端另加一条：**新增 IPC 通道时，`preload` 只暴露语义化方法，不要把
+`ipcRenderer.invoke` 整个透给渲染进程**——那等于把主进程能力全开放。
+
+### 四、结论写回来
+
+- 动了安全边界（新增白名单、改鉴权、改存储）→ 同步更新上面「安全模型」表格
+- 修了漏洞 → 下方「已修问题」记一行，CHANGELOG 写清楚影响范围
+- 没发现问题也要在发版 PR / commit 里留一句「已过安全自查」，避免下次不知道查没查
+
+### 已修问题
+
+| 版本 | 问题 | 修法 |
+| :-- | :-- | :-- |
+| v0.1.2 | 上游请求域名取自凭据里的 `host` 字段，篡改凭据文件可把 JWT 送到任意域 | `platform_api.py` 加 `TRAE_ALLOWED_HOSTS = ("trae.cn",)`，`_safe_trae_origin()` 校验 scheme 必须是 https、主机必须精确匹配或为子域，否则回落官方地址；11 组参数化用例覆盖 `evil.com`、`api.trae.cn.evil.com`、`http://` 等绕过写法 |
+| v0.1.2 | `preload.js` 在渲染进程调用 `require('electron').app`，抛错致桌面能力全线失效 | 主进程经 `webPreferences.additionalArguments` 传 `--chaierww-version=`，preload 从 `process.argv` 读取 |

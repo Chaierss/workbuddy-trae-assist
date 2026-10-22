@@ -35,6 +35,12 @@ export interface DesktopUpdateState {
   checkedAt: string | null;
 }
 
+/** 更新偏好，存在主进程的 userData/update-prefs.json。 */
+export interface DesktopUpdatePrefs {
+  /** 启动 8 秒后是否自动检查；关掉后只有手动点「检查更新」才查。 */
+  autoCheck: boolean;
+}
+
 export interface DesktopBridge {
   isDesktop: true;
   version: string;
@@ -44,6 +50,8 @@ export interface DesktopBridge {
     check: () => Promise<DesktopUpdateState>;
     download: () => Promise<DesktopUpdateState>;
     install: () => Promise<boolean>;
+    getPrefs: () => Promise<DesktopUpdatePrefs>;
+    setPrefs: (patch: Partial<DesktopUpdatePrefs>) => Promise<DesktopUpdatePrefs>;
     /** 返回取消订阅函数，组件卸载时必须调用。 */
     onState: (handler: (state: DesktopUpdateState) => void) => () => void;
   };

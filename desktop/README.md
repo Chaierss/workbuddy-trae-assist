@@ -30,7 +30,10 @@
 主进程是唯一的真相来源，前端只负责画状态：
 
 ```
-启动 8s ──► checkForUpdates(自动)
+启动 8s ──► autoCheck 开关开着？ ──否──► 什么都不做
+                 │是
+                 ▼
+           checkForUpdates(自动)
                  │
                  ├─ 无新版本 → 静默（不打扰）
                  └─ 有新版本 → 弹窗「发现 chaierww x.y.z，是否现在下载？」
@@ -39,22 +42,26 @@
                   「立即下载」             「稍后」
                      │                       │
               downloadUpdate()         什么都不做，下次退出应用时自动装
-                     │
+                     │                  （autoInstallOnAppQuit）
               download-progress ──► 设置页进度条
                      │
               update-downloaded ──► 弹窗「重启并安装」/ 设置页按钮
 ```
 
-三条入口共用这一个状态机：
+两条入口共用这一个状态机：
 
 | 入口 | 行为 |
 | --- | --- |
-| 启动自动检查 | 查到就问，查不到 / 出错都静默（首启没发版、断网很常见，不该弹一堆框） |
-| 托盘 → 检查更新 | 手动：会明确告诉你「已是最新」或失败原因 |
-| 设置 → 版本更新 | 手动 + 进度条 + 「重启并安装」，不用去托盘找 |
+| 启动自动检查 | 查到就问；查不到 / 出错都静默（首启没发版、断网很常见，不该弹一堆框）。可在设置里关掉 |
+| 设置 → 常规 → 版本与更新 | 手动：明确告诉你「已是最新」或失败原因，带进度条和「重启并安装」 |
 
-状态通过 IPC 推给渲染进程：`preload.js` 暴露 `window.chaierwwDesktop.update`，
-前端 `views/settings/UpdateTab.vue` 渲染。状态机字段见 `main.js` 的 `updateState`。
+**托盘右键菜单不再有「检查更新」**，只有「打开 chaierww」和「退出」。更新是一年点不了
+几次的操作，不该在常驻菜单里占一格。
+
+状态通过 IPC 推给渲染进程：`preload.js` 暴露 `window.chaierwwDesktop.update` 与
+`getPrefs` / `setPrefs`，前端 `views/settings/UpdateSection.vue` 渲染（它嵌在
+`GeneralTab.vue` 顶部）。状态机字段见 `main.js` 的 `updateState`，
+自动检查偏好存在 `userData/update-prefs.json`。
 
 > **发布时注意**：`latest.yml` 必须和安装包一起上传到同一个 Release，且**不要改名**——
 > electron-updater 按这个文件里的 `path` 取包，名字对不上就是 404。CI
@@ -83,7 +90,7 @@
 `main.js` 里已有的跨平台分支（mac 关窗不退、Linux 托盘依赖 `libappindicator`、
 `kill(-pid)` 收进程组等）也先留着，不是死代码。
 
-> 产物名里**不带版本号**：版本只出现在 `latest.yml` 和「设置 → 版本更新」里。
+> 产物名里**不带版本号**：版本只出现在 `latest.yml` 和「设置 → 常规」里。
 > 要改回带版本，把 `build.nsis.artifactName` 改成
 > `chaierww-Setup-${version}.${ext}`，同时确认 `latest.yml` 里的 `path` 跟着变——
 > electron-updater 认的是那个字段，两边不一致就是 404。

@@ -27,12 +27,38 @@ import base64
 import hashlib
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from chaierww.domain.trae_crypto import TraeCryptoError, tc_decrypt
 
 TRAE_ACCOUNT_BASE = "https://api.trae.cn"
 WORKBUDDY_API_ORIGIN = "https://www.codebuddy.cn"
 WORKBUDDY_WEB_ORIGIN = "https://www.workbuddy.cn"
+
+#: 允许作为 Trae API 上游的域。凭据里的 `host` 字段直接决定请求发往哪台机器，
+#: 一旦被改成攻击者地址，等于把用户的 JWT 主动送过去。所以只放行这些域及其子域，
+#: 其余一律回落到 `TRAE_ACCOUNT_BASE` —— 与 WorkBuddy 侧「只允许两个常量 origin」
+#: 保持同一条纪律。
+TRAE_ALLOWED_HOSTS: tuple[str, ...] = ("trae.cn",)
+
+
+def _safe_trae_origin(raw: str) -> str:
+    """把凭据里的 ``host`` 收敛成一个可信 origin，不合规就回落到默认值。
+
+    校验三条：必须 https、必须有主机名、主机名必须是 ``TRAE_ALLOWED_HOSTS``
+    里的域或其子域。返回 ``scheme://netloc``（保留端口，丢弃路径与查询串），
+    避免 ``https://api.trae.cn/evil?x=`` 这种拼法把内容带进请求路径。
+    """
+    candidate = (raw or "").strip().rstrip("/")
+    if not candidate:
+        return TRAE_ACCOUNT_BASE
+    parsed = urlsplit(candidate if "://" in candidate else f"https://{candidate}")
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not host:
+        return TRAE_ACCOUNT_BASE
+    if not any(host == allowed or host.endswith(f".{allowed}") for allowed in TRAE_ALLOWED_HOSTS):
+        return TRAE_ACCOUNT_BASE
+    return f"https://{parsed.netloc}"
 
 TRAE_APP_VERSION = "0.1.45"
 TRAE_UA = "VSCode 1.107.1 (TRAE CN)"
@@ -104,7 +130,7 @@ def trae_credentials(credential: dict[str, Any]) -> tuple[str, str, str]:
         return (
             jwt,
             device_id,
-            str(credential.get("host") or TRAE_ACCOUNT_BASE),
+            _safe_trae_origin(str(credential.get("host") or "")),
         )
 
     data = decode_raw_file(credential)
@@ -129,7 +155,7 @@ def trae_credentials(credential: dict[str, Any]) -> tuple[str, str, str]:
         raise CredentialError("Trae 令牌为空，请重新登录客户端")
     if not device_id:
         device_id = derive_device_id(str(info.get("userId") or "").strip() or jwt)
-    host = str(info.get("host") or TRAE_ACCOUNT_BASE).strip().rstrip("/")
+    host = _safe_trae_origin(str(info.get("host") or ""))
     return jwt, device_id, host
 
 

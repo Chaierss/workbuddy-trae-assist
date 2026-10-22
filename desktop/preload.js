@@ -7,10 +7,24 @@
  */
 const { contextBridge, ipcRenderer } = require('electron');
 
+/**
+ * 版本号从启动参数读，主进程在 `additionalArguments` 里塞进来的。
+ *
+ * 不能用 `require('electron').app.getVersion()`：`app` 只存在于主进程，
+ * preload 跑在渲染进程里拿到的 `app` 是 `undefined`，调用即抛错。
+ * 而 preload 一旦抛错，`exposeInMainWorld` 就不会执行，前端会把自己当成
+ * 浏览器（`isDesktop === false`），桌面能力全部失效。
+ */
+function readVersion() {
+  const prefix = '--chaierww-version=';
+  const hit = process.argv.find((arg) => arg.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : 'unknown';
+}
+
 contextBridge.exposeInMainWorld('chaierwwDesktop', {
   /** 显式标记：渲染进程据此区分「桌面端」与「浏览器里打开」。 */
   isDesktop: true,
-  version: require('electron').app.getVersion(),
+  version: readVersion(),
   platform: process.platform,
 
   /** 更新相关：check 会连更新源，get 只读当前状态。 */
@@ -19,6 +33,9 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
     install: () => ipcRenderer.invoke('update:install'),
+    /** 更新偏好（目前只有 autoCheck：启动时是否自动检查）。 */
+    getPrefs: () => ipcRenderer.invoke('update:get-prefs'),
+    setPrefs: (patch) => ipcRenderer.invoke('update:set-prefs', patch),
     /**
      * 订阅主进程推来的状态。返回取消订阅函数——组件卸载时必须调用，
      * 否则窗口里来回切几次 tab 就会挂上一堆监听。

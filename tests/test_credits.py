@@ -149,6 +149,43 @@ def test_trae_oauth_token_credentials():
     assert host == "https://api.trae.cn"
 
 
+@pytest.mark.parametrize(
+    ("raw_host", "expected"),
+    [
+        # 正常值：保留
+        ("https://api.trae.cn", "https://api.trae.cn"),
+        ("https://api.trae.cn/", "https://api.trae.cn"),
+        ("https://api-cn.trae.cn", "https://api-cn.trae.cn"),
+        # 带路径的拼法要归一化，别把后面的东西带进请求地址
+        ("https://api.trae.cn/v1/x?y=1", "https://api.trae.cn"),
+        # 缺协议按 https 处理
+        ("api.trae.cn", "https://api.trae.cn"),
+        # 以下都该回落到默认域：凭据被改成这些等于把 JWT 送给对方
+        ("https://evil.com", "https://api.trae.cn"),
+        # 后缀伪装：hostname 是 api.trae.cn.evil.com，不能用 endswith(".trae.cn") 之外的方式匹配
+        ("https://api.trae.cn.evil.com", "https://api.trae.cn"),
+        # 明文 http 不接受
+        ("http://api.trae.cn", "https://api.trae.cn"),
+        # 裸域以外的相似域
+        ("https://trae.cn.evil.com", "https://api.trae.cn"),
+        # 空值/垃圾值
+        ("", "https://api.trae.cn"),
+        ("not a url", "https://api.trae.cn"),
+    ],
+)
+def test_trae_host_is_pinned_to_known_domains(raw_host, expected):
+    """凭据里的 host 决定请求发往哪里，必须钉死在 trae.cn 系域上。
+
+    这一条是防「凭据文件被篡改 → 令牌被送到攻击者服务器」：本机同用户权限的攻击者
+    本来就能直接读走令牌（SECURITY.md 已列为不算漏洞），但这个校验能挡住把账号数据
+    当成「请求目标」来利用的那条路。
+    """
+    _, _, host = trae_credentials(
+        {"format": "oauth-token", "accessToken": "j.w.t", "deviceId": "d1", "host": raw_host}
+    )
+    assert host == expected
+
+
 def test_trae_oauth_token_without_device_id_derives_one():
     """扫码凭据没有设备号时必须补一个 —— 空串会让签到固定吃 9004。"""
     jwt, device_id, _ = trae_credentials(

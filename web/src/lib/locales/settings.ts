@@ -20,8 +20,6 @@ export const settingsZh = {
   "settings.wiki.hint": "仓库 docs/ 下的 Markdown，新增即出现",
   "settings.logs.label": "运行日志",
   "settings.logs.hint": "按级别与关键字检索，出参已脱敏",
-  "settings.update.label": "版本更新",
-  "settings.update.hint": "查看当前版本、检查更新与一键升级",
 
   "settings.rail.title": "设置",
   "settings.rail.subtitle": "返回主站",
@@ -100,6 +98,8 @@ export const settingsZh = {
   // ---- 版本更新（桌面端专属） ----
   "settings.update.title": "版本与更新",
   "settings.update.subtitle": "启动时会自动检查一次，也可以随时手动查",
+  "settings.update.autoCheck": "启动时自动检查更新",
+  "settings.update.autoCheckDesc": "打开后启动 8 秒静默查一次，发现新版本会问你要不要下载",
   "settings.update.check": "检查更新",
   "settings.update.download": "下载更新",
   "settings.update.restart": "重启并安装",
@@ -118,10 +118,6 @@ export const settingsZh = {
   "settings.update.status.error": "检查更新失败",
   "settings.update.note":
     "更新包从 GitHub Releases 获取并校验完整性。下载完成后选择「稍后」也没关系，下次退出应用时会自动安装。",
-  "settings.update.envTitle": "运行环境",
-  "settings.update.envPlatform": "平台",
-  "settings.update.envVersion": "当前版本",
-  "settings.update.envChannel": "更新通道",
   "settings.update.envChannelValue": "GitHub Releases · Chaierss/workbuddy-trae-assist",
 };
 
@@ -144,8 +140,6 @@ export const settingsEn = {
   "settings.wiki.hint": "Markdown under the repo's docs/; new files show up automatically",
   "settings.logs.label": "Runtime logs",
   "settings.logs.hint": "Search by level and keyword; responses are redacted",
-  "settings.update.label": "Updates",
-  "settings.update.hint": "Current version, check for updates and one-click upgrade",
 
   "settings.rail.title": "Settings",
   "settings.rail.subtitle": "Back to main site",
@@ -225,6 +219,8 @@ export const settingsEn = {
   // ---- Updates (desktop only) ----
   "settings.update.title": "Version & updates",
   "settings.update.subtitle": "Checked once at launch; you can also check any time",
+  "settings.update.autoCheck": "Check for updates at launch",
+  "settings.update.autoCheckDesc": "When on, checks silently 8 seconds after launch and asks before downloading",
   "settings.update.check": "Check for updates",
   "settings.update.download": "Download update",
   "settings.update.restart": "Restart & install",
@@ -243,9 +239,5 @@ export const settingsEn = {
   "settings.update.status.error": "Failed to check for updates",
   "settings.update.note":
     "Packages come from GitHub Releases with integrity checks. If you pick “Later”, the update installs automatically the next time you quit the app.",
-  "settings.update.envTitle": "Environment",
-  "settings.update.envPlatform": "Platform",
-  "settings.update.envVersion": "Current version",
-  "settings.update.envChannel": "Update channel",
   "settings.update.envChannelValue": "GitHub Releases · Chaierss/workbuddy-trae-assist",
 };

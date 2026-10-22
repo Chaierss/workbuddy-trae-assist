@@ -8,7 +8,7 @@ import { SETTINGS_ROUTE, resolveSettingsKey, visibleSettingsTabs } from "./tabs"
 const route = useRoute();
 const router = useRouter();
 
-/** 与 SettingsView 共用同一份过滤：桌面端没有接口文档 / Wiki，多一个更新。 */
+/** 与 SettingsView 共用同一份过滤：桌面端不显示接口文档 / Wiki。 */
 const tabs = visibleSettingsTabs();
 
 const activeKey = computed(() => resolveSettingsKey(route.query.tab));

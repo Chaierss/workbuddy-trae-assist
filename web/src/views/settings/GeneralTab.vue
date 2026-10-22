@@ -12,12 +12,17 @@ import {
 } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
+import UpdateSection from "./UpdateSection.vue";
 import { api, type Preferences } from "../../api";
+import { isDesktop } from "../../lib/desktop";
 import { LOCALES, locale, setLocale, t, type MessageKey } from "../../lib/i18n";
 import { setTheme, theme, type ThemeMode } from "../../stores/app";
 
 /**
- * 设置 → 常规：外观与语言 + 切换时的数据迁移范围。
+ * 设置 → 常规：版本与更新（仅桌面端）+ 外观与语言 + 切换时的数据迁移范围。
+ *
+ * 「版本与更新」原先是一个独立分栏，收到这里是因为更新一年点不了几次，
+ * 但「我现在是什么版本」随时会看，独立分栏反而多占一格注意力。
  *
  * 迁移开关默认全部**开启**（记忆/连接器/会话/档案/工作区），关掉某一块后切换就
  * 不再复制该块，值持久化在数据目录的 preferences.json。外观与语言存浏览器本地。
@@ -85,6 +90,9 @@ async function toggle(key: PrefKey): Promise<void> {
 
 <template>
   <div class="space-y-4">
+    <!-- 桌面端才有更新能力；浏览器里打开时整块不渲染 -->
+    <UpdateSection v-if="isDesktop" />
+
     <SectionCard :title="t('theme.title')" :subtitle="t('theme.subtitle')">
       <div class="grid grid-cols-3 gap-2.5">
         <button
