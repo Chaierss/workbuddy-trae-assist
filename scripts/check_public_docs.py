@@ -19,9 +19,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# 唯一允许进入公开仓库的 docs/ 文档（README 会链接它，属法律文件）。
+# 允许进入公开仓库的 docs/ 文档（都在 README 里链出，属对外材料）。
+# `docs/README.md` 是应用内 Wiki 唯一的公开篇目：不放行的话干净 clone 上 Wiki 只剩一篇免责声明。
 # 要再加一个公开文档：这里加一项，同时在 .gitignore 里加一条 ! 例外。
 ALLOWED = {
+    "docs/README.md",
     "docs/policies/DISCLAIMER.md",
 }
 

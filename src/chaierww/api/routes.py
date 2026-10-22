@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from chaierww import __version__
 from chaierww.adapters.base import AdapterError, NotInstalled, NotLoggedIn, StateUnreadable
 from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import Account, CredentialState
@@ -191,7 +192,7 @@ class PreferencesRequest(BaseModel):
     migrateProfile: bool | None = None
     migrateWorkspaces: bool | None = None
     migrateWebview: bool | None = None
-    autoBackup: bool | None = None
+    #: `autoBackup` 已无界面开关，故意不在这里接收 —— 传了也会被忽略，恒为 True。
     autoGlobalBackup: bool | None = None
     #: 自动备份收录的分区（含凭据分区需在前端勾选确认后传）。省略 = 不修改。
     autoGlobalParts: list[str] | None = None
@@ -241,6 +242,7 @@ class RotationUpdateRequest(BaseModel):
 def health(request: Request) -> dict[str, Any]:
     return {
         "status": "ok",
+        "version": __version__,
         "secrets": request.app.state.box.describe(),
         "dataDir": str(request.app.state.settings.home),
     }
@@ -1401,7 +1403,8 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
         migrate_profile=pick(body.migrateProfile, current.migrate_profile),
         migrate_workspaces=pick(body.migrateWorkspaces, current.migrate_workspaces),
         migrate_webview=pick(body.migrateWebview, current.migrate_webview),
-        auto_backup=pick(body.autoBackup, current.auto_backup),
+        # auto_backup 不参与「局部更新」：它已无入口，恒 True。
+        auto_backup=True,
         auto_global_backup=pick(body.autoGlobalBackup, current.auto_global_backup),
         auto_global_parts=(
             current.auto_global_parts

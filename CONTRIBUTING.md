@@ -34,7 +34,7 @@ python -m chaierww.main           # 起来后访问 http://127.0.0.1:57910/
 必做的两件：
 
 ```bash
-pytest              # 440 个用例应全绿
+pytest              # 508 个用例应全绿
 ruff check src tests
 ```
 

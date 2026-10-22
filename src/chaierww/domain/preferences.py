@@ -36,7 +36,8 @@ DEFAULTS: dict[str, Any] = {
     # 不搬的话，切到没在本机网页版登录过的号，桌面端能用、网页版没有登录态。
     "migrateWebview": True,
     # 每日自动备份，默认开启；每个客户端只留最近 7 份快照。
-    # 设置页的开关已随「客户端数据快照」一起下线，这里保留字段与默认值不动。
+    # 设置页的开关已随「客户端数据快照」一起下线：恢复入口没了，再让用户关掉
+    # 只是关掉一张看不见的安全网。所以读文件时**忽略存量的 false**，恒为 True。
     "autoBackup": True,
     # 每日自动做一份「全局备份」（默认分区 = 不含凭据，保留最近 7 份）。
     # 设置 → 备份 页「全局备份」卡片右上角那个开关就是它。
@@ -98,7 +99,9 @@ class PreferencesStore:
             migrate_profile=flag("migrateProfile"),
             migrate_workspaces=flag("migrateWorkspaces"),
             migrate_webview=flag("migrateWebview"),
-            auto_backup=flag("autoBackup"),
+            # 故意不走 flag()：存量文件里可能是 false，但现在没有入口能改回来，
+            # 当成 True 处理才是对用户有利的方向（这是迁移，不是丢数据）。
+            auto_backup=True,
             auto_global_backup=flag("autoGlobalBackup"),
             auto_global_parts=clean_global_parts(data.get("autoGlobalParts")),
         )

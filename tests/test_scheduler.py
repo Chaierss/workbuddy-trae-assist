@@ -173,7 +173,10 @@ def test_history_keeps_only_the_latest_runs(tmp_path):
     task = scheduler.get("checkin")
     assert len(task.history) == keep
     # 留下的是最后 7 条，最新的在末尾
-    expected = [( _at(0, 0) + timedelta(minutes=i)).isoformat(timespec="seconds") for i in range(3, keep + 3)]
+    expected = [
+        (_at(0, 0) + timedelta(minutes=i)).isoformat(timespec="seconds")
+        for i in range(3, keep + 3)
+    ]
     assert [entry["at"] for entry in task.history] == expected
     assert task.history[-1]["result"] == "已执行 checkin"
 

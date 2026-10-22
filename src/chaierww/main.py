@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from chaierww import __version__
 from chaierww.api.docs import build_docs_router
 from chaierww.api.gateway import api_router as gateway_api_router
 from chaierww.api.gateway import build_gateway_app, refresh_catalog
@@ -263,7 +264,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 两者路径冲突会让浏览器直接落到 Swagger UI 上。规格本身仍挂在 /api/openapi.json。
     app = FastAPI(
         title="chaierww",
-        version="0.1.6",
+        version=__version__,
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,

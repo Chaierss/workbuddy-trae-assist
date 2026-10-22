@@ -39,6 +39,7 @@ docs/_shot-*.png
 # 新增一份想公开的文档时，在这里加一条 ! 例外，并同步 scripts/check_public_docs.py。
 /docs/*.md
 /docs/**/*.md
+!/docs/README.md
 !/docs/policies/DISCLAIMER.md
 
 # 本地工具与日志

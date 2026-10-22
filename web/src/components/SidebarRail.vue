@@ -6,10 +6,12 @@ import { t } from "../lib/i18n";
 import { NAV_DESTINATIONS, SETTINGS_DESTINATION } from "../lib/nav";
 import {
   accountCount,
+  health,
   resolvedTheme,
   scopedPath,
   setTheme,
 } from "../stores/app";
+import { updateBadge, updateState } from "../stores/update";
 
 const props = defineProps<{ collapsed: boolean }>();
 const emit = defineEmits<{ "update:collapsed": [value: boolean] }>();
@@ -47,6 +49,16 @@ function toggleTheme(): void {
 function toggleCollapsed(): void {
   emit("update:collapsed", !props.collapsed);
 }
+
+/** 更新小圆点的 title：给一个比「有新版本」更具体的提示。 */
+const updateBadgeTitle = computed(() => {
+  const s = updateState.value;
+  if (!s || !updateBadge.value) return "";
+  if (s.status === "downloaded") {
+    return t("update.badge.downloaded", { version: s.version ?? "" });
+  }
+  return t("update.badge.available", { version: s.version ?? "" });
+});
 </script>
 
 <template>
@@ -69,6 +81,11 @@ function toggleCollapsed(): void {
         <div class="min-w-0 flex-1">
           <div class="truncate text-[14px] font-semibold tracking-tight">chaierww</div>
           <div class="truncate text-[11px] text-muted">{{ t("shell.tagline") }}</div>
+          <!-- 版本号只有一个来源：后端 /api/health 报的 __version__。
+               以前这里和 web/src/lib/version.ts 各写一份字面量，两处都停在 0.1.0。 -->
+          <div v-if="health?.version" class="truncate text-[10.5px] text-muted">
+            v{{ health.version }}
+          </div>
         </div>
       </template>
     </div>
@@ -133,7 +150,7 @@ function toggleCollapsed(): void {
       >
         <button
           type="button"
-          class="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] transition-colors"
+          class="relative flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] transition-colors"
           :class="[
             collapsed ? 'justify-center' : '',
             isActive
@@ -147,6 +164,12 @@ function toggleCollapsed(): void {
           <span v-if="!collapsed" class="flex-1 truncate text-left">
             {{ t(SETTINGS_DESTINATION.labelKey) }}
           </span>
+          <!-- 更新小圆点：只作提示，点击行为不变（仍跳设置）。有新版/已下载待重启时亮。 -->
+          <span
+            v-if="updateBadge"
+            class="absolute right-1.5 top-1.5 size-2 rounded-full bg-brand ring-2 ring-surface"
+            :title="updateBadgeTitle"
+          />
         </button>
       </RouterLink>
 

@@ -27,14 +27,16 @@
 ## 安装
 
 到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载
-`chaierww-Setup.exe`，双击安装。免管理员，装进当前用户目录。打开后扫码加号，之后点一下就能切过去。
+`chaierww-Setup-<版本号>.exe`，双击安装。默认只为当前用户装、免管理员，装进当前用户目录；
+向导会先展示许可要点与免责声明。打开后扫码加号，之后点一下就能切过去。
 
 安装包没有代码签名，Windows 首次运行会拦一次：点「更多信息 → 仍要运行」。
 这是没有付费证书的成本，不是包有问题。
 
-**升级不用管。** 启动 8 秒后静默查一次更新源，有新版本会弹窗问你要不要下载；
-下载完不打断你，下次退出应用时自动装上。不想让它自动查，在「设置 → 常规」里关掉开关；
-手动检查也在那里。
+**升级不用管。** 启动 8 秒后静默查一次更新源；有新版本只在托盘和「设置 → 常规」里提示，
+不弹窗打断。点开才下载，下载完不打断你，下次退出应用时自动装上。
+不想让它自动查，在「设置 → 常规」里关掉开关；手动检查也在那里。某个版本不想装，
+可以在提示里点「跳过此版本」。
 
 **平台：只有 Windows 10 / 11 (x64)。**
 
@@ -150,7 +152,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 python -m chaierww.main               # http://127.0.0.1:57910/
-pytest                                # 440 个用例
+pytest                                # 508 个用例
 ruff check src tests
 ```
 
@@ -166,7 +168,7 @@ src/chaierww/
 web/           Vue 3 + TypeScript + Tailwind 前端
 desktop/       Electron 壳、托盘、自动更新、PyInstaller 打包
 scripts/       构建、截图脱敏、诊断脚本
-tests/         pytest 用例（440 个）
+tests/         pytest 用例（508 个）
 ```
 
 想接一个新客户端，看 `adapters/base.py` 的 slot 设计——新增一个 adapter 就够，

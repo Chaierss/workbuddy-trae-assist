@@ -1,6 +1,6 @@
 /**
- * 活动分片：活动页、计划任务设置页、客户端设置页、占位页。
- * key 前缀：`activity.*` / `schedule.*` / `clientSettings.*` / `placeholder.*`
+ * 活动分片：活动页、计划任务设置页、客户端设置页。
+ * key 前缀：`activity.*` / `schedule.*` / `clientSettings.*`
  */
 
 export const activityZh = {
@@ -168,11 +168,6 @@ export const activityZh = {
     "写入前先比对格式指纹：如果读取之后文件被别的东西改过（缩进、行尾、键序变了），会直接拒绝写并要求刷新，绝不覆盖。补丁只替换目标值那一段，BOM / 缩进 / 行尾 / 未登记的键逐字节保留。",
   "clientSettings.fingerprintNoteB":
     "「客户端开机自启」是当前登记的唯一键 —— 客户端设置文件里其余键要么是一次性迁移标记（改了会让客户端重跑迁移），要么是账号数据与运行期状态，都不在可改范围内；没实测过的键一律不登记，免得往你的文件里插客户端不认识的东西。",
-
-  "placeholder.stage": "{stage} 阶段",
-  "placeholder.notImplemented":
-    "这个页面还没有实现。当前版本先完成「导入账号 → 预演 → 切换 → 回滚」这条闭环， 其余功能按阶段排期。",
-  "placeholder.scope": "完整功能范围见仓库 docs/FEATURES.md",
 };
 
 export const activityEn = {
@@ -352,9 +347,4 @@ export const activityEn = {
     "Before writing, the format fingerprint is checked: if the file was changed by something else after it was read (indentation, line endings or key order), the write is refused and you'll be asked to refresh — never overwritten. The patch replaces only the target value, keeping the BOM, indentation, line endings and unregistered keys byte for byte.",
   "clientSettings.fingerprintNoteB":
     "\"Launch client at login\" is the only registered key right now — the other keys in the client settings file are either one-off migration markers (changing them makes the client re-run its migration) or account data and runtime state, none of which can be edited. Keys we haven't tested are never registered, so nothing the client doesn't understand gets inserted into your file.",
-
-  "placeholder.stage": "{stage} stage",
-  "placeholder.notImplemented":
-    "This page isn't implemented yet. The current version focuses on the closed loop of import account → dry run → switch → roll back; the rest is scheduled by stage.",
-  "placeholder.scope": "See docs/FEATURES.md in the repository for the full scope",
 };

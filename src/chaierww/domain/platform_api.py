@@ -110,7 +110,7 @@ def derive_device_id(seed: str) -> str:
     派生保证两件事：**同一账号永远得到同一个值**（重启、换网络都不变），
     **不同账号必然得到不同的值**（避免互相挤掉当天的名额）。
     """
-    digest = hashlib.sha256(f"chaierww/{seed}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"chaierww/{seed}".encode()).hexdigest()
     return f"000000{int(digest[:16], 16) % 10**10:010d}"
 
 

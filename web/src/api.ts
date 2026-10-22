@@ -503,6 +503,8 @@ export interface MigrationPreview {
 
 export interface HealthInfo {
   status: string;
+  /** 后端版本号，后端从 `chaierww.__version__` 取，避免手抄漂移。 */
+  version: string;
   secrets: string;
   dataDir: string;
 }
@@ -520,7 +522,13 @@ export interface Preferences {
   migrateWorkspaces: boolean;
   /** 切换时把源账号的网页版登录态（Chromium 分区）换到目标账号，切完不用重登。 */
   migrateWebview: boolean;
-  /** 每日自动备份，默认开启；每个客户端只留最近 7 份快照。界面已无开关。 */
+  /**
+   * 每日自动备份，每个客户端只留最近 7 份快照。
+   *
+   * **后端恒为 `true`，界面不暴露开关，不要再加回来** —— 恢复入口已于 2026-10-21 下线，
+   * 这里给开关等于让用户关掉一个看不见也恢复不了的安全网。后端仍会在响应里带这个字段
+   * （老配置文件里存过 `false` 的会被忽略），所以这里保留只读声明。
+   */
   autoBackup: boolean;
   /** 每日自动做一份全局备份（默认分区，不含凭据），默认开启。开关在设置 → 备份页。 */
   autoGlobalBackup: boolean;
@@ -761,7 +769,8 @@ export interface GatewayLogEntry {
   status: number;
   model: string;
   requestedModel: string;
-  keyId: string;
+  /** 网关 Key 的 id。**`kind: "probe"` 的探测条目不写这个键**。 */
+  keyId?: string;
   keyLabel: string;
   accountId: string | null;
   accountName: string | null;
@@ -773,10 +782,10 @@ export interface GatewayLogEntry {
   hops: number;
   skipped: string[];
   error: string;
-  /** 客户端传入的会话标识；取不到时是空串（界面显示为 —）。 */
-  sessionId: string;
-  /** 请求内容摘要：最后一条用户消息的文本（截断）；取不到时是空串。 */
-  promptPreview: string;
+  /** 客户端传入的会话标识；取不到时是空串（界面显示为 —）。探测条目没有这个键。 */
+  sessionId?: string;
+  /** 请求内容摘要：最后一条用户消息的文本（截断）；取不到时是空串。探测条目没有这个键。 */
+  promptPreview?: string;
 }
 
 export interface GatewayStats {

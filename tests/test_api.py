@@ -43,6 +43,8 @@ def test_health_reports_secret_backend(client):
     body = client.get("/api/health").json()
     assert body["status"] == "ok"
     assert body["secrets"]
+    # 侧栏要显示版本号，这个字段不能凭空消失。
+    assert body["version"]
 
 
 def test_scopes_marks_only_implemented_ones(client):
