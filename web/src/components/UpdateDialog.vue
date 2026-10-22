@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { t } from "../lib/i18n";
+import { renderReleaseNotes } from "../lib/releaseNotes";
 import { formatBytes } from "../api";
 import {
   checkForUpdates,
@@ -30,6 +31,15 @@ import {
  */
 
 const state = computed(() => updateState.value);
+
+/**
+ * 更新说明的 HTML。
+ *
+ * 主进程给的是原始文本：GitHub 来源是 HTML、yml 来源是 markdown，两者都可能在
+ * `{{ }}` 里被当成纯文本吐出来（就是以前那块「代码」）。这里统一渲染成 HTML，
+ * 清洗在 `lib/releaseNotes.ts` 里做，所以 `v-html` 是安全的。
+ */
+const notesHtml = computed(() => renderReleaseNotes(state.value?.releaseNotes));
 
 /** 当前这个版本是否被跳过。 */
 const skipped = computed(() => isSkipped(state.value?.version));
@@ -129,13 +139,16 @@ function viewRelease(): void {
           {{ t("update.dialog.skippedNote", { version: state?.version ?? "" }) }}
         </div>
 
-        <!-- 更新说明 -->
+        <!-- 更新说明：HTML 渲染（内容已白名单清洗），空则退回占位文案 -->
         <div v-if="updateDialog === 'available' || updateDialog === 'downloaded'" class="mt-4">
           <div class="text-[12px] font-medium text-ink-soft">{{ t("update.dialog.notes") }}</div>
           <div
-            class="mt-1.5 max-h-[220px] overflow-y-auto whitespace-pre-line text-[12.5px] leading-relaxed text-ink-soft"
-          >
-            {{ state?.releaseNotes || t("update.dialog.noNotes") }}
+            v-if="notesHtml"
+            class="release-notes mt-1.5 max-h-[220px] overflow-y-auto"
+            v-html="notesHtml"
+          />
+          <div v-else class="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">
+            {{ t("update.dialog.noNotes") }}
           </div>
           <button
             type="button"

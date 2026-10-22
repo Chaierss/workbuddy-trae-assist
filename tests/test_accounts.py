@@ -3,8 +3,16 @@ from __future__ import annotations
 import pytest
 
 from chaierww.domain.accounts.models import CredentialState
-from chaierww.domain.accounts.repository import AccountNotFound, AccountRepository
-from chaierww.domain.accounts.service import AccountInUseError, AccountService
+from chaierww.domain.accounts.repository import (
+    AccountNotFound,
+    AccountNotInTrash,
+    AccountRepository,
+)
+from chaierww.domain.accounts.service import (
+    AccountBusyError,
+    AccountInUseError,
+    AccountService,
+)
 from chaierww.domain.scopes import ScopeNotImplemented, UnknownScope, get_scope
 from chaierww.infra.db import open_database
 from chaierww.infra.secrets import InMemoryBox
@@ -180,6 +188,75 @@ def test_purge_expired_only_removes_old_entries(conn, repo):
     removed = repo.purge_expired(days=30)
     assert removed == 1
     assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 1
+
+
+# ---------- 永久删除 ----------
+
+
+def test_purge_removes_account_and_credentials(conn, repo):
+    """永久删除必须连凭据一起清掉——这是外键级联真正生效的唯一证据。
+
+    只查 accounts 计数不够：凭据行若残留，凭据就等于还在库里，删除是假的。
+    """
+    result = _import(repo)
+    repo.soft_delete(result.account.id)
+
+    removed = repo.purge(result.account.id)
+
+    assert removed.id == result.account.id
+    assert removed.external_id == "u-1"
+    assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 0
+    assert conn.execute("SELECT COUNT(*) AS n FROM credentials").fetchone()["n"] == 0
+
+
+def test_purge_rejects_account_not_in_trash(conn, repo):
+    result = _import(repo)
+
+    with pytest.raises(AccountNotInTrash):
+        repo.purge(result.account.id)
+
+    # 没删成，行和凭据都该完好。
+    assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 1
+    assert conn.execute("SELECT COUNT(*) AS n FROM credentials").fetchone()["n"] == 1
+
+
+def test_purge_missing_account_is_not_found(repo):
+    with pytest.raises(AccountNotFound):
+        repo.purge("no-such-account")
+
+
+def test_service_purge_rejects_account_in_use(repo):
+    class BusyProbe:
+        def is_in_use(self, scope, external_id):
+            return True
+
+        def is_switching(self, scope):
+            return False
+
+    service = AccountService(repo, BusyProbe())
+    result = _import(repo)
+    repo.soft_delete(result.account.id)
+
+    with pytest.raises(AccountInUseError):
+        service.purge(result.account.id)
+    assert len(service.list_recycle_bin(SCOPE)) == 1
+
+
+def test_service_purge_rejects_while_switching(repo):
+    class SwitchingProbe:
+        def is_in_use(self, scope, external_id):
+            return False
+
+        def is_switching(self, scope):
+            return True
+
+    service = AccountService(repo, SwitchingProbe())
+    result = _import(repo)
+    repo.soft_delete(result.account.id)
+
+    with pytest.raises(AccountBusyError):
+        service.purge(result.account.id)
+    assert len(service.list_recycle_bin(SCOPE)) == 1
 
 
 # ---------- 业务规则 ----------

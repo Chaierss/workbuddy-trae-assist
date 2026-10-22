@@ -444,6 +444,33 @@ class RotationStore:
             section["lastSwitchAt"] = entry.at
         self._commit(section)
 
+    def forget_account(self, account_id: str) -> int:
+        """把已永久删除的账号从轮换台账里摘掉，返回清洗的条数。
+
+        只把 ``targetAccountId`` 置空，**保留条目和 targetName** —— 台账是审计
+        记录，删行等于抹掉「曾经切过谁」这段历史；指出账号已不存在就够了。
+
+        读整份 → 改 → 写整份必须在同一个 ``FILE_LOCK`` 内完成（与 `record` 的
+        `_commit` 同一条纪律），否则会把调度器同时写的那一段覆盖掉。
+        """
+        with FILE_LOCK:
+            root = read_schedules(self._file)
+            section = root.get(SECTION)
+            if not isinstance(section, dict):
+                return 0
+            history = section.get("history")
+            if not isinstance(history, list):
+                return 0
+            cleaned = 0
+            for item in history:
+                if isinstance(item, dict) and item.get("targetAccountId") == account_id:
+                    item["targetAccountId"] = None
+                    cleaned += 1
+            if cleaned:
+                root[SECTION] = section
+                write_schedules(self._file, root)
+            return cleaned
+
 
 # ---------- 执行 ----------
 

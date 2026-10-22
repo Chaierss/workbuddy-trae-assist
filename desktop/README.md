@@ -111,19 +111,35 @@ NSIS 安装器（`oneClick: false`，辅助向导）比「一键装」多了几�
 | `build/license.txt` | 安装协议页（`MUI_PAGE_LICENSE`）。**UTF-8 带 BOM**，约 15 行中文要点 + 指向安装目录里的全文 |
 | `build/installerHeader.bmp` | 150×57，内页页眉右侧的品牌图 |
 | `build/installerSidebar.bmp` | 164×314，欢迎页/完成页左侧品牌图（卸载侧栏缺省复用） |
-| `build/INSTALL.txt` | 打进安装目录的说明：常驻托盘、数据位置、怎么卸载 |
+| `build/INSTALL.txt` | 打进安装目录的说明：常驻托盘、数据位置、怎么卸载（完成页的「打开使用说明」链接也指向它） |
 
 三份文件随包分发到安装目录：`LICENSE.txt`（PolyForm 全文）、`DISCLAIMER.md`（免责声明）、
 `INSTALL.txt`（`extraFiles` 配置）。协议页只放要点，完整法律文本以安装目录里的为准。
 
-`build/installer.nsh` 里的两个界面动作：
+向导一共五页：**欢迎 → 协议 → 安装目录 → 安装中 → 完成**。
 
+界面语言在 `package.json` 的 `build.nsis` 里定：`language: "2052"` +
+`installerLanguages: ["zh_CN"]`。不设的话 electron-builder 默认 `1033`（英文），
+正文是中文、按钮却是 `Next / Install / Finish`；只设 `language` 也不行——默认会把
+NSIS 自带的全套语言编进去再按系统区域挑，英文系统上又会回退成英文界面。
+
+`build/installer.nsh` 里跟界面有关的动作：
+
+- **欢迎页**（`customWelcomePage` → `MUI_PAGE_WELCOME`）：electron-builder 的辅助向导
+  **默认不插欢迎页**，所以 `MUI_WELCOMEPAGE_*` 那组 define 不先补页就是死配置，
+  用户打开安装包第一屏直接是协议要点。这里只多插一个**标准**页，不接管向导流程。
+- **跳过「为所有用户 / 仅为我安装」**（`customInstallMode`）：模板里的安装范围页
+  （`multiUserUi.nsh`）对本软件没用——只写 HKCU、装当前用户目录，留着只会多一次 UAC 提权。
+  置 `$isForceCurrentInstall=1` 后该页在 PRE 回调里 `Abort`，等于跳过。
+- **文案**（`MUI_WELCOMEPAGE_*` / `MUI_DIRECTORYPAGE_*` / `MUI_FINISHPAGE_*`）：这些是
+  MUI2 的「默认值」——在 `!include MUI2.nsh` 之前 `!define`，MUI_DEFAULT 就不会覆盖。
+  **不要**改写成 `customFinishPage` / `customWelcomePage` 里自绘页面：那会整段替换模板、
+  连带丢掉 `StartApp` 函数，升级 electron-builder 必炸（`customWelcomePage` 只插标准页，安全）。
+  完成页文本区默认只有 40u（约 3 行），长文案要加 `MUI_FINISHPAGE_TEXT_LARGE` 才不被裁。
 - **卸载前提示**（`customUnInit` 开头）：弹一次「数据在 `~/.chaierww` 不会被删，重装会回来」，
   允许取消。**用 `IfSilent` 而不是 LogicLib 的 `${IfNot}`**——本文件被前插在
   `!include MUI2.nsh` 之前，LogicLib 还没进来；静默卸载（自动更新带 `/S`）绝不能弹框，
   否则升级会永久卡住。
-- **安装完成页说明**（`MUI_FINISHPAGE_TEXT`）：写清「常驻托盘、关窗不退、数据位置、怎么卸载」，
-  补上 README 里「关闭按钮是收进托盘」这个用户最容易误解的点。
 
 
 ## 开发模式运行

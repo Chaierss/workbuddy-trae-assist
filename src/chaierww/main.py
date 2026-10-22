@@ -21,6 +21,7 @@ from chaierww.api.logs import build_logs_router
 from chaierww.api.routes import router
 from chaierww.api.swagger import mount_swagger
 from chaierww.config import Settings, load_settings
+from chaierww.domain.account_purge import AccountPurger
 from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountRepository
 from chaierww.domain.accounts.service import AccountService
@@ -191,12 +192,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return True, f"已切换（备份点 {report.snapshot_id or '无'}）"
         return False, f"切换未成功：{report.error or report.state}"
 
+    # 轮换台账的存储实例要给两处用：轮换服务本身，以及永久删除账号时的关联清理。
+    rotation_store = RotationStore(resolved.home)
     rotation = RotationService(
-        RotationStore(resolved.home),
+        rotation_store,
         snapshot=rotation_snapshot,
         switch=rotation_switch,
     )
     rotation_runner = RotationRunner(rotation)
+
+    # 回收站「彻底删除」：删账号行之后，顺手清掉散在别处的引用
+    # （网页版快照 / 网关账号池 / 轮换台账）。
+    purger = AccountPurger(accounts, gateway=gateway, rotation=rotation_store)
 
     # 模型目录自动刷新：间隔从配置现读（设置里一改就生效，0 = 不刷）。
     # 抓取复用 api/gateway 的 refresh_catalog（内部 asyncio.run，跑在自己的线程里）。
@@ -287,6 +294,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.activities = activities
     app.state.scheduler = scheduler
     app.state.rotation = rotation
+    app.state.purger = purger
     # 用量页走 UsageService（读云端明细），对话正文从本机 workbuddy.db / projects/*.jsonl 关联。
     usage = UsageService(repository)
     app.state.usage = usage

@@ -30,6 +30,36 @@ export interface RecycleBinAccount extends Account {
   daysLeft: number;
 }
 
+/** 一个被彻底删除的账号。`snapshotRemoved` = 本机网页登录态快照是否真的删掉了。 */
+export interface PurgedAccountRef {
+  id: string;
+  displayName: string;
+  snapshotRemoved: boolean;
+}
+
+/** 批量清空时没删成的一条：`reason` 可直接展示。 */
+export interface PurgeFailure {
+  id: string;
+  displayName: string;
+  reason: string;
+}
+
+export interface PurgeOneResult {
+  ok: boolean;
+  accountId: string;
+  displayName: string;
+  snapshotRemoved: boolean;
+  /** 账号已删、但关联数据没清干净时的说明。 */
+  warnings: string[];
+}
+
+export interface PurgeAllResult {
+  purged: number;
+  accounts: PurgedAccountRef[];
+  failed: PurgeFailure[];
+  warnings: string[];
+}
+
 /** 单个账号的凭据缺口。只报字段名，界面上据此提示「需要重新扫码」。 */
 export interface CredentialGap {
   accountId: string;
@@ -1058,6 +1088,14 @@ export const api = {
 
   restoreAccount: (accountId: string) =>
     request<Account>(`/api/accounts/${accountId}/restore`, { method: "POST" }),
+
+  /** 永久删除：账号行 + 凭据 + 本机网页快照 + 网关/轮换引用，不可恢复。 */
+  purgeAccount: (accountId: string) =>
+    request<PurgeOneResult>(`/api/accounts/${accountId}/permanent`, { method: "DELETE" }),
+
+  /** 清空回收站：逐条彻底删除，返回部分失败明细。 */
+  purgeRecycleBin: () =>
+    request<PurgeAllResult>("/api/accounts/recycle-bin/purge", { method: "POST" }),
 
   /** 各账号积分余额与到期时间（按 accountId 索引）。refresh=true 绕过缓存。 */
   credits: (refresh = false, accountIds?: string[]) => {

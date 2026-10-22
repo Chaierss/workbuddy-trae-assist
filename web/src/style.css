@@ -348,6 +348,143 @@ body {
   border-radius: 10px;
 }
 
+/* ---------- 更新说明 ----------
+   release notes 是 GitHub Release 正文的渲染结果（h2 + ul + li 为主），不是本站文档，
+   所以不能直接用 .doc-prose：那套是给长文阅读的（13.5px / h2 带下边框 / margin 26px），
+   塞进弹窗 220px 的滚动区会把「到底改了什么」挤掉一半。这里只保留层级和节奏。 */
+.release-notes {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--color-ink-soft);
+  word-break: break-word;
+}
+
+.release-notes > :first-child {
+  margin-top: 0;
+}
+.release-notes > :last-child {
+  margin-bottom: 0;
+}
+
+.release-notes h1,
+.release-notes h2,
+.release-notes h3,
+.release-notes h4,
+.release-notes h5,
+.release-notes h6 {
+  color: var(--color-ink);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.release-notes h1,
+.release-notes h2 {
+  margin: 12px 0 5px;
+  font-size: 13px;
+}
+.release-notes h3,
+.release-notes h4,
+.release-notes h5,
+.release-notes h6 {
+  margin: 10px 0 4px;
+  font-size: 12.5px;
+}
+
+.release-notes p {
+  margin: 6px 0;
+}
+
+.release-notes a {
+  color: var(--color-brand-dark);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-brand) 35%, transparent);
+}
+.release-notes a:hover {
+  border-bottom-color: var(--color-brand);
+}
+
+.release-notes strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.release-notes ul,
+.release-notes ol {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.release-notes ul {
+  list-style: disc;
+}
+.release-notes ol {
+  list-style: decimal;
+}
+.release-notes li {
+  margin: 3px 0;
+}
+.release-notes li > ul,
+.release-notes li > ol {
+  margin: 3px 0;
+}
+
+.release-notes code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--color-line-soft);
+  color: var(--color-ink);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11.5px;
+}
+.release-notes pre {
+  margin: 8px 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--color-line);
+  background: #fbfcfb;
+  line-height: 1.6;
+}
+.release-notes pre code {
+  padding: 0;
+  background: none;
+}
+html[data-theme="dark"] .release-notes pre {
+  background: #1e2320;
+}
+
+.release-notes blockquote {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-line);
+  border-radius: 0 6px 6px 0;
+  background: var(--color-line-soft);
+  color: var(--color-muted);
+}
+
+.release-notes hr {
+  margin: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--color-line-soft);
+}
+
+.release-notes table {
+  margin: 8px 0;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.release-notes th,
+.release-notes td {
+  padding: 5px 8px;
+  border: 1px solid var(--color-line);
+  text-align: left;
+  vertical-align: top;
+}
+.release-notes th {
+  background: var(--color-line-soft);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
 /* ---------- 号池「当前登录」卡面光圈 ----------
    卡片内沿一圈缓慢流动的极光，让「现在用的是哪个号」一眼可见（替代静态竖条）。
    颜色全部走主题变量，深浅色自动适配；`prefers-reduced-motion` 下停转、只留静态圈。 */

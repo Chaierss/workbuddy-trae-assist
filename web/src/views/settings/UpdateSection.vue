@@ -19,6 +19,7 @@ import SectionCard from "../../components/SectionCard.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
 import { t } from "../../lib/i18n";
 import { desktop } from "../../lib/desktop";
+import { renderReleaseNotes } from "../../lib/releaseNotes";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -44,6 +45,9 @@ const updating = computed(() => {
 });
 
 const skipped = computed(() => isSkipped(state.value?.version));
+
+/** 更新说明渲染成 HTML（GitHub 来源是 HTML、yml 来源是 markdown，清洗在 lib 里做）。 */
+const notesHtml = computed(() => renderReleaseNotes(state.value?.releaseNotes));
 
 const platformLabel = computed(() => {
   const platform = desktop?.platform;
@@ -190,11 +194,10 @@ async function toggleAuto(): Promise<void> {
             {{ t("settings.update.newVersion", { version: state.version ?? "" }) }}
           </div>
           <div
-            v-if="state.releaseNotes"
-            class="mt-1 max-h-24 overflow-y-auto whitespace-pre-line text-[11.5px] leading-relaxed text-muted"
-          >
-            {{ state.releaseNotes }}
-          </div>
+            v-if="notesHtml"
+            class="release-notes mt-1 max-h-24 overflow-y-auto"
+            v-html="notesHtml"
+          />
         </div>
 
         <button

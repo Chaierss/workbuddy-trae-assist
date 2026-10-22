@@ -601,6 +601,25 @@ class GatewayStore:
                 "preferred": self._pool["preferred"],
             }
 
+    def forget_account(self, account_id: str) -> bool:
+        """把已永久删除的账号从账号池设置里摘掉。
+
+        账号彻底删除后，``excluded`` 里留一个永不命中的 id 无害、``preferred``
+        指向一个不存在的账号则是「永远找不到指定号」的幽灵偏好。有变化才落盘，
+        返回是否真的改过。
+        """
+        with self._lock:
+            changed = False
+            if account_id in self._pool["excluded"]:
+                self._pool["excluded"].remove(account_id)
+                changed = True
+            if self._pool["preferred"] == account_id:
+                self._pool["preferred"] = None
+                changed = True
+            if changed:
+                self._save_pool_locked()
+            return changed
+
     # ----- 请求日志 -----
 
     def _load_logs(self) -> list[dict[str, Any]]:

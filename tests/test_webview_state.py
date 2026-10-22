@@ -183,3 +183,34 @@ def test_unsafe_uid_never_touches_the_filesystem(parts, uid):
     # 快照目录一个都没建，正常账号的分区也没被误删
     assert not snapshots.exists() or list(snapshots.iterdir()) == []
     assert len(webview_state.discover()) == 1
+
+
+# ---------- 永久删除账号时清理快照 ----------
+
+
+def test_drop_snapshot_removes_only_that_uid(parts):
+    """永久删除账号只清它自己那份快照，别把别人的一起带走。"""
+    root, snapshots = parts
+    _make_partition(root, UID_A, "lexiang-auth")
+    _make_partition(root, UID_B, "lexiang-auth")
+    assert webview_state.snapshot(UID_A) == 1
+    assert webview_state.snapshot(UID_B) == 1
+
+    assert webview_state.drop_snapshot(UID_A) is True
+
+    assert (snapshots / UID_A).exists() is False
+    assert (snapshots / UID_B).is_dir()
+    # 已经没了，再删一次如实返回 False，而不是报错
+    assert webview_state.drop_snapshot(UID_A) is False
+
+
+@pytest.mark.parametrize("uid", ["..", ".", "", "a/b", "a\\b", "C:evil", "x\x00y"])
+def test_drop_snapshot_rejects_unsafe_uid(parts, uid):
+    """拼路径先校验：危险 uid 一律返回 False，不动盘、不抛异常。"""
+    root, snapshots = parts
+    _make_partition(root, UID_A, "lexiang-auth")
+    webview_state.snapshot(UID_A)
+
+    assert webview_state.drop_snapshot(uid) is False
+    # 正常账号的快照没被误删
+    assert (snapshots / UID_A).is_dir()

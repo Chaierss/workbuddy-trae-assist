@@ -1772,3 +1772,23 @@ def test_v1_messages_non_stream_refuses_unexpected_sse(client, recorder):
     assert response.status_code == 502
     assert response.json()["type"] == "error"
     assert "SSE" in response.json()["error"]["message"]
+
+
+def test_forget_account_clears_excluded_and_preferred(tmp_path):
+    """永久删除账号后，账号池里不该再指着它。
+
+    最要命的是 `preferred`：指向一个不存在的号 = 选号器永远找不到「指定账号」。
+    落盘要一起改，重开一个新实例读回来也得干净。
+    """
+    store = GatewayStore(tmp_path)
+    store.exclude("acc-1")
+    store.exclude("acc-2")
+    store.set_preferred("acc-1")
+
+    assert store.forget_account("acc-1") is True
+
+    assert store.pool_payload() == {"excluded": ["acc-2"], "preferred": None}
+    # 重读落盘文件确认持久化
+    assert GatewayStore(tmp_path).pool_payload() == {"excluded": ["acc-2"], "preferred": None}
+    # 已经不在了，再摘一次如实返回 False
+    assert store.forget_account("acc-1") is False

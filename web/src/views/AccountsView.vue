@@ -269,7 +269,8 @@ const dialog = reactive({
 const confirm = reactive({
   open: false,
   busy: false,
-  mode: "" as "" | "delete" | "batch-delete" | "export",
+  mode: "" as "" | "delete" | "batch-delete" | "export" | "purge" | "purge-all",
+  /** `purge` / `purge-all` 模式下装的是回收站里的行（RecycleBinAccount 是 Account 的子类型）。 */
   account: null as Account | null,
 });
 
@@ -284,6 +285,8 @@ const recycle = reactive({
   busy: false,
   loaded: false,
   error: "",
+  /** 账号已删、但关联数据（网页快照/网关引用）没清干净时的说明，要常驻显示。 */
+  warnings: [] as string[],
   items: [] as RecycleBinAccount[],
 });
 
@@ -303,6 +306,7 @@ async function loadRecycleBin(): Promise<void> {
 
 function openRecycle(): void {
   recycle.open = true;
+  recycle.warnings = [];
   void loadRecycleBin();
 }
 
@@ -318,6 +322,24 @@ async function restoreFromRecycle(item: RecycleBinAccount): Promise<void> {
   } finally {
     recycle.busy = false;
   }
+}
+
+/** 弹确认框：永久删除一条。 */
+function askPurge(item: RecycleBinAccount): void {
+  confirm.mode = "purge";
+  confirm.account = item;
+  confirm.open = true;
+}
+
+/** 弹确认框：清空回收站。空的就别弹了，直接说一声。 */
+function askPurgeAll(): void {
+  if (!recycle.items.length) {
+    showToast(t("accounts.recycle.purgeNone"));
+    return;
+  }
+  confirm.mode = "purge-all";
+  confirm.account = null;
+  confirm.open = true;
 }
 
 /* ---------- 凭据体检 ---------- */
@@ -497,13 +519,19 @@ function keepVisibleOnly(): void {
 /** Esc 退出选择；弹层开着时优先关弹层，不抢它的 Esc。 */
 function onKeydown(event: KeyboardEvent): void {
   if (event.key !== "Escape") return;
+  // 确认框可能盖在回收站弹层之上（清空/永久删除），必须先关它，
+  // 否则会被下面的 recycle.open 分支连带关掉，用户等于「按 Esc 什么都没确认到」。
+  if (confirm.open) {
+    if (!confirm.busy) confirm.open = false;
+    return;
+  }
   // 回收站是普通弹层，Esc 直接关它，别顺手把底下的选择也清了。
   if (recycle.open) {
     recycle.open = false;
     return;
   }
   if (!selectedIds.value.size) return;
-  if (jsonDialog.open || dialog.open || confirm.open || noteDialog.open || oauthOpen.value) return;
+  if (jsonDialog.open || dialog.open || noteDialog.open || oauthOpen.value) return;
   clearSelection();
 }
 
@@ -960,6 +988,48 @@ async function onConfirm(): Promise<void> {
     await exportSelected();
     return;
   }
+  // 清空回收站不需要具体账号，必须在下面那行「没有 account 就 return」之前处理。
+  if (confirm.mode === "purge-all") {
+    confirm.busy = true;
+    try {
+      const result = await api.purgeRecycleBin();
+      const failed = result.failed.length;
+      showToast(
+        failed
+          ? t("accounts.recycle.purgePartial", {
+              success: result.purged,
+              failed,
+              reason: result.failed[0]?.reason ?? "",
+            })
+          : t("accounts.recycle.purgedAll", { count: result.purged }),
+      );
+      // 关联数据没清干净要留在界面上，不能只靠 3 秒 toast。
+      recycle.warnings = result.warnings;
+      confirm.open = false;
+      await Promise.all([loadRecycleBin(), refreshAll()]);
+    } catch (error) {
+      showToast(t("accounts.recycle.purgeFailed", { reason: (error as Error).message }));
+    } finally {
+      confirm.busy = false;
+    }
+    return;
+  }
+  if (confirm.mode === "purge") {
+    if (!account) return;
+    confirm.busy = true;
+    try {
+      const result = await api.purgeAccount(account.id);
+      showToast(t("accounts.recycle.purged", { name: result.displayName }));
+      recycle.warnings = result.warnings;
+      confirm.open = false;
+      await Promise.all([loadRecycleBin(), refreshAll()]);
+    } catch (error) {
+      showToast(t("accounts.recycle.purgeFailed", { reason: (error as Error).message }));
+    } finally {
+      confirm.busy = false;
+    }
+    return;
+  }
   if (!account && confirm.mode !== "batch-delete") return;
   confirm.busy = true;
   try {
@@ -1026,6 +1096,22 @@ function closeSwitchDialog(): void {
 
 const confirmText = computed(() => {
   const name = confirm.account?.displayName ?? "";
+  if (confirm.mode === "purge-all") {
+    return {
+      title: t("accounts.recycle.purgeAllTitle"),
+      message: t("accounts.recycle.purgeAllMessage", { count: recycle.items.length }),
+      confirmText: t("accounts.recycle.purgeAllConfirm", { count: recycle.items.length }),
+      tone: "danger" as const,
+    };
+  }
+  if (confirm.mode === "purge") {
+    return {
+      title: t("accounts.recycle.purgeTitle"),
+      message: t("accounts.recycle.purgeMessage", { name }),
+      confirmText: t("accounts.recycle.purgeConfirm"),
+      tone: "danger" as const,
+    };
+  }
   if (confirm.mode === "export") {
     // 选中里混着缺 refresh token 的账号时，把「导出也解决不了重新登录」当场讲明。
     const base = t("accounts.export.message", { count: selectedCount.value });
@@ -1430,6 +1516,7 @@ const confirmText = computed(() => {
       :confirm-text="confirmText.confirmText"
       :tone="confirmText.tone"
       :busy="confirm.busy"
+      :z-index="recycle.open ? 600 : 50"
       @confirm="onConfirm"
       @cancel="confirm.open = false"
     />
@@ -1566,18 +1653,41 @@ const confirmText = computed(() => {
                 {{ t("accounts.recycle.desc") }}
               </p>
             </div>
-            <button
-              type="button"
-              class="shrink-0 rounded-[8px] p-1 text-muted transition-colors hover:bg-line-soft hover:text-ink"
-              @click="recycle.open = false"
-            >
-              <X :size="15" :stroke-width="2" />
-            </button>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <button
+                v-if="recycle.items.length"
+                type="button"
+                class="inline-flex items-center gap-1 rounded-[8px] border border-danger/30 px-2.5 py-1.5 text-[12px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-60"
+                :disabled="recycle.busy"
+                :title="t('accounts.recycle.purgeAllHint', { count: recycle.items.length })"
+                @click="askPurgeAll()"
+              >
+                <Trash2 :size="12" :stroke-width="2" />
+                {{ t("accounts.recycle.purgeAll") }}
+              </button>
+              <button
+                type="button"
+                class="rounded-[8px] p-1 text-muted transition-colors hover:bg-line-soft hover:text-ink"
+                @click="recycle.open = false"
+              >
+                <X :size="15" :stroke-width="2" />
+              </button>
+            </div>
           </div>
 
           <p v-if="recycle.error" class="mt-3 text-[12px] text-danger">
             {{ t("accounts.recycle.loadFailed", { reason: recycle.error }) }}
           </p>
+
+          <!-- 账号已删、但关联数据没清干净：留在界面上，别让用户错过 -->
+          <ul
+            v-if="recycle.warnings.length"
+            class="mt-3 space-y-1 rounded-[9px] border border-warn/30 bg-warn-soft/50 px-3 py-2"
+          >
+            <li v-for="(warning, index) in recycle.warnings" :key="index" class="text-[11.5px] leading-relaxed text-warn">
+              {{ t("accounts.recycle.purgeCleanupWarning", { reason: warning }) }}
+            </li>
+          </ul>
 
           <div
             v-else-if="recycle.busy && !recycle.items.length"
@@ -1626,6 +1736,16 @@ const confirmText = computed(() => {
               >
                 <RotateCcw :size="12" :stroke-width="2" />
                 {{ t("accounts.recycle.restore") }}
+              </button>
+              <!-- 不可逆操作，用文字而非纯图标：图标语义不够明确 -->
+              <button
+                type="button"
+                class="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-danger/30 px-2.5 py-1.5 text-[12px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-60"
+                :disabled="recycle.busy"
+                :title="t('accounts.recycle.purgeHint')"
+                @click="askPurge(item)"
+              >
+                {{ t("accounts.recycle.purge") }}
               </button>
             </li>
           </ul>

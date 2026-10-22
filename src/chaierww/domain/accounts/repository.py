@@ -21,6 +21,14 @@ class AccountNotFound(LookupError):
     pass
 
 
+class AccountNotInTrash(RuntimeError):
+    """账号存在，但不在回收站里，因此不允许永久删除。
+
+    不复用 ``AccountNotFound``：那个语义是「这个 id 不存在」，映射 404；
+    「存在但不该删」是状态冲突，应该映射 409。
+    """
+
+
 def _serialized(method: _F) -> _F:
     """同一时刻只允许一个操作持有连接。
 
@@ -203,6 +211,31 @@ class AccountRepository:
                 (cutoff,),
             )
         return cursor.rowcount
+
+    @_serialized
+    def purge(self, account_id: str) -> Account:
+        """永久删除回收站里的一个账号，返回删前的行（供调用方做关联清理）。
+
+        - 凭据由 ``credentials.account_id ... ON DELETE CASCADE`` 自动清掉，不显式删。
+        - DELETE 的条件里再带一次 ``deleted_at IS NOT NULL``：防「读到在回收站、
+          删除前恰好被恢复」的竞态，宁可 0 行也不误删。
+        - 不做 bulk 版：批量场景需要逐条的失败原因，由调用方循环调用本方法。
+        """
+        with transaction(self._conn):
+            row = self._conn.execute(
+                "SELECT * FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+            if row is None:
+                raise AccountNotFound(account_id)
+            if row["deleted_at"] is None:
+                raise AccountNotInTrash(f"{account_id}（不在回收站，不能永久删除）")
+            cursor = self._conn.execute(
+                "DELETE FROM accounts WHERE id = ? AND deleted_at IS NOT NULL",
+                (account_id,),
+            )
+            if cursor.rowcount == 0:
+                raise AccountNotInTrash(f"{account_id}（已被恢复，不能永久删除）")
+        return Account.from_row(row)
 
     # ---------- 读取 ----------
 

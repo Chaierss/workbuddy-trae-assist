@@ -471,12 +471,29 @@ function classifyError(err) {
   return 'unknown';
 }
 
+/**
+ * 把 `releaseNotes` 归一成**一个字符串**，交给渲染层去判断格式。
+ *
+ * 两种来源形态不同，这里不做清洗（也不该做）：
+ *   - GitHub provider：`releases.atom` 的 `<content>`，是渲染后的 HTML；
+ *   - 通用 provider：`latest.yml` 里的 `releaseNotes`，多半是 markdown 原文。
+ * 渲染层（`web/src/lib/releaseNotes.ts`）按内容猜格式再白名单清洗，所以这里只保证
+ * 「永远是 string」这一条契约。
+ */
 function releaseNotesText(info) {
   const raw = info && info.releaseNotes;
   if (!raw) return '';
   if (typeof raw === 'string') return raw;
   if (Array.isArray(raw)) {
-    return raw.map((item) => `· ${item.version ? `${item.version}：` : ''}${item.note || ''}`).join('\n');
+    // 跨版本累计时是 [{version, note}]，输出 markdown 列表：纯文本来源能正常排版，
+    // HTML 来源则整个被当成 HTML 处理（列表符号退化成一行文字，不影响可读性）。
+    return raw
+      .map((item) => {
+        const note = String((item && item.note) || '').trim();
+        const head = item && item.version ? `**${item.version}**` : '';
+        return `- ${head}${head && note ? '：' : ''}${note}`;
+      })
+      .join('\n');
   }
   return '';
 }

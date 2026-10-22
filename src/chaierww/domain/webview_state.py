@@ -238,6 +238,25 @@ def drop(uid: str) -> int:
     return removed
 
 
+def drop_snapshot(uid: str) -> bool:
+    """删掉某个 uid 在本机的网页版登录态快照（永久删除账号时用）。
+
+    与 :func:`drop` 的区别：``drop`` 删的是**客户端里的分区**（切号流程用），
+    这里删的是本工具自己的快照副本。快照是「换机无效」的本机数据，账号永久删除后
+    留着只会是孤儿，所以一并清掉。
+
+    失败**不吞异常**（对照 ``drop`` 的 ``suppress``）：永久删除需要把「哪些关联
+    数据没清干净」如实报给用户，由调用方决定记 warning 而不是静默。
+    """
+    if _unsafe_uid(uid):
+        return False
+    target = snapshot_root() / uid
+    if not target.is_dir():
+        return False
+    shutil.rmtree(target)
+    return True
+
+
 def snapshot_bytes(uid: str) -> int:
     """快照占用的字节数（诊断用）。"""
     if _unsafe_uid(uid):

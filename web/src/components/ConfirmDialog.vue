@@ -9,8 +9,10 @@ withDefaults(
     confirmText?: string;
     tone?: "brand" | "danger";
     busy?: boolean;
+    /** 层级：默认 50 与既有调用点一致；在更高层的弹层里调用时传更大的值。 */
+    zIndex?: number;
   }>(),
-  { tone: "brand", busy: false },
+  { tone: "brand", busy: false, zIndex: 50 },
 );
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
@@ -20,7 +22,8 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>();
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-50 grid place-items-center bg-black/25 p-4"
+      class="fixed inset-0 grid place-items-center bg-black/25 p-4"
+      :style="{ zIndex }"
       @click.self="emit('cancel')"
     >
       <div class="w-full max-w-[430px] rounded-[16px] border border-line bg-surface p-5">

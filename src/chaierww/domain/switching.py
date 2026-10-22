@@ -391,15 +391,30 @@ class SwitchEngine:
                         run.add("网页版登录态", True, f"已恢复 {restored} 个网页分区")
                     elif source_external_id and source_external_id != account.external_id:
                         webview_state.drop(source_external_id)
-                        run.add(
-                            "网页版登录态",
-                            False,
-                            "该账号在本机没有网页版登录态，已清掉旧账号残留；网页版需要登录一次",
-                        )
-                        warnings.append(
-                            "该账号在本机还没有网页版登录态：客户端网页版（乐享/文档等）"
-                            "需要登录一次，之后切走再切回会自动保持。"
-                        )
+                        # 区分两种「没恢复出来」的情况，别让用户把 uid 对不上的真 bug
+                        # 当成「这个号本来就没登录过网页版」的正常现象。
+                        if account.external_id in webview_state.uids_on_disk():
+                            run.add(
+                                "网页版登录态",
+                                False,
+                                "磁盘上有该账号的网页分区但未能匹配（账号标识可能不一致），"
+                                "已清掉旧账号残留；网页版需要登录一次",
+                            )
+                            warnings.append(
+                                "检测到该账号在本机有网页版分区，但切换时未能匹配上"
+                                "（分区名里的账号标识与号池记录不一致）。这通常意味着网页版"
+                                "登录态没能跟着切号走，需要重新在网页版登录一次。"
+                            )
+                        else:
+                            run.add(
+                                "网页版登录态",
+                                False,
+                                "该账号在本机没有网页版登录态，已清掉旧账号残留；网页版需要登录一次",
+                            )
+                            warnings.append(
+                                "该账号在本机还没有网页版登录态：客户端网页版（乐享/文档等）"
+                                "需要登录一次，之后切走再切回会自动保持。"
+                            )
                 except OSError as exc:
                     run.add("网页版登录态", False, f"迁移失败（不影响切号）：{exc}")
 

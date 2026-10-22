@@ -419,3 +419,48 @@ def test_runner_evaluates_on_its_own_thread():
     runner.stop()
     assert stub.calls >= 1
     assert runner.running is False
+
+
+def test_forget_account_nulls_ledger_target_but_keeps_entry(tmp_path):
+    """永久删除账号只清 id，不抹台账。
+
+    台账是「曾经切过谁」的审计记录，删行等于伪造历史；把 targetAccountId 置空、
+    留着 targetName 与条数，既说明账号已不存在，又保住历史。
+    """
+    store = RotationStore(tmp_path)
+    store.record(
+        RotationLedgerEntry(
+            at="2026-10-20T09:00:00+00:00",
+            action="switch",
+            rule="urgency",
+            reason="积分即将到期",
+            target_account_id="acc-gone",
+            target_name="要删的号",
+            executed=True,
+            detail="",
+        ),
+        switched=True,
+    )
+    store.record(
+        RotationLedgerEntry(
+            at="2026-10-21T09:00:00+00:00",
+            action="switch",
+            rule="urgency",
+            reason="积分即将到期",
+            target_account_id="acc-keep",
+            target_name="留着的号",
+            executed=True,
+            detail="",
+        ),
+        switched=True,
+    )
+
+    assert store.forget_account("acc-gone") == 1
+
+    entries = RotationStore(tmp_path).history()
+    assert len(entries) == 2  # 条数不变
+    assert entries[0].target_account_id is None
+    assert entries[0].target_name == "要删的号"  # 名字保留
+    assert entries[1].target_account_id == "acc-keep"
+    # 已经不在了，再摘一次返回 0
+    assert store.forget_account("acc-gone") == 0

@@ -14,7 +14,7 @@ from chaierww import __version__
 from chaierww.adapters.base import AdapterError, NotInstalled, NotLoggedIn, StateUnreadable
 from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import Account, CredentialState
-from chaierww.domain.accounts.repository import AccountNotFound
+from chaierww.domain.accounts.repository import AccountNotFound, AccountNotInTrash
 from chaierww.domain.accounts.service import AccountBusyError, AccountInUseError, AccountService
 from chaierww.domain.activities import ACTIVITY_CATALOG, ActivityBusyError, summarize
 from chaierww.domain.backup import (
@@ -114,6 +114,8 @@ def _handle(exc: Exception) -> HTTPException:
     if isinstance(exc, AccountNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, (AccountBusyError, AccountInUseError, ActivityBusyError)):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, AccountNotInTrash):
         return HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, (NotInstalled, NotLoggedIn, StateUnreadable)):
         return HTTPException(status_code=409, detail=str(exc))
@@ -569,7 +571,16 @@ def _has_refresh_token(credential: dict[str, Any]) -> bool:
 
 
 def _credential_gaps(credential: dict[str, Any]) -> list[str]:
-    """凭据缺了哪些字段。只报字段名，不回传内容。"""
+    """凭据缺了哪些字段。只报字段名，不回传内容。
+
+    按凭据形态区分：
+    - ``raw-file``（客户端登录态原文，base64 信封）：工具不解密 DPAPI 信封，
+      refresh token 就藏在信封里，「不可查」≠「缺」。这类不报字段缺口。
+    - ``oauth-token``（扫码明文）：顶层就是明文 token，缺 refresh token 才如实报。
+    - 无 ``format`` 字段（历史简化数据）：回退到只看顶层字段。
+    """
+    if credential.get("format") == "raw-file":
+        return []
     gaps: list[str] = []
     access = credential.get("accessToken") or credential.get("access_token")
     if not isinstance(access, str) or not access.strip():
@@ -671,6 +682,21 @@ def diagnostics_login_state(request: Request) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
+    # 网页版登录态「没同步」最常见的一个真 bug：分区名里的 uid 与号池 external_id
+    # 不是同一个标识（例如登录态 account.uid 为空、号池回落到 uin 手机号）。这里把
+    # 磁盘上「对不上任何号池账号」的孤儿分区列出来，方便一眼看出是不是 uid 不一致。
+    pool_external_ids = {account.external_id for account in accounts}
+    on_disk_uids = set(per_uid)
+    snapshot_uids = {s["uid"] for s in snapshots}
+    uid_mismatches: list[dict[str, Any]] = [
+        {
+            "uid": uid,
+            "hasSnapshot": uid in snapshot_uids,
+            "note": "磁盘上的网页分区 uid 不在任何号池账号的 externalId 里",
+        }
+        for uid in sorted(on_disk_uids - pool_external_ids)
+    ]
+
     return {
         "sessionDir": str(webview_state.session_dir()),
         "partitionsDir": str(webview_state.partitions_dir()),
@@ -680,6 +706,7 @@ def diagnostics_login_state(request: Request) -> dict[str, Any]:
             "uids": sorted(per_uid.values(), key=lambda item: item["uid"]),
         },
         "snapshots": sorted(snapshots, key=lambda item: item["uid"]),
+        "uidMismatches": uid_mismatches,
         "accounts": [
             {
                 "accountId": account.id,
@@ -1120,6 +1147,67 @@ def restore_account(request: Request, account_id: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
     return _account_payload(account)
+
+
+@router.delete(
+    "/accounts/{account_id}/permanent",
+    summary="永久删除回收站中的账号（含凭据与关联数据）",
+    tags=["账号"],
+)
+def purge_account(request: Request, account_id: str) -> dict[str, Any]:
+    """彻底删除一个回收站账号：账号行 + 登录凭据 + 本机网页快照 + 网关/轮换引用。
+
+    不可恢复。账号不在回收站、或正在切换/使用中 → 409。
+    """
+    try:
+        outcome = request.app.state.purger.purge(account_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+    row = outcome.purged[0]
+    return {
+        "ok": True,
+        "accountId": row.account_id,
+        "displayName": row.display_name,
+        "snapshotRemoved": row.snapshot_removed,
+        "warnings": list(outcome.warnings),
+    }
+
+
+@router.post(
+    "/accounts/recycle-bin/purge",
+    summary="清空回收站：彻底删除并清理关联数据",
+    tags=["账号"],
+)
+def purge_recycle_bin(request: Request, scope: str | None = None) -> dict[str, Any]:
+    """清空回收站（`scope` 不传 = 合并号池口径）。
+
+    批量操作**用 `failed` 数组表达成败**，不用 HTTP 状态码：这样一次就能讲清
+    「删了哪些、哪些没删、为什么」。空回收站返回全 0，不报错。
+    """
+    try:
+        outcome = request.app.state.purger.purge_all(scope)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+    return {
+        "purged": len(outcome.purged),
+        "accounts": [
+            {
+                "id": row.account_id,
+                "displayName": row.display_name,
+                "snapshotRemoved": row.snapshot_removed,
+            }
+            for row in outcome.purged
+        ],
+        "failed": [
+            {
+                "id": row.account_id,
+                "displayName": row.display_name,
+                "reason": row.reason,
+            }
+            for row in outcome.failed
+        ],
+        "warnings": list(outcome.warnings),
+    }
 
 
 def _resolve_scope(request: Request, body: SwitchRequest) -> str:

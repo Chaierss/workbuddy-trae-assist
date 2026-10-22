@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from chaierww.domain.accounts.models import Account, CredentialState
-from chaierww.domain.accounts.repository import AccountNotFound, AccountRepository
+from chaierww.domain.accounts.repository import (
+    AccountNotFound,
+    AccountNotInTrash,
+    AccountRepository,
+)
 from chaierww.domain.scopes import all_scopes
 
 
@@ -88,19 +92,35 @@ class AccountService:
             unknown=counts[CredentialState.UNKNOWN],
         )
 
-    def delete(self, account_id: str) -> None:
-        """软删除。当前使用中或正在切换的账号拒绝删除，并说明原因。"""
-        account = self._repo.get(account_id)
-        if account.is_deleted:
-            raise AccountNotFound(f"{account_id}（已在回收站）")
-
+    def _guard(self, account: Account) -> None:
+        """删除类操作的统一守卫：正在切换 / 正在客户端使用 → 拒绝。"""
         if self._probe.is_switching(account.scope):
             raise AccountBusyError("该作用域正在执行切换任务，请等待完成后再删除")
 
         if self._probe.is_in_use(account.scope, account.external_id):
             raise AccountInUseError("该账号正在客户端中使用，请先切换到其他账号再删除")
 
+    def delete(self, account_id: str) -> None:
+        """软删除。当前使用中或正在切换的账号拒绝删除，并说明原因。"""
+        account = self._repo.get(account_id)
+        if account.is_deleted:
+            raise AccountNotFound(f"{account_id}（已在回收站）")
+
+        self._guard(account)
         self._repo.soft_delete(account_id)
+
+    def purge(self, account_id: str) -> Account:
+        """永久删除回收站里的账号（含凭据），返回删前的行供关联清理。
+
+        永久删除同样走使用中/切换中守卫：删掉的是不可恢复的凭据，若删的正是
+        客户端当前登录的号，等 token 刷新失败就会掉线且没有补救路径；切换进行中
+        时 switch_jobs 也正引用这个 id。等几秒远好过不可逆丢失。
+        """
+        account = self._repo.get(account_id)
+        if not account.is_deleted:
+            raise AccountNotInTrash(f"{account_id}（不在回收站，不能永久删除）")
+        self._guard(account)
+        return self._repo.purge(account_id)
 
     def restore(self, account_id: str) -> Account:
         return self._repo.restore(account_id)

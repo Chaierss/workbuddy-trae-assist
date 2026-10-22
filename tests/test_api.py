@@ -1095,3 +1095,182 @@ def test_credential_health_lists_only_accounts_with_gaps(client):
     assert body["accounts"][0]["gaps"] == ["refreshToken"]
     # 体检接口只回答「缺什么」，不能顺手把凭据内容带出来。
     assert "credential" not in body["accounts"][0]
+
+
+def test_credential_health_does_not_flag_raw_file_envelope(client):
+    """raw-file（客户端登录态原文信封）不该被判「缺 refresh token」。
+
+    refresh token 藏在 DPAPI 加密信封里，工具不解密，「不可查」≠「缺」。
+    只有 oauth-token（扫码明文）且确实没有 refreshToken 的号才该报缺口。
+    """
+    from chaierww.domain.switching import encode_payload
+
+    # raw-file 信封账号：顶层只有 format/encoding/data，没有明文 accessToken/refreshToken。
+    client.app.state.repository.upsert(
+        scope=SCOPE,
+        external_id="u-env",
+        display_name="信封号",
+        credential=encode_payload(b'{"account": {"uid": "u-env"}}'),
+        credential_kind="session",
+    )
+
+    body = client.get("/api/accounts/credential-health").json()
+
+    # 信封账号不该出现在「有缺口」的列表里。
+    assert body["withGaps"] == 0
+    assert body["accounts"] == []
+
+
+# ---------- 回收站：永久删除 / 清空 ----------
+
+
+@pytest.fixture
+def isolated_snapshots(tmp_path, monkeypatch):
+    """把网页版快照根目录指到 tmp_path。
+
+    `webview_state.snapshot_root()` 读的是 `Path.home()/.chaierww/webview`，
+    不受 `Settings.home` 影响；不隔离的话永久删除会去动用户真实数据。
+    """
+    from chaierww.domain import webview_state
+
+    root = tmp_path / "webview"
+    root.mkdir()
+    monkeypatch.setattr(webview_state, "snapshot_root", lambda: root)
+    return root
+
+
+def _seed_trash(client, *, external_id: str, name: str, snapshot_root=None) -> str:
+    """建一个已进回收站的账号（可选：先给它造一份本机网页快照）。"""
+    seeded = _seed(client, external_id=external_id, name=name)
+    if snapshot_root is not None:
+        target = snapshot_root / external_id / "lexiang-auth" / "Network"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "Cookies").write_text("cookie", encoding="utf-8")
+    client.delete(f"/api/accounts/{seeded.account.id}")
+    return seeded.account.id
+
+
+def test_permanent_delete_purges_credentials_and_snapshot(client, isolated_snapshots):
+    account_id = _seed_trash(
+        client, external_id="u-p1", name="待永删", snapshot_root=isolated_snapshots
+    )
+    assert (isolated_snapshots / "u-p1").is_dir()
+
+    response = client.delete(f"/api/accounts/{account_id}/permanent")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["displayName"] == "待永删"
+    assert body["snapshotRemoved"] is True
+    assert body["warnings"] == []
+    # 快照删掉了
+    assert (isolated_snapshots / "u-p1").exists() is False
+    # 账号与凭据都没了（凭据靠外键级联）
+    conn = client.app.state.repository._conn
+    assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 0
+    assert conn.execute("SELECT COUNT(*) AS n FROM credentials").fetchone()["n"] == 0
+
+
+def test_permanent_delete_rejects_account_still_in_pool(client, isolated_snapshots):
+    seeded = _seed(client, external_id="u-active", name="在用号")
+
+    response = client.delete(f"/api/accounts/{seeded.account.id}/permanent")
+
+    assert response.status_code == 409
+    assert "不在回收站" in response.json()["detail"]
+    # 没删成，号还在
+    assert len(client.get("/api/accounts", params={"scope": SCOPE}).json()["accounts"]) == 1
+
+
+def test_permanent_delete_missing_account_is_404(client, isolated_snapshots):
+    assert client.delete("/api/accounts/no-such-id/permanent").status_code == 404
+
+
+def test_clear_recycle_bin_returns_zero_when_empty(client, isolated_snapshots):
+    body = client.post("/api/accounts/recycle-bin/purge").json()
+
+    assert body == {"purged": 0, "accounts": [], "failed": [], "warnings": []}
+
+
+def test_clear_recycle_bin_purges_all(client, isolated_snapshots):
+    _seed_trash(client, external_id="u-a", name="甲", snapshot_root=isolated_snapshots)
+    _seed_trash(client, external_id="u-b", name="乙", snapshot_root=isolated_snapshots)
+
+    body = client.post("/api/accounts/recycle-bin/purge").json()
+
+    assert body["purged"] == 2
+    assert sorted(item["displayName"] for item in body["accounts"]) == ["乙", "甲"]
+    assert body["failed"] == []
+    conn = client.app.state.repository._conn
+    assert conn.execute("SELECT COUNT(*) AS n FROM credentials").fetchone()["n"] == 0
+    assert client.get("/api/accounts/recycle-bin").json()["accounts"] == []
+
+
+def test_clear_recycle_bin_reports_partial_failure(client, isolated_snapshots, monkeypatch):
+    """一个号删不掉，不该让整批 500：其余照删，失败原因如实返回。"""
+    from chaierww.domain.accounts.service import AccountInUseError
+
+    _seed_trash(client, external_id="u-ok", name="能删的", snapshot_root=isolated_snapshots)
+    stuck = _seed_trash(
+        client, external_id="u-stuck", name="删不掉的", snapshot_root=isolated_snapshots
+    )
+
+    real_purge = client.app.state.accounts.purge
+
+    def fake_purge(account_id):
+        if account_id == stuck:
+            raise AccountInUseError("该账号正在客户端中使用，请先切换到其他账号再删除")
+        return real_purge(account_id)
+
+    monkeypatch.setattr(client.app.state.accounts, "purge", fake_purge)
+
+    body = client.post("/api/accounts/recycle-bin/purge").json()
+
+    assert body["purged"] == 1
+    assert [item["displayName"] for item in body["accounts"]] == ["能删的"]
+    assert len(body["failed"]) == 1
+    assert body["failed"][0]["displayName"] == "删不掉的"
+    assert "正在客户端中使用" in body["failed"][0]["reason"]
+    # 删不掉的那个仍在回收站
+    remaining = client.get("/api/accounts/recycle-bin").json()["accounts"]
+    assert [item["displayName"] for item in remaining] == ["删不掉的"]
+
+
+def test_purge_reports_cleanup_failure_without_failing(client, isolated_snapshots, monkeypatch):
+    """关联数据没清干净要进 warnings，但账号已经删掉了（主操作必须成功）。"""
+    from chaierww.domain import webview_state
+
+    account_id = _seed_trash(
+        client, external_id="u-warn", name="清理会失败的", snapshot_root=isolated_snapshots
+    )
+
+    def boom(uid):
+        raise PermissionError("文件被占用")
+
+    monkeypatch.setattr(webview_state, "drop_snapshot", boom)
+
+    response = client.delete(f"/api/accounts/{account_id}/permanent")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["snapshotRemoved"] is False
+    assert len(body["warnings"]) == 1
+    assert "文件被占用" in body["warnings"][0]
+    # 账号照样删掉了
+    conn = client.app.state.repository._conn
+    assert conn.execute("SELECT COUNT(*) AS n FROM accounts").fetchone()["n"] == 0
+
+
+def test_purge_cleans_gateway_pool_references(client, isolated_snapshots):
+    account_id = _seed_trash(client, external_id="u-gw", name="网关里的号")
+
+    gateway = client.app.state.gateway
+    gateway.exclude(account_id)
+    gateway.set_preferred(account_id)
+
+    client.delete(f"/api/accounts/{account_id}/permanent")
+
+    payload = gateway.pool_payload()
+    assert account_id not in payload["excluded"]
+    assert payload["preferred"] is None

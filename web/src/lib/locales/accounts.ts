@@ -36,17 +36,17 @@ export const accountsZh = {
   "accounts.export.message":
     "将导出 {count} 个账号解密后的登录凭据（明文）。\n\n拿到这个文件的人可以直接登录这些账号，不需要再扫码或验证。\n\n请只存在本机，不要发到群里、网盘或聊天附件。",
   "accounts.export.confirm": "我已知悉，导出 {count} 个",
-  "accounts.exportGap": "\n\n其中 {count} 个账号的凭据缺 refresh token，导入到别的机器后一旦 token 过期就得重新扫码。",
+  "accounts.exportGap": "\n\n其中 {count} 个账号是扫码登录、没有明文 refresh token，换机器导入后 token 过期就要重新扫码（平台不给明文，不是凭据损坏）。",
   "accounts.credential.gapBadge": "凭据不完整",
   "accounts.credential.gapHint":
-    "这个账号的凭据缺 {fields}，本次切换现在能用，但 token 过期后会要求重新登录。",
+    "这个账号是扫码登录、凭据缺 {fields}，本次切换现在能用，但 token 过期后会要求重新登录（平台不提供明文，不是凭据损坏）。",
   "accounts.credential.gapBanner":
-    "{count} 个账号的凭据不完整（缺 refresh token），现在能切号，但 token 过期后要重新扫码登录。",
-  "accounts.credential.gapBannerHint": "导出这些账号时也会缺同样的字段，换机器导入后同样会要求重新登录。",
+    "{count} 个账号是扫码登录、凭据里没有明文 refresh token（平台不提供），现在能切号，但 token 过期后要重新扫码登录。",
+  "accounts.credential.gapBannerHint": "导出这些账号时同样不含 refresh token，换机器导入后过期同样要重新扫码——这是正常现象，不是凭据损坏。",
   "accounts.bundleDetected":
     "识别为号池导出包：{count} 个账号，含登录凭据，导入后可直接使用。导入后状态标为「未验证」，切换一次即确认可用。",
   "accounts.importBundleGap":
-    "其中 {count} 个账号的凭据缺 refresh token：导入后能立刻切号，但 token 过期后仍然要重新扫码登录。这是导出时它们本身就不完整，不是导入漏了。",
+    "其中 {count} 个账号是扫码登录、凭据没有明文 refresh token：导入后能立刻切号，但 token 过期后仍然要重新扫码登录。这是平台不提供明文，不是导出或导入漏了。",
   "accounts.importBundleDone": "已从导出包恢复 {imported} 个账号（含登录凭据，切换一次即确认可用）",
   "accounts.importBundlePartial": "已恢复 {imported} 个账号（含登录凭据），{failed} 个失败",
   "accounts.poolIn": "一键入池",
@@ -91,9 +91,9 @@ export const accountsZh = {
   "accounts.batchDelete.confirm": "删除 {count} 个",
   "accounts.recycle.title": "回收站",
   "accounts.recycle.desc":
-    "删除的账号在这里保留 30 天，期间点「恢复」就能回到号池。到期后账号和登录凭据一起清理，不可找回。",
+    "删除的账号在这里保留 30 天，可以点「恢复」回到号池，也可以随时永久删除。到期或永久删除后，账号与登录凭据一起清掉，不可找回。",
   "accounts.recycle.empty": "回收站是空的。",
-  "accounts.recycle.emptyHint": "在号池里删除的账号会先放到这里，30 天后才真正清理。",
+  "accounts.recycle.emptyHint": "在号池里删除的账号会先放到这里，30 天后自动清理；你也可以随时清空，立即永久删除。",
   "accounts.recycle.busy": "正在读取回收站…",
   "accounts.recycle.restore": "恢复",
   "accounts.recycle.restored": "已恢复「{name}」",
@@ -101,9 +101,27 @@ export const accountsZh = {
   "accounts.recycle.dueToday": "今天到期",
   "accounts.recycle.deletedAt": "{time} 删除",
   "accounts.recycle.open": "回收站",
-  "accounts.recycle.openHint": "查看已删除的账号（保留 30 天，可恢复）",
+  "accounts.recycle.openHint": "查看已删除的账号（保留 30 天，可恢复，也可永久删除）",
   "accounts.recycle.countHint": "回收站里有 {count} 个账号",
   "accounts.recycle.loadFailed": "回收站读取失败：{reason}",
+  "accounts.recycle.purge": "永久删除",
+  "accounts.recycle.purgeHint": "连同登录凭据一起彻底删除，无法恢复",
+  "accounts.recycle.purgeAll": "清空回收站",
+  "accounts.recycle.purgeAllHint": "把回收站里的 {count} 个账号全部彻底删除",
+  "accounts.recycle.purgeTitle": "永久删除账号",
+  "accounts.recycle.purgeMessage":
+    "「{name}」将被彻底删除，无法恢复。\n\n会一并清掉：数据库里的账号与登录凭据、本机保存的网页版登录态快照、网关账号池里的排除/指定设置、轮换台账里指向它的记录。\n\n客户端里的网页分区缓存、以及以前做过的备份文件里，仍可能留有它的副本。",
+  "accounts.recycle.purgeConfirm": "彻底删除",
+  "accounts.recycle.purgeAllTitle": "清空回收站",
+  "accounts.recycle.purgeAllMessage":
+    "回收站里的 {count} 个账号将被全部彻底删除，无法恢复。\n\n会一并清掉它们的登录凭据、本机网页版登录态快照，以及网关账号池与轮换台账里指向它们的设置。\n\n以前做过的备份文件里仍会有这些账号的副本。",
+  "accounts.recycle.purgeAllConfirm": "清空 {count} 个",
+  "accounts.recycle.purged": "已彻底删除「{name}」",
+  "accounts.recycle.purgedAll": "已清空回收站：彻底删除 {count} 个账号",
+  "accounts.recycle.purgePartial": "已删除 {success} 个，{failed} 个未删除（{reason}）",
+  "accounts.recycle.purgeNone": "回收站已经是空的",
+  "accounts.recycle.purgeCleanupWarning": "账号已删除，但这些关联数据没清干净：{reason}",
+  "accounts.recycle.purgeFailed": "永久删除失败：{reason}",
   "accounts.fileTooLarge": "文件超过 5 MB，请确认选的是登录态文件而非别的数据。",
   "accounts.fileEmpty": "文件是空的，没有可导入的内容。",
   "accounts.fileReadFailed": "读取文件失败，请换一个文件或直接粘贴内容。",
@@ -294,18 +312,18 @@ export const accountsEn = {
     "This exports the decrypted login credentials (in plain text) of {count} accounts.\n\nAnyone who gets this file can sign in as those accounts — no QR scan or verification needed.\n\nKeep it on this machine only. Do not send it to a group chat, cloud drive, or chat attachment.",
   "accounts.export.confirm": "I understand — export {count}",
   "accounts.exportGap":
-    "\n\n{count} of them have credentials without a refresh token — after importing on another machine they will need a fresh QR sign-in once the token expires.",
+    "\n\n{count} of them are QR-signed-in accounts without a plaintext refresh token — once the token expires they will need a fresh QR sign-in (the platform does not expose it; the credentials are not corrupt).",
   "accounts.credential.gapBadge": "Incomplete credentials",
   "accounts.credential.gapHint":
-    "This account's credentials are missing {fields}. Switching works for now, but you'll be asked to sign in again once the token expires.",
+    "This account is QR-signed-in and its credentials are missing {fields}. Switching works for now, but you'll be asked to sign in again once the token expires (the platform does not expose a plaintext refresh token — not corrupt).",
   "accounts.credential.gapBanner":
-    "{count} accounts have incomplete credentials (no refresh token). Switching works for now, but a new QR sign-in will be required once the token expires.",
+    "{count} accounts are QR-signed-in with no plaintext refresh token (the platform does not provide one). Switching works for now, but a new QR sign-in will be required once the token expires.",
   "accounts.credential.gapBannerHint":
-    "Exporting them carries the same gap — importing on another machine will ask for sign-in too.",
+    "Exporting them carries the same gap — importing on another machine will ask for sign-in too once the token expires. This is normal, not corrupt credentials.",
   "accounts.bundleDetected":
     "Recognized as an account bundle: {count} accounts with login credentials, ready to use after import. They will be marked “unverified” until you switch to them once.",
   "accounts.importBundleGap":
-    "{count} of them have credentials without a refresh token: they work right after import, but once the token expires you will need a fresh QR sign-in. Their credentials were already incomplete when exported — the import did not drop anything.",
+    "{count} of them are QR-signed-in accounts whose credentials have no plaintext refresh token: they work right after import, but once the token expires you will need a fresh QR sign-in. The platform does not expose a plaintext refresh token — nothing was dropped during export or import.",
   "accounts.importBundleDone":
     "Restored {imported} accounts from the bundle (with login credentials — switch once to confirm they work)",
   "accounts.importBundlePartial": "Restored {imported} accounts (with credentials); {failed} failed",
@@ -343,20 +361,20 @@ export const accountsEn = {
   "accounts.importedUpdated": "Account updated",
   "accounts.delete.title": "Delete account",
   "accounts.delete.message":
-    "\"{name}\" will be moved to the trash for 30 days and can be restored during that time.\n\nCredentials saved on this machine will be deleted too.",
+    "\"{name}\" will be moved to the trash for 30 days and can be restored during that time.\n\nCredentials are kept during those 30 days, so Restore brings the account straight back; they are only deleted when it finally leaves the trash.",
   "accounts.delete.confirm": "Move to trash",
   "accounts.batchDelete.title": "Delete accounts",
   "accounts.batchDelete.message":
-    "The {count} selected accounts will be moved to the trash for 30 days and can be restored during that time.\n\nCredentials saved on this machine will be deleted too.",
+    "The {count} selected accounts will be moved to the trash for 30 days and can be restored during that time.\n\nCredentials are kept during those 30 days, so Restore brings them straight back; they are only deleted when they finally leave the trash.",
   "accounts.batchDelete.messageHidden":
-    "The {count} selected accounts will be moved to the trash for 30 days. {hidden} of them are hidden by the current filter/search and are not visible in the list.\n\nCredentials saved on this machine will be deleted too.",
+    "The {count} selected accounts will be moved to the trash for 30 days. {hidden} of them are hidden by the current filter/search and are not visible in the list.\n\nCredentials are kept during those 30 days, so Restore brings them straight back; they are only deleted when they finally leave the trash.",
   "accounts.batchDelete.confirm": "Delete {count}",
   "accounts.recycle.title": "Trash",
   "accounts.recycle.desc":
-    "Deleted accounts stay here for 30 days — press Restore to put one back in the pool. After that the account and its credentials are purged for good.",
+    "Deleted accounts stay here for 30 days — press Restore to put one back in the pool, or delete it forever at any time. Once it expires or is deleted forever, the account and its credentials are gone for good.",
   "accounts.recycle.empty": "The trash is empty.",
   "accounts.recycle.emptyHint":
-    "Accounts you delete in the pool land here first; nothing is purged until 30 days have passed.",
+    "Accounts you delete in the pool land here first; they are cleaned up automatically after 30 days, and you can empty the trash at any time to delete them forever.",
   "accounts.recycle.busy": "Loading the trash…",
   "accounts.recycle.restore": "Restore",
   "accounts.recycle.restored": "Restored “{name}”",
@@ -364,9 +382,28 @@ export const accountsEn = {
   "accounts.recycle.dueToday": "Expires today",
   "accounts.recycle.deletedAt": "Deleted {time}",
   "accounts.recycle.open": "Trash",
-  "accounts.recycle.openHint": "View deleted accounts (kept 30 days, restorable)",
+  "accounts.recycle.openHint": "View deleted accounts (kept 30 days; restorable or deletable forever)",
   "accounts.recycle.countHint": "{count} accounts in the trash",
   "accounts.recycle.loadFailed": "Couldn't load the trash: {reason}",
+  "accounts.recycle.purge": "Delete forever",
+  "accounts.recycle.purgeHint": "Permanently delete this account together with its credentials — cannot be undone",
+  "accounts.recycle.purgeAll": "Empty trash",
+  "accounts.recycle.purgeAllHint": "Permanently delete all {count} accounts in the trash",
+  "accounts.recycle.purgeTitle": "Delete account forever",
+  "accounts.recycle.purgeMessage":
+    "“{name}” will be deleted for good. This cannot be undone.\n\nThis also removes: the account and its login credentials in the database, the local web-login snapshot, its excluded/preferred entry in the gateway pool, and records in the rotation ledger that point to it.\n\nThe client's web partition cache and any backups you made earlier may still contain a copy.",
+  "accounts.recycle.purgeConfirm": "Delete forever",
+  "accounts.recycle.purgeAllTitle": "Empty trash",
+  "accounts.recycle.purgeAllMessage":
+    "All {count} accounts in the trash will be deleted for good. This cannot be undone.\n\nThis also removes their login credentials, local web-login snapshots, and the settings in the gateway pool and rotation ledger that point to them.\n\nBackups you made earlier will still contain copies of these accounts.",
+  "accounts.recycle.purgeAllConfirm": "Empty {count}",
+  "accounts.recycle.purged": "Deleted “{name}” forever",
+  "accounts.recycle.purgedAll": "Trash emptied: {count} accounts deleted forever",
+  "accounts.recycle.purgePartial": "Deleted {success}; {failed} not deleted ({reason})",
+  "accounts.recycle.purgeNone": "The trash is already empty",
+  "accounts.recycle.purgeCleanupWarning":
+    "The account was deleted, but this related data was not cleaned up: {reason}",
+  "accounts.recycle.purgeFailed": "Couldn't delete forever: {reason}",
   "accounts.fileTooLarge":
     "The file is over 5 MB — make sure it's a login-state file and not other data.",
   "accounts.fileEmpty": "The file is empty; there's nothing to import.",
