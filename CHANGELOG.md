@@ -6,7 +6,7 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
-## [未发布]
+## [0.1.7] - 2026-10-22
 
 ### 新增
 
@@ -251,7 +251,8 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.6...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.7
 [0.1.6]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.6
 [0.1.5]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.5
 [0.1.4]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.4
