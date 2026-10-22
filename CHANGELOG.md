@@ -17,8 +17,9 @@
 - **运行时升级 Electron 33 → 43。** 33 这条线已停止维护，上游不再发安全补丁，
   Dependabot 因此报了 38 条高危/中危告警。升级到仍在支持的 43 后告警清零。
   对使用者没有可见变化，纯属打安全补丁。
-- 顺带升级打包工具链：electron-builder 25 → 26、electron-updater 6.3.9 → 6.8.9，
-  清掉一批只在构建机上出现的开发期告警（`tar`、`extract-zip`、`builder-util-runtime`）。
+- 顺带升级 electron-updater 6.3.9 → 6.8.9，把运行时的 `builder-util-runtime`
+  从 9.2.10 升到 9.7.0（修一个高危）。electron-builder 维持 25 不动，
+  它剩下的告警全是只在构建机上跑的开发期依赖，不影响安装包。
 
 ### 变更
 
