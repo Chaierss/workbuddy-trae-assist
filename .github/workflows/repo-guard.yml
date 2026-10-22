@@ -1,0 +1,27 @@
+# 守住「内部文档不进公开仓库」这条线。
+#
+# 为什么单独一个 workflow：`docs/` 同时是应用内 Wiki 的源目录，往里加文档很自然，
+# 而里面混着商业规划、内部规格、闭源清单。`.gitignore` 挡得住常规操作，
+# 挡不住 `git add -f` 和「顺手改了下 .gitignore」。这个检查跑在每次 push/PR 上，
+# 漏了就红，红了就没人会忽略。
+name: repo-guard
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docs:
+    name: 内部文档未泄漏
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 只用标准库 + git，不需要装依赖
+      - name: Check docs whitelist
+        run: python scripts/check_public_docs.py

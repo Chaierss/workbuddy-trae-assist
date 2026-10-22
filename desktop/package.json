@@ -1,0 +1,125 @@
+{
+  "name": "chaierww-desktop",
+  "version": "0.1.1",
+  "description": "WorkBuddy / Trae 多账号本地切换工作台（桌面端）",
+  "author": "Chaierss",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron --no-sandbox --in-process-gpu .",
+    "icons": "python scripts/build_icons.py",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "dist:dir": "electron-builder --dir",
+    "pack:backend": "python scripts/build_backend.py"
+  },
+  "//": "国内网络下打包必读：electron-builder 的二进制包默认走 GitHub，会超时。",
+  "//build-hint": "先 set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder-binaries/ 再 npm run dist",
+  "//platform-hint": "PyInstaller 不能交叉编译：打哪个平台的包就要在哪个平台上跑（CI 用 .github/workflows/build-desktop.yml 的矩阵）。",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "build": {
+    "appId": "com.chaierss.chaierww",
+    "productName": "chaierww",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "afterPack": "scripts/afterPack.js",
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "assets/tray-light.ico",
+      "assets/tray-light.png",
+      "assets/tray-dark.ico",
+      "assets/tray-dark.png",
+      "assets/trayTemplate.png",
+      "assets/trayTemplate@2x.png"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/dist",
+        "to": "backend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../web/dist",
+        "to": "webui",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "chaierww",
+      "artifactName": "chaierww-Setup.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "artifactName": "chaierww-${arch}.${ext}",
+      "minimumSystemVersion": "11.0",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "chaierww ${version}",
+      "contents": [
+        { "x": 140, "y": 200, "type": "file" },
+        { "x": 400, "y": 200, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "category": "Utility",
+      "icon": "build/icons",
+      "artifactName": "chaierww-${arch}.${ext}",
+      "maintainer": "Chaierss <https://github.com/Chaierss>",
+      "synopsis": "WorkBuddy / Trae 多账号本地切换工作台",
+      "description": "把 WorkBuddy、Trae 的账号收在一处：一键切号、签到积分、用量统计，数据只留在本机。"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Chaierss",
+        "repo": "workbuddy-trae-assist",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

@@ -1,0 +1,110 @@
+# Windows 桌面端构建。
+#
+# 为什么用 CI 而不是本机打：PyInstaller 不能交叉编译，产物必须和目标平台一致；
+# 放在 runner 上能保证「干净环境 + 可复现」，也免去本机装一堆构建依赖。
+#
+# 为什么只有 Windows：凭据加密（`infra/secrets.py` 的 DPAPI）与客户端登录态定位
+# （`APPDATA` / `LOCALAPPDATA`）目前只有 Windows 实现。macOS / Linux 的包能打出来，
+# 但装完启动会失败——与其发一个「下了用不了」的产物，不如先不发。补完这两层再往
+# 矩阵里加 `macos-latest` / `ubuntu-latest`，其余步骤不用改。
+#
+# 触发：
+#   - 推 v* 标签：构建并上传到 GitHub Releases（electron-builder --publish always）
+#   - 手动触发：只构建，产物作为 workflow artifact 下载，不发版
+name: build-desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+# electron-builder --publish always 要调 GitHub API 创建 Release 并上传资产。
+# 仓库的默认 GITHUB_TOKEN 是只读的，不显式要 write 就会在最后一步
+# 「creating GitHub release」时 403（Resource not accessible by integration）——
+# 安装包其实已经打好了，只是发不出去。
+# 只给 contents：写 Release 只需要这一项，不要给 workflows。
+permissions:
+  contents: write
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    # 构建脚本会 print 中文。Windows runner 的控制台代码页不是 UTF-8，
+    # 不设这个变量就会在第一次 print 中文时抛 UnicodeEncodeError（踩过一次）。
+    env:
+      PYTHONIOENCODING: utf-8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows x64
+            builder_args: --win nsis
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ---------- 后端依赖 ----------
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller pillow
+
+      # ---------- 前端产物 ----------
+      - name: Build web
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      # ---------- 图标 ----------
+      - name: Build icons
+        run: python desktop/scripts/build_icons.py
+
+      # ---------- 后端二进制 ----------
+      # 产物名按平台自动切换：Windows 是 chaierww-backend.exe，其它是 chaierww-backend
+      - name: Build backend binary
+        working-directory: desktop
+        run: python scripts/build_backend.py
+
+      # ---------- Electron 壳 ----------
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build installer
+        working-directory: desktop
+        env:
+          # 标签触发时才发版；手动触发只产出 artifact
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 安装包未做代码签名，保持自动发现关闭，避免误用 runner 上的临时证书
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: >
+          npx electron-builder ${{ matrix.builder_args }}
+          --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaierww-${{ matrix.os }}
+          if-no-files-found: warn
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
+

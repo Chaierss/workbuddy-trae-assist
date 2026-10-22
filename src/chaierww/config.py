@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+APP_NAME = "chaierww"
+HOME_ENV = "CHAIERWW_HOME"
+
+DB_FILENAME = "chaierww.db"
+
+# 引导安装：各客户端官方下载链接（已内置邀请码）。
+# 未安装时号池页展示「提示 + 引导下载链接」，链接从这里取。
+DOWNLOAD_LINKS: dict[str, str] = {
+    "workbuddy": "https://www.workbuddy.cn/events/invite/?inviteCode=gg5iv39v9w",
+    "trae": (
+        "https://www.trae.cn/events/code-fission/FAXHZCBRK8Y5"
+        "?utm_source=copy_link&utm_medium=code_fission"
+    ),
+}
+
+
+@dataclass(frozen=True)
+class Settings:
+    """运行期配置。
+
+    数据目录优先级：显式传入 > 环境变量 > 用户家目录下的默认位置。
+    所有派生路径都从 home 推导，避免出现"配置了一半"的状态。
+    """
+
+    home: Path
+    host: str = "127.0.0.1"
+    port: int = 57910
+    recycle_days: int = 30
+    # 每个客户端作用域保留的常驻备份份数（按次数滚动，与 domain/backup.py 的
+    # KEEP_SNAPSHOTS 一致）。常驻备份 = 每日自动 + 手动；切换前/恢复前的临时
+    # 备份在流程成功后即删除，不占用这里的配额。
+    snapshot_keep: int = 7
+
+    @property
+    def db_path(self) -> Path:
+        return self.home / DB_FILENAME
+
+    @property
+    def backups_dir(self) -> Path:
+        return self.home / "backups"
+
+    @property
+    def logs_dir(self) -> Path:
+        return self.home / "logs"
+
+    @property
+    def avatars_dir(self) -> Path:
+        return self.home / "avatars"
+
+    def ensure_dirs(self) -> None:
+        for path in (self.home, self.backups_dir, self.logs_dir, self.avatars_dir):
+            path.mkdir(parents=True, exist_ok=True)
+
+
+def default_home() -> Path:
+    override = os.environ.get(HOME_ENV)
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / f".{APP_NAME}"
+
+
+def load_settings(home: Path | str | None = None) -> Settings:
+    resolved = Path(home).expanduser() if home is not None else default_home()
+    return Settings(home=resolved)

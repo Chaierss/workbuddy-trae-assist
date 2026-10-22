@@ -1,0 +1,88 @@
+Required Notice: Copyright (c) 2026 NextAgentX (https://github.com/NextAgentX/qoder-trae-workbuddy-switch)
+Required Notice: Copyright (c) 2026 Chaierss (https://github.com/Chaierss)
+
+<!--
+为什么第一行是别人的名字：本项目的 Trae 凭据信封解析（domain/trae_crypto.py）与扫码
+登录（domain/trae_oauth.py）起于对上述上游的协议研究。上游是 Rust/Tauri 实现，与本项目
+采用同一份 PolyForm Noncommercial 1.0.0，本项目用 Python 重写其协议层。
+
+PolyForm 1.0.0 的 Notices 条款要求：任何拿到本软件副本的人，都必须同时拿到 licensor
+提供的 `Required Notice:` 行。因此上面两行必须原样保留——移除任何一行即违反本许可。
+重新品牌化、换语言重写都不构成移除理由。
+-->
+
+# PolyForm Noncommercial License 1.0.0
+
+<https://polyformproject.org/licenses/noncommercial/1.0.0>
+
+## Acceptance
+
+In order to get any license under these terms, you must agree to them as both strict obligations and conditions to all your licenses.
+
+## Copyright License
+
+The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose. However, you may only distribute the software according to [Distribution License](#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](#changes-and-new-works-license).
+
+## Distribution License
+
+The licensor grants you an additional copyright license to distribute copies of the software. Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](#changes-and-new-works-license).
+
+## Notices
+
+You must ensure that anyone who gets a copy of any part of the software from you also gets a copy of these terms or the URL for them above, as well as copies of any plain-text lines beginning with `Required Notice:` that the licensor provided with the software. For example:
+
+> Required Notice: Copyright Yoyodyne, Inc. (http://example.com)
+
+## Changes and New Works License
+
+The licensor grants you an additional copyright license to make changes and new works based on the software for any permitted purpose.
+
+## Patent License
+
+The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by making the software as provided, or by making or using changes and new works based on the software as provided, for any permitted purpose.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose meets the definition of permitted purpose in this license.
+
+"Noncommercial purposes" for purposes of this license means not primarily intended for or directed towards commercial advantage or monetary compensation. For purposes that do meet the definition, exchanging the software or works based on it for operational costs such as hosting, bandwidth, and storage is not commercial advantage or monetary compensation. For the avoidance of doubt, providing paid services on the software, selling the software, using the software to provide paid services, and other use primarily intended for or directed towards commercial advantage or monetary compensation are not noncommercial purposes.
+
+## Personal Uses
+
+Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur sports, or the exchange of noncommercial discussion and ideas is a permitted purpose.
+
+## Noncommercial Organizations
+
+Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is a permitted purpose regardless of the source of funding or obligations connected to the funding. Use by any organization that primarily acts for or toward the benefit of the public good, whose primary funding is through charitable contributions, grants, or fees solely charged to cover operational costs, is a permitted purpose regardless of the source of funding or obligations connected to the funding.
+
+## Fair Use
+
+You may have "fair use" rights for the software under the law. These terms are not an limitation on your use of the software under those laws' fair use rules.
+
+## No Other Rights
+
+These terms do not allow you to sublicense or transfer any of your licenses to anyone else, or derive the prices of licenses for the software from the prices for any related software. These terms do not imply any other licenses.
+
+## Patent Defense
+
+If you make a written claim that the software infringes or contributes to infringement of any patent, your patent license for the software granted under these terms ends immediately. If your company makes such a claim, your patent license ends immediately for work on behalf of your company.
+
+## Violations
+
+The first time you are notified in writing that you have violated any of these terms, or become aware of violating any of these terms yourself, any licenses granted to you under these terms end as of the date of your last violation. You may be able to regain those licenses by re-accepting these terms, and paying the licensor for the cost of a paid license for the software, if the licensor chooses to offer you one. Otherwise, you may regain those licenses by reinstating all original distributions of the software, and all changes and new works based on the software, that you distributed after violation.
+
+## No Liability
+
+**As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.**
+
+## Definitions
+
+The **licensor** is the individual or entity offering these terms, and is the legal entity noted in the Required Notice.
+
+**You** refers to an individual or entity agreeing to these terms.
+
+**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus any organizations that are majority-owned by, under common control of, or that own the company you work for.
+
+**Use** means anything you do with the software requiring your permission under the licensor's copyrights or patents.
+
+**The software** is software the licensor released under these terms, including any modifications, additions, or removals you make to it, and any part of it.

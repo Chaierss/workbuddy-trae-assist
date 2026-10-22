@@ -1,0 +1,44 @@
+name: 功能建议
+description: 想加一个能力，或改掉某个不好用的地方
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提之前先看一眼 README 的「它不做什么」——云端中转、账号托管、代登录、
+        绕过平台额度这几类不会做，不是优先级问题。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 先说场景和痛点，别急着给方案。很多时候换个做法更省事。
+      placeholder: |
+        我有 8 个号，每天要手动确认哪些号积分快过期了……
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你设想的做法
+      description: 有想法就写，没有也行
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 现在的替代办法
+      description: 你现在怎么绕过这个问题的？这能帮我判断值不值得做
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 这个问题和你自己的使用场景绑定多深
+      options:
+        - 几乎所有用户都会遇到
+        - 多账号 / 多号轮换的人会遇到
+        - 只是我自己的特殊用法
+    validations:
+      required: true

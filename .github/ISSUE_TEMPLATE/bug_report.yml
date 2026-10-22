@@ -1,0 +1,81 @@
+name: Bug 报告
+description: 某个功能没按预期工作
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。**请先确认已经是最新 Release** —— 老版本的问题可能已经修了。
+
+        报告安全问题请**不要**用这个表单，走 [SECURITY.md](https://github.com/Chaierss/workbuddy-trae-assist/blob/main/SECURITY.md) 里的私密渠道。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 设置 → 关于，或安装包文件名
+      placeholder: 例如 0.1.1
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 系统
+      placeholder: 例如 Windows 11 24H2 (22631)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及的功能
+      options:
+        - 切号 / 号池
+        - 活动签到 / 成长任务
+        - 用量统计
+        - 额度网关
+        - 计划任务 / 自动轮换
+        - 备份 / 恢复
+        - 安装 / 升级 / 托盘
+        - 界面显示
+        - 其它
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 能稳定复现的最小步骤。只发生一次的问题也请说明当时的操作。
+      placeholder: |
+        1. 打开「活动」页
+        2. 点「一键执行」
+        3. 出现报错……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望什么 / 实际什么
+      placeholder: |
+        期望：7 个账号全部签到成功
+        实际：全部显示「签到失败：设备号缺失」
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志（已脱敏）
+      description: |
+        `~/.chaierww/logs/chaierww.log` 末尾几十行即可。
+        **贴之前请自己扫一眼**：令牌和账号 ID 会自动打码，但路径和账号名可能在。
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图、录屏、是否装了客户端、客户端版本等

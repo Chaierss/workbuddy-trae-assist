@@ -1,0 +1,66 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# 运行期数据，绝不入库
+*.db
+*.db-wal
+*.db-shm
+logs/
+backups/
+avatars/
+
+# 本地环境
+.env
+
+# 本地截图（验证用）
+.shot-*.png
+
+# 前端
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+
+# 原始截图（含敏感信息，公开仓库只用 docs/images/ 下的打码版）
+docs/_shot-*.png
+
+# ── 内部文档：本地保留，绝不进版本库 ──────────────────────────────
+# docs/ 是应用内「设置 → Wiki」的源目录，所以这里的文件既是文档也是本地资产。
+# 但里面混着三类不该公开的东西：
+#   PLAN.md / PLAN-V2.md   商业规划与已拍板决策（写明「目标读者：chaierss 本人」）
+#   SPEC-M1a.md / FEATURES.md  待评审的内部规格
+#   CLOSED-SOURCE.md       闭源清单：哪些文件闭源、多少行
+# 规则是「默认不公开」，只有下面白名单里的能进仓库。
+# 新增一份想公开的文档时，在这里加一条 ! 例外，并同步 scripts/check_public_docs.py。
+/docs/*.md
+/docs/**/*.md
+!/docs/policies/DISCLAIMER.md
+
+# 本地工具与日志
+.idea/
+.trae/
+.workbuddy/
+.server-*.log
+.vite-*.log
+
+# 桌面端
+desktop/node_modules/
+desktop/release/
+desktop/release-build/
+desktop/backend/dist/
+desktop/backend/build/
+desktop/*.spec
+desktop/build*.log
+
+# 桌面端 build/ 目录里的图标需入库（根 build/ 规则是针对 Python 打包的，这里豁免）
+# 托盘图标在 desktop/assets/（不属于 buildResources，会进 app.asar），不在此列
+!desktop/build/
+
+# 本地临时脚本与验证截图（只在本机用，不进公开仓库）
+scripts/_*.py
+scripts/_shots/

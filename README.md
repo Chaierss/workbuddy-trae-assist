@@ -1,0 +1,210 @@
+<h1 align="center">chaierww</h1>
+
+<p align="center">
+  <b>换一次号，从 60 秒到 1 秒。</b><br>
+  <sub>WorkBuddy / Trae 多账号本地切换工作台</sub>
+</p>
+
+<p align="center">
+  <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%2010%20%2F%2011-2ea043" />
+  <img alt="许可" src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF-PolyForm%20Noncommercial-4c8bf5" />
+  <img alt="无云端" src="https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E5%8F%AA%E5%9C%A8%E6%9C%AC%E6%9C%BA-d4a66b" />
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="版本" src="https://img.shields.io/github/v/release/Chaierss/workbuddy-trae-assist?color=8a63d2&label=%E7%89%88%E6%9C%AC" /></a>
+</p>
+
+<p align="center">
+  <a href="#安装"><b>下载安装</b></a> ·
+  <a href="#界面">界面</a> ·
+  <a href="#功能">功能</a> ·
+  <a href="#常见问题">常见问题</a> ·
+  <a href="#开发">开发</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/overview.png" alt="chaierww 概览界面" width="920">
+</p>
+
+## 安装
+
+到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载
+`chaierww-Setup.exe`，双击安装。免管理员，装进当前用户目录。打开后扫码加号，之后点一下就能切过去。
+
+安装包没有代码签名，Windows 首次运行会拦一次：点「更多信息 → 仍要运行」。
+这是没有付费证书的成本，不是包有问题。
+
+**升级不用管。** 启动 8 秒后静默查一次更新源，有新版本会弹窗问你要不要下载；
+下载完不打断你，下次退出应用时自动装上。托盘菜单和设置页也有「检查更新」。
+
+**平台：只有 Windows 10 / 11 (x64)。**
+
+macOS / Linux 没有适配，也没有发布安装包。凭据加密用的是 Windows DPAPI，
+客户端登录态也依赖 `APPDATA` / `LOCALAPPDATA` 定位，这两层目前只有 Windows 实现。
+在 mac/Linux 上打包能成功，但后台进程一起来就报「后端服务已意外退出」——
+发一个下了用不了的东西没有意义，所以构建矩阵里只保留了 Windows。
+
+要补的话缺两块：`infra/secrets.py` 的跨平台加密（macOS 可用 Keychain，
+Linux 可用 Secret Service 或 libsodium），以及 `adapters/` 里的目录定位。
+Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢迎 PR，切入点在[开发](#开发)一节。
+
+## 它解决什么
+
+一天换 5 次号，一年有 30 小时花在登出重登上。
+
+|  | 手动 | chaierww |
+|:--|:--|:--|
+| 切号动作 | 退出 → 扫码 → 等同步 → 找回会话，约 60 秒 | 点一下，**1 秒** |
+| 失败处理 | 状态写坏了自己排查 | 自动回滚到切换前快照 |
+| 动手之前 | 直接改，坏了才知道 | 只读预演，先看会动哪些文件 |
+| 多号轮换 | 手动记谁的积分先到期 | 按到期时间自动挑号 |
+| 备份 | 没有 | 每日自动一份，滚动保留 7 份 |
+
+它把 WorkBuddy 国内版和 Trae 国内版的账号收进一处，切换前强制备份、中途失败自动回滚，
+不会把登录态写坏。**所有数据只在你自己的机器上**：没有云端中转，没有账号托管，断网也能切号。
+
+> 非官方第三方工具，与 WorkBuddy / Trae 及其权利人无隶属、授权或背书关系。
+> 它会读写本机客户端的认证数据、按你的配置自动发起请求。使用前请读
+> **[免责声明](docs/policies/DISCLAIMER.md)**。
+
+## 界面
+
+| 号池 · 账号、积分、凭据状态一屏看全 | 用量 · 请求 + 积分，按模型、按日趋势 |
+| --- | --- |
+| ![号池](docs/images/accounts.png) | ![用量](docs/images/usage.png) |
+
+| 活动 · 签到与成长任务逐账号检测 | 网关 · 额度以 OpenAI / Anthropic 兼容接口开放 |
+| --- | --- |
+| ![活动](docs/images/activity.png) | ![网关](docs/images/gateway-overview.png) |
+
+| 网关 Key · 签发、限模型、随时吊销 | 模型目录 · 可用模型与能力标注 |
+| --- | --- |
+| ![API Key](docs/images/gateway-keys.png) | ![模型目录](docs/images/gateway-models.png) |
+
+| 计划任务 · 每档只留最近 7 次执行记录 | 备份 · 每日自动一份，按份数滚动保留 7 份 |
+| --- | --- |
+| ![计划任务](docs/images/settings-schedule.png) | ![备份](docs/images/settings-backup.png) |
+
+| 环境 · 本机路径、客户端状态与能力边界 | 常规 · 换号时迁移哪几类数据，逐项可控 |
+| --- | --- |
+| ![环境](docs/images/settings-env.png) | ![常规](docs/images/settings-general.png) |
+
+> 截图是脚本渲染完 DOM 再截的：账号名、账号 ID、本机路径、邮箱、网关 Key、IP
+> 在快门按下之前就已经在页面里被替换成圆点或模糊，不是事后按坐标手画的，
+> 所以界面改版也不用重新量坐标。生成方式是 `python scripts/shots.py`。
+
+## 功能
+
+- **账号状态一屏看全**：凭据是否可用、积分还剩多少、几天后到期
+- **签到与成长任务**逐账号检测，能自动的一键跑完，手动的写明为什么
+- **用量**按模型、按日归集，谁在烧额度一眼看出
+- **额度能借出去**：以 OpenAI / Anthropic 兼容接口开放给本机其它 AI 工具，Key 可签发可吊销
+- **计划任务**支持一天多个时点与随机抖动，每档只留最近 7 次执行记录，成功失败都带原因
+- **操作有台账**：不用翻日志文件
+
+## 数据与安全
+
+- 凭据用 Windows DPAPI 按当前用户加密，密钥不落文件；日志里一律脱敏
+- 所有数据在 `~/.chaierww`（可用 `CHAIERWW_HOME` 覆盖），整个目录拷走就是完整迁移
+- 没有服务端。断网、拔网线，切号照样能用
+
+细节和威胁模型见 **[SECURITY.md](SECURITY.md)**。
+
+下面这些是刻意的架构决定，不是还没做：
+
+| 不做 | 原因 |
+|:--|:--|
+| 云端中转、账号托管、账号分享 | 会让工具变成服务 |
+| 代登录（收集你的密码） | 凭据责任过重，且没必要 |
+| 修改客户端程序本体 | 只读写状态文件，不打补丁 |
+| 上传任何数据到服务器 | 数据只落本机，连匿名遥测都没有 |
+| 绕过平台额度或风控 | 它帮你管自己的号，不帮你薅 |
+
+## 常见问题
+
+**切号后客户端没起来 / 秒退？**
+先看「概览 → 客户端」里的安装状态。切号走的是与双击图标等价的系统调用，
+如果仍失败，多半是路径不对或客户端正在更新——到「设置 → 环境」核对登录目录。
+
+**会封号吗？**
+签到是代你调一次平台自己的接口，请求头和参数照客户端的行为构造，不并发登录、不改动客户端程序。
+但**成长任务不一样**：其中有 10 项是通过接口把任务标记为完成，并不是在你的客户端里真的做了那个动作——
+这条链路性质更弱，所以计划任务默认不包含它，手动执行前也会弹一次说明。
+任何第三方工具都有风险，**风险由使用者自行承担**。
+
+**备份会占很多磁盘吗？**
+常驻备份固定 7 份，单份约 30 MB，稳态 200 MB 上下。切换前的临时备份在成功后立即删除。
+
+**升级会丢数据吗？**
+不会。`~/.chaierww` 和安装目录是分开的，覆盖安装不碰数据；每日自动备份也照常在跑。
+
+## 开发
+
+仓库是完整的：凭据加密、切换引擎、两个客户端适配器都在 `src/chaierww/` 里，
+clone 下来直接能跑，没有需要另外申请的私有包。
+
+```bash
+git clone https://github.com/Chaierss/workbuddy-trae-assist.git
+cd workbuddy-trae-assist
+python -m venv .venv
+.venv/Scripts/activate                # macOS / Linux: source .venv/bin/activate
+pip install -e ".[dev]"
+
+python -m chaierww.main               # http://127.0.0.1:57910/
+pytest                                # 440 个用例
+ruff check src tests
+```
+
+桌面安装包：前端在 `web/`（`npm ci && npm run build`），Electron 壳在 `desktop/`，
+构建方式见 [desktop/README.md](desktop/README.md)。
+
+```
+src/chaierww/
+  adapters/    读客户端登录态：workbuddy.py / trae.py，slot 抽象在 base.py
+  domain/      切换引擎、活动签到、积分、额度网关、计划任务、自动轮换
+  infra/       凭据加密（secrets.py）、SQLite、父进程守护
+  api/         本地 HTTP 接口，桌面端与前端共用
+web/           Vue 3 + TypeScript + Tailwind 前端
+desktop/       Electron 壳、托盘、自动更新、PyInstaller 打包
+scripts/       构建、截图脱敏、诊断脚本
+tests/         pytest 用例（440 个）
+```
+
+想接一个新客户端，看 `adapters/base.py` 的 slot 设计——新增一个 adapter 就够，
+不用改切换引擎。想补 macOS / Linux，从 `infra/secrets.py` 和两个 adapter 的
+`default_paths()` 入手，补完在 `build-desktop.yml` 的矩阵里加回对应 runner 即可。
+
+### 文档
+
+| 文档 | 讲什么 |
+| :-- | :-- |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发约定、提交规范、测试方式 |
+| [SECURITY.md](SECURITY.md) | 安全模型、漏洞报告渠道 |
+| [CHANGELOG.md](CHANGELOG.md) | 每个版本改了什么 |
+| [desktop/README.md](desktop/README.md) | 打包、自动更新、安装包排障 |
+| [docs/policies/DISCLAIMER.md](docs/policies/DISCLAIMER.md) | 免责声明（使用前请读） |
+
+## 许可
+
+[PolyForm Noncommercial License 1.0.0](LICENSE)。
+
+**源码全部公开，但这不是一个 OSI 认可的开源许可。** 准确说法是 source-available：
+
+- ✅ 个人使用、学习、修改、二次分发（非商业目的）
+- ❌ 任何商业用途——包括公司内部使用、打包进商业产品、对外提供付费服务
+- 商业使用需另行获得作者授权（[开 issue](https://github.com/Chaierss/workbuddy-trae-assist/issues) 联系）
+
+```
+Required Notice: Copyright (c) 2026 NextAgentX (https://github.com/NextAgentX/qoder-trae-workbuddy-switch)
+Required Notice: Copyright (c) 2026 Chaierss (https://github.com/Chaierss)
+```
+
+第一行属于上游：Trae 的凭据信封解析（`domain/trae_crypto.py`）与扫码登录
+（`domain/trae_oauth.py`）起于对
+[qoder-trae-workbuddy-switch](https://github.com/NextAgentX/qoder-trae-workbuddy-switch)
+的协议研究——那是同许可的 Rust/Tauri 实现，本项目用 Python 重写。
+按 PolyForm 的 Notices 条款，上游的 Required Notice 必须一并保留，不做移除。
+
+---
+
+如果它帮你省下了每天那几趟登出重登，[点个 star](https://github.com/Chaierss/workbuddy-trae-assist/stargazers)
+就行。有问题[开 issue](https://github.com/Chaierss/workbuddy-trae-assist/issues)，
+想参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)。
