@@ -80,6 +80,8 @@ async function check(): Promise<void> {
   busy.value = true;
   try {
     state.value = await desktop.update.check();
+  } catch {
+    /* 主进程查更新本身不抛，这里兜的是窗口正在关闭时 IPC 被拒的情况 */
   } finally {
     busy.value = false;
   }
@@ -106,11 +108,17 @@ async function toggleAutoCheck(): Promise<void> {
 
 onMounted(async () => {
   if (!desktop) return;
-  state.value = await desktop.update.get();
-  prefs.value = await desktop.update.getPrefs();
+  // 先订阅再拉初值：反之若某个 IPC 抛错，订阅就注册不上，之后主进程怎么推
+  // 都收不到，页面会一直停在旧状态。
   unsubscribe = desktop.update.onState((next) => {
     state.value = next;
   });
+  try {
+    state.value = await desktop.update.get();
+    prefs.value = await desktop.update.getPrefs();
+  } catch {
+    /* 取不到就按默认值渲染，订阅已经挂上，主进程下一次推送会纠正 */
+  }
 });
 
 onUnmounted(() => {
