@@ -20,7 +20,7 @@
   "//build-hint": "先 set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder-binaries/ 再 npm run dist",
   "//platform-hint": "PyInstaller 不能交叉编译：打哪个平台的包就要在哪个平台上跑（CI 用 .github/workflows/build-desktop.yml 的矩阵）。",
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "^42.11.3",
     "electron-builder": "^25.1.8"
   },
   "dependencies": {
