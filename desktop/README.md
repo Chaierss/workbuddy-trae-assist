@@ -1,7 +1,9 @@
 # chaierww 桌面端
 
-把 chaierww 的 Web 前端 + FastAPI 后端套成桌面安装包，三平台都能打包，带应用内更新。
-（**运行时目前只有 Windows 完整可用**，原因见下面「三平台」一节。）
+把 chaierww 的 Web 前端 + FastAPI 后端套成桌面安装包，带应用内更新。
+
+**只有 Windows。** Electron 外壳本身是跨平台的，但后端只实现了 Windows
+（DPAPI 加密 + `APPDATA` 目录定位），所以不发 mac/Linux 包。详见[平台](#平台)。
 
 ## 架构
 
@@ -58,42 +60,36 @@
 > electron-updater 按这个文件里的 `path` 取包，名字对不上就是 404。CI
 > （`.github/workflows/build-desktop.yml`）会自动带上。
 
-## 平台：目前只有 Windows
+## 平台
 
 | 平台 | 产物 | 更新 |
 | --- | --- | --- |
-| Windows 10/11 x64 | `chaierww-Setup.exe`（NSIS，免管理员） | ✅ 支持 |
+| Windows 10 / 11 x64 | `chaierww-Setup.exe`（NSIS，免管理员） | ✅ 支持 |
 
-> **为什么不做 macOS / Linux。** Electron 外壳本身是跨平台的——托盘、窗口、
-> 进程回收、更新都写了平台分支，安装包也能打出来。但后端只有 Windows 实现：
-> `infra/secrets.py` 的凭据加密是 DPAPI，两个 adapter 的 `default_paths()` 依赖
-> `APPDATA` / `LOCALAPPDATA`。所以 mac/Linux 装完启动时后端会抛
-> `PlatformNotSupported`，外壳弹「后端服务已意外退出」。
->
-> 发一个下了用不了的包没有意义，所以 CI 矩阵只留了 `windows-latest`。
-> 要补的话按这个顺序：`secrets.py` 换跨平台加密 → `adapters/` 按平台解析目录 →
-> `CLIENT_EXE_NAMES` 去掉 `.exe` 硬编码 → `domain/wb_tasks.py` 的 `os` / `arch`
-> 上报改真实值 → 最后在 CI 矩阵里加回 `macos-latest` / `ubuntu-latest`。
+**为什么不做 macOS / Linux。** Electron 外壳是跨平台的——托盘、窗口、进程回收、更新
+都写了平台分支，安装包也能打出来。但后端只有 Windows 实现：`infra/secrets.py` 的凭据
+加密是 DPAPI，两个 adapter 的 `default_paths()` 依赖 `APPDATA` / `LOCALAPPDATA`。
+所以 mac/Linux 装完启动时后端抛 `PlatformNotSupported`，外壳弹「后端服务已意外退出」。
+
+发一个下了用不了的包没有意义，CI 矩阵只留了 `windows-latest`。要补的话按这个顺序：
+
+1. `secrets.py` 换跨平台加密（macOS Keychain / Linux Secret Service 或 libsodium）
+2. `adapters/` 按平台解析目录
+3. `CLIENT_EXE_NAMES` 去掉 `.exe` 硬编码
+4. `domain/wb_tasks.py` 里 `os` / `arch` 的上报值改真实值
+5. CI 矩阵加回 `macos-latest` / `ubuntu-latest`，其余构建步骤不用改
+
+`package.json` 里的 `dist:mac` / `dist:linux` 脚本保留着，配合上面的工作用。
+`main.js` 里已有的跨平台分支（mac 关窗不退、Linux 托盘依赖 `libappindicator`、
+`kill(-pid)` 收进程组等）也先留着，不是死代码。
 
 > 产物名里**不带版本号**：版本只出现在 `latest.yml` 和「设置 → 版本更新」里。
-> 进程名、托盘提示、安装包文件名都保持干净（`chaierww-Setup.exe`，不是
-> `chaierww-Setup-0.1.0.exe`）。要改回带版本，把 `build.nsis.artifactName`
-> 改成 `chaierww-Setup-${version}.${ext}` 即可——electron-updater 认的是
-> `latest.yml` 里的 `path`，两边一起改就行。
+> 要改回带版本，把 `build.nsis.artifactName` 改成
+> `chaierww-Setup-${version}.${ext}`，同时确认 `latest.yml` 里的 `path` 跟着变——
+> electron-updater 认的是那个字段，两边不一致就是 404。
 
-**PyInstaller 不能交叉编译。** 打哪个平台的包，就要在哪个平台上跑
-（Windows 上的开发机只能打 Windows 包）。所以三平台构建放在
-`.github/workflows/build-desktop.yml` 的矩阵里；推 `v*` 标签会自动构建并发版。
-
-### 平台差异都在 main.js 里
-
-- 后端可执行文件名：Windows 是 `chaierww-backend.exe`，其它平台无后缀
-- 托盘图标：**就是 logo 本身**。Windows / Linux 出两套（浅色任务栏黑字形 `tray-light`、
-  深色任务栏白字形 `tray-dark`），按 `nativeTheme.shouldUseDarkColors` 选，系统切主题时换图；
-  macOS 用 `trayTemplate.png` 模板图，系统自动反色
-- macOS：关窗不退出（菜单栏应用），点 Dock 图标重新唤起
-- Linux：托盘依赖 `libappindicator`（GNOME 需装 AppIndicator 扩展），否则托盘图标不显示，但窗口仍可用
-- Windows：设了 `AppUserModelID`，否则任务栏会把窗口和托盘认成两个程序
+**PyInstaller 不能交叉编译。** 打哪个平台的包就要在哪个平台上跑，所以构建放在
+`.github/workflows/build-desktop.yml` 里；推 `v*` 标签自动构建并发版。
 
 ## 开发模式运行
 
@@ -107,6 +103,8 @@ npm start
 开发模式下「检查更新」会直接返回「当前环境不检查更新」——没打包的版本没有更新源。
 
 ## 打包安装包
+
+以下命令都在 `desktop/` 目录下执行（除标注的那一步）：
 
 ```bash
 # 1. 生成图标（改过 logo 才需要重跑）
@@ -125,7 +123,7 @@ npm run dist:win
 产物在 `desktop/release/` 下。
 
 `package.json` 里 `dist:mac` / `dist:linux` 的脚本还在（配合将来补 mac/Linux 时用），
-但现在打出来的包启动不了，见上面的[平台](#平台目前只有-windows)一节。
+但现在打出来的包启动不了，见上面的[平台](#平台)一节。
 
 ### 国内网络 / 非管理员账户的两个坑（Windows）
 
@@ -183,17 +181,32 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron
 如果装的是**没有这两道保险的旧版本**，升级前先在任务管理器里手动结束
 `chaierww.exe` 和 `chaierww-backend.exe` 两个进程，之后就不会再遇到。
 
-## 说明
+## 打包资源放在哪
 
-- **图标**：`scripts/build_icons.py` 从 `web/public/android-chrome-512x512.png` 生成，
-  应用图标在 `build/`（只在打包时用），**托盘图标在 `assets/`**。
-  托盘图必须放在 buildResources(`build/`) 之外——`build/` 会被排除在 `app.asar` 外，
-  放进去就会出现「开发时看得见、装完托盘空白」。
-- **托盘图标就是 logo 缩出来的**，没有另画简化标记。16px 下必然糊，但形状一致才是用户
-  要的。黑字形在深色任务栏上是看不见的，所以按系统深浅色出两套图并动态切换
-  （见 `main.js` 的 `trayIcon()`）。macOS 走模板图，让系统去反色。
-- **后端控制台**：当前 `--console` 便于排障；正式发布可改为 `--windowed`（在 `scripts/build_backend.py` 里改）
+图标由 `desktop/scripts/build_icons.py` 从 `web/public/android-chrome-512x512.png` 生成，
+但**应用图标和托盘图标放在不同目录**，这不是随手放的：
+
+| 目录 | 内容 | 为什么 |
+| --- | --- | --- |
+| `build/` | `icon.ico` / `icon.icns` / `icon.png` / `icons/` | electron-builder 的 buildResources，只在打包时被工具读取 |
+| `assets/` | `tray-light.*` / `tray-dark.*` / `trayTemplate.*` | 运行时读，**必须**在 buildResources 之外 |
+
+`build/` 会被排除在 `app.asar` 之外，托盘图放进去就会出现「开发时看得见、装完托盘空白」——
+踩过一次，装完的版本托盘是一块空白。
+
+托盘图就是 logo 缩出来的，没有另画简化标记：16px 下必然糊，但形状一致才是用户要的。
+黑字形在深色任务栏上看不见，所以按系统深浅色出两套图动态切换（`main.js` 的 `trayIcon()`）。
+
+## 运行时结构
+
 - **全量打包**：凭据加密、切换引擎、客户端适配都在 `src/chaierww/` 里，PyInstaller 直接打进
   `chaierww-backend`。安装包与仓库源码一致，不存在需要另外获取的私有包。
-- **为什么 webui 走 extraResources**：后端是独立的 PyInstaller 进程，读不了 Electron 的
-  `app.asar` 包内文件，所以前端产物必须落在 asar 之外（`process.resourcesPath/webui`）。
+- **webui 走 `extraResources`**：后端是独立的 PyInstaller 进程，读不了 Electron 的
+  `app.asar` 包内文件，所以前端产物必须落在 asar 之外（`process.resourcesPath/webui`），
+  由 `CHAIERWW_WEBUI` 环境变量指给后端。
+
+## 已知取舍
+
+**安装版会带一个控制台窗口。** `scripts/build_backend.py` 里用的是 `--console`，
+保留 stdout 便于出问题时看后端日志。改成 `--windowed` 就没有黑窗了，
+代价是后端崩了只能靠 `~/.chaierww/logs/` 里的文件排查。当前选择留着控制台。
