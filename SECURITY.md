@@ -118,8 +118,25 @@ node --check desktop/main.js && node --check desktop/preload.js
 **preload 里任何一行抛错，`exposeInMainWorld` 就整段不执行**，前端会把自己当成普通
 浏览器，该隐藏的桌面专属入口全部失效，而主进程日志里通常什么都看不到。
 
-命令之外还有一条要人工看：仓库 **Security → Dependabot** 里 `high` / `critical`
-告警必须为 0 才能发版。`medium` 及以下可以排期，但要知道它们存在。
+命令之外还有一条要人工看：仓库 **Security → Dependabot** 里，**会打进安装包的依赖**
+`high` / `critical` 告警必须为 0 才能发版。
+
+`desktop/package.json` 的 `dependencies` 只有 `electron-updater` 一个，其余（electron、
+electron-builder 及其全部子树）都在 `devDependencies`，只跑在构建机上、不进安装包。
+所以判定标准是**这个包会不会跟着 asar 走**，不是告警列表干不干净：
+
+```bash
+python -c "import json;d=json.load(open('desktop/package-lock.json',encoding='utf-8'));\
+[print(k,v.get('version'),'dev=',v.get('dev')) for k,v in d['packages'].items() if '<包名>' in k]"
+```
+
+**v0.1.5 核对结论**（照这个格式每次重查，别只看告警总数）：10 条开放告警全是
+`scope=development`。其中 `builder-util-runtime` 有两套副本——顶层 9.7.0（electron-updater
+的运行时依赖，**已修复**，告警范围是 `< 9.7.0`），其余 9.2.10 副本嵌套在
+`app-builder-lib` / `electron-builder` / `dmg-builder` 等构建期包下，`dev: true`，不打包。
+`app-builder-lib < 26.15.0` 与 `tar` 同样只在 electron-builder 子树里，只影响构建机。
+
+`medium` 及以下可以排期，但要知道它们存在。
 
 ### 二、危险 API 扫描
 
