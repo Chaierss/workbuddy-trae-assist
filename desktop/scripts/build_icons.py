@@ -45,10 +45,32 @@ macOS 例外：菜单栏图标走模板图，系统按菜单栏明暗自动反�
 from __future__ import annotations
 
 import struct
+import sys
 from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
+
+
+def _use_utf8_console() -> None:
+    """把 stdout/stderr 切成 UTF-8。
+
+    为什么需要：Windows 上 Python 的 stdout 默认跟随控制台代码页（cp936 / cp1252），
+    这个脚本会 print 中文，在 GitHub Actions 的 Windows runner 上直接抛
+    `UnicodeEncodeError: 'charmap' codec can't encode characters`，构建第一步就红。
+    在本地 Windows 终端里通常不炸（代码页是 936），所以这个问题只在 CI 暴露。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8")
+        except (ValueError, OSError):  # 已被重定向到不支持改编码的对象
+            pass
+
+
+_use_utf8_console()
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "web" / "public" / "android-chrome-512x512.png"

@@ -21,6 +21,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 本脚本会 print 中文。Windows 控制台代码页不是 UTF-8 时会在第一次 print 时抛
+# UnicodeEncodeError，CI 上直接红。切成 UTF-8，改不动就保持原样。
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if _reconfigure is not None:
+        try:
+            _reconfigure(encoding="utf-8")
+        except (ValueError, OSError):
+            pass
+
 ROOT = Path(__file__).resolve().parents[2]  # desktop/scripts/x.py → 项目根
 DESKTOP = ROOT / "desktop"
 DIST = DESKTOP / "backend" / "dist"
