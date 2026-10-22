@@ -28,9 +28,11 @@ import {
   RefreshCw,
   Wand2,
 } from "lucide-vue-next";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import SectionCard from "../components/SectionCard.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusPill from "../components/StatusPill.vue";
+import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { t, type MessageKey } from "../lib/i18n";
 import {
   api,
@@ -361,6 +363,15 @@ async function load(refresh = false): Promise<void> {
   }
 }
 
+/**
+ * 首次点「一键执行」前的风险确认。
+ *
+ * 成长任务里有 10 项是**用接口把任务标记为完成**，不是你客户端里真实做了那个动作，
+ * 所以第一次跑之前必须让用户知道这条（文案见 `activity.noticeBody`）。
+ * ack 标记与概览页共用，见 `lib/growthNotice`。
+ */
+const pendingTargets = ref<string[] | null>(null);
+
 async function execute(accountIds?: string[]): Promise<void> {
   if (running.value) return;
   const targets = accountIds?.length
@@ -372,10 +383,31 @@ async function execute(accountIds?: string[]): Promise<void> {
     showToast(t("activity.toastNothingToRun"));
     return;
   }
+  const unique = Array.from(new Set(targets));
+  if (!growthNoticeAcknowledged()) {
+    pendingTargets.value = unique;
+    return;
+  }
+  await runTargets(unique);
+}
+
+function cancelNotice(): void {
+  pendingTargets.value = null;
+}
+
+async function confirmNotice(): Promise<void> {
+  const targets = pendingTargets.value;
+  pendingTargets.value = null;
+  if (!targets) return;
+  acknowledgeGrowthNotice();
+  await runTargets(targets);
+}
+
+async function runTargets(targets: string[]): Promise<void> {
   running.value = true;
   runningTargets.value = new Set(targets);
   try {
-    const report = await api.runActivities(Array.from(new Set(targets)));
+    const report = await api.runActivities(targets);
     runReport.value = report;
     const { ok, skipped, failed } = report.summary;
     if (!report.summary.total) {
@@ -795,5 +827,14 @@ const failedResults = computed(() =>
         {{ toast }}
       </div>
     </Teleport>
+
+    <ConfirmDialog
+      :open="pendingTargets !== null"
+      :title="t('activity.noticeTitle')"
+      :message="t('activity.noticeBody')"
+      :confirm-text="t('activity.noticeConfirm')"
+      @confirm="confirmNotice"
+      @cancel="cancelNotice"
+    />
   </div>
 </template>

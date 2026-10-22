@@ -69,6 +69,11 @@ export const activityZh = {
   "activity.toastNothingToRun": "没有可执行的项（今天的自动活动都已完成）",
   "activity.toastRunDone": "执行完成：成功 {ok} · 跳过 {skipped} · 失败 {failed}",
 
+  "activity.noticeTitle": "执行前请先了解",
+  "activity.noticeBody":
+    "本次执行会签到，并在账号有可自动完成的成长任务时，通过平台接口把它们标记为完成——这并非在你的客户端里真实执行了对应操作。\n\n这条链路与「代你点一次签到」性质不同，被平台主张为不当获利的防御力也更弱。账号风险由你自行承担，建议只对本人的账号使用。\n\n此提示只出现一次。",
+  "activity.noticeConfirm": "我已了解，继续执行",
+
   "schedule.title": "计划任务",
   "schedule.subtitle": "分钟粒度、一天多个时点、随机抖动；关掉的应用期间错过的只补跑一次",
   "schedule.loading": "正在读取计划任务…",
@@ -234,6 +239,11 @@ export const activityEn = {
   "activity.groupSeasonal": "Long-term",
   "activity.toastNothingToRun": "Nothing to run (today's automated activities are all done)",
   "activity.toastRunDone": "Run finished: {ok} succeeded · {skipped} skipped · {failed} failed",
+
+  "activity.noticeTitle": "Before you run this",
+  "activity.noticeBody":
+    "This run checks in for you, and — where an account has automatable growth tasks — marks those tasks complete through the platform API. That is not the same as actually performing the action in your client.\n\nBecause of that, this path differs in nature from \"clicking check-in for you\", and offers weaker defence if the platform frames it as improper gain. Account risk is yours; please only use it on accounts you own.\n\nThis notice appears once.",
+  "activity.noticeConfirm": "Understood, run it",
 
   "schedule.title": "Scheduled tasks",
   "schedule.subtitle":

@@ -14,11 +14,13 @@ import {
   Repeat2,
   Users,
 } from "lucide-vue-next";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type OverviewPulse, type Snapshot } from "../api";
 import { accounts, attentionCount, clientDetections, detection, scopedPath } from "../stores/app";
+import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { t } from "../lib/i18n";
 
 const router = useRouter();
@@ -202,16 +204,42 @@ function busyFor(group: ActionGroup): boolean {
   return busy.value === group.kind;
 }
 
+/** 待确认的活动执行：成长任务首次执行前先做风险告知（见 `lib/growthNotice`）。 */
+const pendingRun = ref<ActionGroup | null>(null);
+
 /** 按 action.type 分发：跳页交给 router，执行类调用对应接口后静默刷新清单。 */
 async function trigger(group: ActionGroup): Promise<void> {
   if (group.action.type === "navigate") {
     await router.push(navTo(group.action.to));
     return;
   }
+  if (group.action.endpoint === "/activities/run" && !growthNoticeAcknowledged()) {
+    pendingRun.value = group;
+    return;
+  }
+  await runGroup(group);
+}
+
+function cancelRunNotice(): void {
+  pendingRun.value = null;
+}
+
+async function confirmRunNotice(): Promise<void> {
+  const group = pendingRun.value;
+  pendingRun.value = null;
+  if (!group) return;
+  acknowledgeGrowthNotice();
+  await runGroup(group);
+}
+
+async function runGroup(group: ActionGroup): Promise<void> {
+  const action = group.action;
+  // 跳页类在一开始就分流了，走到这里的只可能是执行类；显式守住类型。
+  if (action.type !== "run") return;
   busy.value = group.kind;
   try {
-    if (group.action.endpoint === "/activities/run") {
-      await api.runActivities(group.action.accountIds);
+    if (action.endpoint === "/activities/run") {
+      await api.runActivities(action.accountIds);
     }
     await load();
   } catch (cause) {
@@ -525,5 +553,14 @@ async function loadGlobalBackups(): Promise<void> {
         </ul>
       </SectionCard>
     </div>
+
+    <ConfirmDialog
+      :open="pendingRun !== null"
+      :title="t('activity.noticeTitle')"
+      :message="t('activity.noticeBody')"
+      :confirm-text="t('activity.noticeConfirm')"
+      @confirm="confirmRunNotice"
+      @cancel="cancelRunNotice"
+    />
   </div>
 </template>
