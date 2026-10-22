@@ -1,6 +1,6 @@
 {
   "name": "chaierww-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "WorkBuddy / Trae 多账号本地切换工作台（桌面端）",
   "author": "Chaierss",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -19,6 +19,7 @@
   "//": "国内网络下打包必读：electron-builder 的二进制包默认走 GitHub，会超时。",
   "//build-hint": "先 set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron-builder-binaries/ 再 npm run dist",
   "//platform-hint": "PyInstaller 不能交叉编译：打哪个平台的包就要在哪个平台上跑（CI 用 .github/workflows/build-desktop.yml 的矩阵）。",
+  "//nsis-hint": "向导语言由 build.nsis 的 language=2052 + installerLanguages=[zh_CN] 决定（不设就是 1033 英文界面）；各页文案在 build/installer.nsh 的 MUI_* define 里。",
   "devDependencies": {
     "electron": "^43.8.3",
     "electron-builder": "^25.1.8"
@@ -95,7 +96,9 @@
       "artifactName": "chaierww-Setup-${version}.${ext}",
       "license": "license.txt",
       "installerHeader": "installerHeader.bmp",
-      "installerSidebar": "installerSidebar.bmp"
+      "installerSidebar": "installerSidebar.bmp",
+      "language": "2052",
+      "installerLanguages": ["zh_CN"]
     },
     "mac": {
       "target": [
