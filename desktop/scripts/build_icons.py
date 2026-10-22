@@ -170,6 +170,38 @@ def compose_app(size: int, glyph: Image.Image, pad_ratio: float = 0.1) -> Image.
     return canvas
 
 
+def flatten_bmp(img: Image.Image, background: tuple[int, int, int]) -> Image.Image:
+    """RGBA → RGB：把透明底换成纯色，供 NSIS 的 BMP（24-bit、无 alpha）用。"""
+    canvas = Image.new("RGB", img.size, background)
+    canvas.paste(img, mask=img.getchannel("A"))
+    return canvas
+
+
+def installer_header_bmp(glyph: Image.Image) -> Image.Image:
+    """安装器内页页眉图（150×57）：品牌深底 + logo 靠右。"""
+    canvas = Image.new("RGB", (150, 57), (11, 11, 14))  # 与窗口 backgroundColor #0B0B0E 同源
+    logo = int(57 * 0.56)  # logo 高度约 32px，居中偏右
+    mark = glyph.resize((logo, logo), Image.LANCZOS)
+    # logo 是黑色字形，深底上看不见，先染白再贴
+    white = tint(mark, WHITE)
+    x = 150 - logo - 14
+    y = (57 - logo) // 2
+    canvas.paste(white, (x, y), mask=white.getchannel("A"))
+    return canvas
+
+
+def installer_sidebar_bmp(glyph: Image.Image) -> Image.Image:
+    """安装器欢迎/完成页侧栏图（164×314）：品牌深底 + logo 居中偏上。"""
+    canvas = Image.new("RGB", (164, 314), (11, 11, 14))
+    logo = int(164 * 0.5)  # ~82px
+    mark = glyph.resize((logo, logo), Image.LANCZOS)
+    white = tint(mark, WHITE)
+    x = (164 - logo) // 2
+    y = int(314 * 0.22)
+    canvas.paste(white, (x, y), mask=white.getchannel("A"))
+    return canvas
+
+
 def main() -> None:
     global _GLYPH
 
@@ -225,6 +257,11 @@ def main() -> None:
     for suffix, size in (("", 16), ("@2x", 32)):
         tray_glyph(size).save(TRAY_OUT / f"trayTemplate{suffix}.png", "PNG")
     print("✅ assets/trayTemplate.png / @2x（macOS 菜单栏模板图）")
+
+    # ---- NSIS 安装器位图（150×57 页眉 / 164×314 侧栏，24-bit 无 alpha）----
+    installer_header_bmp(glyph).save(OUT / "installerHeader.bmp", "BMP")
+    installer_sidebar_bmp(glyph).save(OUT / "installerSidebar.bmp", "BMP")
+    print("✅ installerHeader.bmp（150×57）/ installerSidebar.bmp（164×314）")
 
 
 if __name__ == "__main__":

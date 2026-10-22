@@ -4,6 +4,7 @@ import { activityEn, activityZh } from "./locales/activity";
 import { chromeEn, chromeZh } from "./locales/chrome";
 import { gatewayEn, gatewayZh } from "./locales/gateway";
 import { settingsEn, settingsZh } from "./locales/settings";
+import { updateEn, updateZh } from "./locales/update";
 import { usageEn, usageZh } from "./locales/usage";
 
 /**
@@ -43,6 +44,7 @@ const zhCN = {
   ...usageZh,
   ...gatewayZh,
   ...settingsZh,
+  ...updateZh,
 };
 
 /** 英文缺 key 时这里会报类型错 —— 字典完整性的兜底检查。 */
@@ -53,6 +55,7 @@ const en: Record<keyof typeof zhCN, string> = {
   ...usageEn,
   ...gatewayEn,
   ...settingsEn,
+  ...updateEn,
 };
 
 /** 所有可用的 key。组件里写错 key 时 `vue-tsc` 会直接报错。 */

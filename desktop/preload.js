@@ -33,7 +33,10 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
     install: () => ipcRenderer.invoke('update:install'),
-    /** 更新偏好（目前只有 autoCheck：启动时是否自动检查）。 */
+    /** 跳过当前这个版本：自动检查不再提示它。传 null 可取消跳过。 */
+    skip: (version) => ipcRenderer.invoke('update:skip', version),
+    unskip: () => ipcRenderer.invoke('update:unskip'),
+    /** 更新偏好（autoCheck：启动时是否自动检查；skippedVersion：跳过的版本）。 */
     getPrefs: () => ipcRenderer.invoke('update:get-prefs'),
     setPrefs: (patch) => ipcRenderer.invoke('update:set-prefs', patch),
     /**
@@ -44,6 +47,15 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
       const listener = (_event, state) => handler(state);
       ipcRenderer.on('update:state', listener);
       return () => ipcRenderer.removeListener('update:state', listener);
+    },
+    /**
+     * 订阅「该弹更新弹窗」事件。与 onState 同构，返回取消订阅函数。
+     * 主进程只在窗口可见时才推这个事件；窗口在托盘里只更新 tooltip。
+     */
+    onPrompt: (handler) => {
+      const listener = (_event, payload) => handler(payload);
+      ipcRenderer.on('update:prompt', listener);
+      return () => ipcRenderer.removeListener('update:prompt', listener);
     },
   },
 });

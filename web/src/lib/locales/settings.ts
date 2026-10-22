@@ -102,9 +102,9 @@ export const settingsZh = {
 
   // ---- 版本更新（桌面端专属） ----
   "settings.update.title": "版本与更新",
-  "settings.update.subtitle": "启动时会自动检查一次，也可以随时手动查",
+  "settings.update.subtitle": "启动时会静默检查一次，也可以随时手动查",
   "settings.update.autoCheck": "启动时自动检查更新",
-  "settings.update.autoCheckDesc": "打开后启动 8 秒静默查一次，发现新版本会问你要不要下载",
+  "settings.update.autoCheckDesc": "打开后启动 8 秒静默查一次；发现新版本只在托盘和这里提示，不弹窗打断",
   "settings.update.check": "检查更新",
   "settings.update.download": "下载更新",
   "settings.update.restart": "重启并安装",
@@ -118,9 +118,13 @@ export const settingsZh = {
   "settings.update.status.checking": "正在检查更新…",
   "settings.update.status.upToDate": "已是最新版本（{version}）",
   "settings.update.status.available": "发现新版本 {version}",
+  "settings.update.status.availableSkipped": "已跳过 {version}，手动检查仍可下载",
   "settings.update.status.downloading": "正在下载更新… {percent}%",
+  "settings.update.status.downloadingDetail": "正在下载 {percent}% · {rate}/s · 剩余约 {time}",
   "settings.update.status.downloaded": "{version} 已下载完成，重启即可生效",
   "settings.update.status.error": "检查更新失败",
+  "settings.update.retry": "重试",
+  "settings.update.unskip": "取消跳过",
   "settings.update.note":
     "更新包从 GitHub Releases 获取并校验完整性。下载完成后选择「稍后」也没关系，下次退出应用时会自动安装。",
   "settings.update.envChannelValue": "GitHub Releases · Chaierss/workbuddy-trae-assist",
@@ -228,9 +232,9 @@ export const settingsEn = {
 
   // ---- Updates (desktop only) ----
   "settings.update.title": "Version & updates",
-  "settings.update.subtitle": "Checked once at launch; you can also check any time",
+  "settings.update.subtitle": "Checked silently at launch; you can also check any time",
   "settings.update.autoCheck": "Check for updates at launch",
-  "settings.update.autoCheckDesc": "When on, checks silently 8 seconds after launch and asks before downloading",
+  "settings.update.autoCheckDesc": "When on, checks silently 8 seconds after launch; new versions show up only in the tray and here, without stealing focus",
   "settings.update.check": "Check for updates",
   "settings.update.download": "Download update",
   "settings.update.restart": "Restart & install",
@@ -244,9 +248,13 @@ export const settingsEn = {
   "settings.update.status.checking": "Checking for updates…",
   "settings.update.status.upToDate": "Up to date ({version})",
   "settings.update.status.available": "Version {version} is available",
+  "settings.update.status.availableSkipped": "{version} skipped — manual checks still offer it",
   "settings.update.status.downloading": "Downloading update… {percent}%",
+  "settings.update.status.downloadingDetail": "Downloading {percent}% · {rate}/s · about {time} left",
   "settings.update.status.downloaded": "{version} downloaded — restart to apply",
   "settings.update.status.error": "Failed to check for updates",
+  "settings.update.retry": "Retry",
+  "settings.update.unskip": "Don't skip",
   "settings.update.note":
     "Packages come from GitHub Releases with integrity checks. If you pick “Later”, the update installs automatically the next time you quit the app.",
   "settings.update.envChannelValue": "GitHub Releases · Chaierss/workbuddy-trae-assist",

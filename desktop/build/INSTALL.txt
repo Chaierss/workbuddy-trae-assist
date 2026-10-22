@@ -1,0 +1,16 @@
+﻿chaierww 安装说明
+
+【常驻托盘】本软件装完会常驻系统托盘。点击窗口右上角的关闭按钮只是把窗口收进托盘，并不会退出程序——要彻底退出，右键点击托盘图标，选择「退出」。
+
+【数据位置】账号、凭据、备份、日志、网页版登录态都在：
+    %USERPROFILE%\.chaierww
+整个目录拷走就是完整迁移。升级（覆盖安装）不会动它，卸载也不会删除它。
+
+【更新偏好】「启动时是否自动检查更新」与「跳过的版本」保存在：
+    %APPDATA%\chaierww\update-prefs.json
+
+【怎么卸载】Windows 设置 → 应用 → 已安装的应用 → 找到 chaierww → 卸载。
+卸载只删除程序文件、快捷方式和开始菜单项，不会删除上面的数据目录。
+要彻底清干净，卸载后手动删除 %USERPROFILE%\.chaierww（以及需要重置更新偏好时删除 %APPDATA%\chaierww）。
+
+【许可】PolyForm Noncommercial License 1.0.0，全文见本目录 LICENSE.txt；免责声明见 DISCLAIMER.md。

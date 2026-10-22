@@ -22,6 +22,16 @@ export type DesktopUpdateStatus =
   | "downloaded"
   | "error";
 
+/** 主进程把原始错误归类后的原因，渲染层据此挑文案；原始 message 只放「详情」。 */
+export type DesktopUpdateErrorKind =
+  | ""
+  | "network"
+  | "noRelease"
+  | "download"
+  | "checksum"
+  | "disk"
+  | "unknown";
+
 export interface DesktopUpdateState {
   status: DesktopUpdateStatus;
   currentVersion: string;
@@ -30,7 +40,15 @@ export interface DesktopUpdateState {
   releaseNotes: string;
   /** 0–100，仅在 downloading / downloaded 有意义。 */
   percent: number;
-  /** status 为 error 时的原因。 */
+  /** 已下载字节数，downloading 期间有值。 */
+  transferred: number;
+  /** 总字节数，downloading 期间有值（0 = 未知）。 */
+  total: number;
+  /** 瞬时速率（字节/秒），downloading 期间有值。 */
+  bytesPerSecond: number;
+  /** 归类后的错误原因。 */
+  errorKind: DesktopUpdateErrorKind;
+  /** status 为 error 时的原始原因（英文，可能含 URL）。 */
   message: string;
   checkedAt: string | null;
 }
@@ -39,6 +57,8 @@ export interface DesktopUpdateState {
 export interface DesktopUpdatePrefs {
   /** 启动 8 秒后是否自动检查；关掉后只有手动点「检查更新」才查。 */
   autoCheck: boolean;
+  /** 用户主动跳过的版本号；null = 没跳过。 */
+  skippedVersion: string | null;
 }
 
 export interface DesktopBridge {
@@ -50,10 +70,15 @@ export interface DesktopBridge {
     check: () => Promise<DesktopUpdateState>;
     download: () => Promise<DesktopUpdateState>;
     install: () => Promise<boolean>;
+    /** 跳过某个版本；传 null 可取消跳过。 */
+    skip: (version: string | null) => Promise<DesktopUpdatePrefs>;
+    unskip: () => Promise<DesktopUpdatePrefs>;
     getPrefs: () => Promise<DesktopUpdatePrefs>;
     setPrefs: (patch: Partial<DesktopUpdatePrefs>) => Promise<DesktopUpdatePrefs>;
     /** 返回取消订阅函数，组件卸载时必须调用。 */
     onState: (handler: (state: DesktopUpdateState) => void) => () => void;
+    /** 订阅「该弹更新弹窗」事件，返回取消订阅函数。 */
+    onPrompt: (handler: (payload: { kind: string }) => void) => () => void;
   };
 }
 

@@ -83,6 +83,19 @@ function webuiDir() {
   return path.join(__dirname, '..', 'web', 'dist');
 }
 
+/**
+ * 文档目录（应用内「设置 → Wiki」读它）。
+ *
+ * 后端 `api/docs.py` 默认按 `__file__` 往上找仓库根，但 PyInstaller onefile 把源码解到
+ * 临时目录，安装版那个路径下什么都没有 —— Wiki 会永远是空的。所以打包后显式指到
+ * extraResources 打进来的 `resources/docs`；开发模式返回 null，让它继续走仓库目录。
+ */
+function docsDir() {
+  if (!app.isPackaged) return null;
+  const candidate = path.join(process.resourcesPath, 'docs');
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
 function isPortOpen(port) {
   return new Promise((resolve) => {
     const socket = net.connect(port, BACKEND_HOST);
@@ -103,6 +116,9 @@ function startBackend() {
   };
 
   const exe = backendExecutable();
+  const docs = docsDir();
+  if (docs) env.CHAIERWW_DOCS = docs;
+
   if (exe) {
     // windowsHide：控制台子系统程序默认会弹一个黑框，这里必须藏掉。
     backendProcess = spawn(exe, [], { env, stdio: 'ignore', windowsHide: true });
@@ -172,7 +188,9 @@ function createWindow() {
     title: 'chaierww',
     autoHideMenuBar: true,
     backgroundColor: '#0B0B0E',
-    icon: IS_WIN ? path.join(__dirname, 'build', 'icon.ico') : undefined,
+    // 打包后不指定 icon：`build/` 是 buildResources，不进 asar，这个路径在安装版
+    // 根本不存在；Windows 会自动用 exe 内嵌图标（由 afterPack 写入）。
+    icon: app.isPackaged || !IS_WIN ? undefined : path.join(__dirname, 'build', 'icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -248,12 +266,17 @@ function trayIcon() {
 
 function createTray() {
   tray = new Tray(trayIcon());
-  tray.setToolTip('chaierww');
-  refreshTrayMenu();
+  refreshTrayStatus();
   // Windows / Linux：左键切换窗口显示；macOS 左键弹出菜单是系统习惯，交给 setContextMenu。
   if (!IS_MAC) {
     tray.on('click', () => {
       if (!mainWindow) return;
+      // 有待处理更新且窗口藏着时，左键的意图基本就是「看看怎么了」。
+      if (hasPendingUpdate() && !mainWindow.isVisible()) {
+        showWindow();
+        sendPrompt(updateState.status);
+        return;
+      }
       if (mainWindow.isVisible()) mainWindow.hide();
       else mainWindow.show();
     });
@@ -267,17 +290,50 @@ function createTray() {
 /**
  * 托盘右键菜单。
  *
- * 故意不放「检查更新」：更新入口统一收在「设置 → 常规」里，那里能看到版本号、
- * 检查结果、下载进度和重启按钮。托盘上只留打开窗口和退出两件事。
+ * 平时只有「打开」和「退出」两项 —— 更新是一年点不了几次的事，不该常驻占一格。
+ * 只有真的有待处理更新（有新版本 / 已下载待重启）时才临时插一行，
+ * 点它就唤回窗口并弹更新弹窗。
  */
 function refreshTrayMenu() {
   if (!tray) return;
-  const menu = Menu.buildFromTemplate([
-    { label: '打开 chaierww', click: () => showWindow() },
-    { type: 'separator' },
-    { label: '退出', click: () => { quitting = true; app.quit(); } },
-  ]);
-  tray.setContextMenu(menu);
+  const items = [{ label: '打开 chaierww', click: () => showWindow() }];
+  if (hasPendingUpdate()) {
+    const label =
+      updateState.status === 'downloaded'
+        ? `重启以安装 ${updateState.version}`
+        : `查看更新 ${updateState.version}`;
+    items.push({
+      label,
+      click: () => {
+        showWindow();
+        sendPrompt(updateState.status);
+      },
+    });
+  }
+  items.push({ type: 'separator' });
+  items.push({ label: '退出', click: () => { quitting = true; app.quit(); } });
+  tray.setContextMenu(Menu.buildFromTemplate(items));
+}
+
+/**
+ * 托盘提示：平时就是应用名，有更新时带上状态。
+ *
+ * 这是窗口躲在托盘里时**唯一**能让用户察觉「有新版本 / 正在下载」的通道 ——
+ * 窗口不可见时任务栏 overlay 图标和 flashFrame 都不存在，系统通知又会被
+ * 专注助手吞掉，所以不指望那些。
+ */
+function refreshTrayStatus() {
+  if (!tray || tray.isDestroyed()) return;
+  let text = 'chaierww';
+  if (updateState.status === 'available' && !isSkipped(updateState.version)) {
+    text = `chaierww · 新版 ${updateState.version} 可下载`;
+  } else if (updateState.status === 'downloading') {
+    text = `chaierww · 正在下载 ${updateState.percent}%`;
+  } else if (updateState.status === 'downloaded') {
+    text = `chaierww · ${updateState.version} 已下载，重启生效`;
+  }
+  tray.setToolTip(text);
+  refreshTrayMenu();
 }
 
 function showWindow() {
@@ -294,7 +350,10 @@ function showWindow() {
 // 更新偏好
 // ---------------------------------------------------------------------------
 /**
- * 只有一个开关，不值得上 electron-store，直接写一个小 JSON 到 userData。
+ * 两个开关，不值得上 electron-store，直接写一个小 JSON 到 userData。
+ *
+ * `skippedVersion` 是「跳过这个版本」记住的版本号：只存字符串，发新版自然失效；
+ * 卸载/重装不影响它（在 userData 里，不在安装目录）。null 表示没跳过任何版本。
  *
  * 路径用函数延迟求值：`app.getPath()` 必须先等 app ready，模块加载时就调用会抛。
  * 读失败一律回落到默认值——配置文件坏了不该让应用起不来。
@@ -303,12 +362,15 @@ function updatePrefsPath() {
   return path.join(app.getPath('userData'), 'update-prefs.json');
 }
 
-const updatePrefs = { autoCheck: true };
+const updatePrefs = { autoCheck: true, skippedVersion: null };
 
 function loadUpdatePrefs() {
   try {
     const parsed = JSON.parse(fs.readFileSync(updatePrefsPath(), 'utf8'));
     if (typeof parsed.autoCheck === 'boolean') updatePrefs.autoCheck = parsed.autoCheck;
+    if (typeof parsed.skippedVersion === 'string' && parsed.skippedVersion.trim()) {
+      updatePrefs.skippedVersion = parsed.skippedVersion.trim();
+    }
   } catch {
     /* 首次启动没有这个文件，或内容坏了 —— 保持默认值 */
   }
@@ -319,12 +381,23 @@ function saveUpdatePrefs(patch) {
   if (patch && typeof patch.autoCheck === 'boolean') {
     updatePrefs.autoCheck = patch.autoCheck;
   }
+  // 显式传 null / 空串 = 取消跳过，所以不能用 truthy 判断。
+  if (patch && 'skippedVersion' in patch) {
+    const next = patch.skippedVersion;
+    updatePrefs.skippedVersion =
+      typeof next === 'string' && next.trim() ? next.trim() : null;
+  }
   try {
     fs.writeFileSync(updatePrefsPath(), JSON.stringify(updatePrefs, null, 2), 'utf8');
   } catch {
     /* 写不进去也不影响本次会话，下次启动回到旧值 */
   }
   return updatePrefs;
+}
+
+/** 这个版本是不是用户主动跳过的。 */
+function isSkipped(version) {
+  return Boolean(version) && updatePrefs.skippedVersion === version;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,17 +420,55 @@ const updateState = {
   version: null,
   releaseNotes: '',
   percent: 0,
+  /** 已下载字节 / 总字节 / 瞬时速率：给弹窗显示「12.3 MB / 129 MB · 2.1 MB/s」。 */
+  transferred: 0,
+  total: 0,
+  bytesPerSecond: 0,
+  /** 归类后的错误原因，渲染层据此挑文案；原始英文 message 只放在「详情」里。 */
+  errorKind: '',
   message: '',
   checkedAt: null,
-  /** 只有内部用：这一轮检查是不是用户主动点的。 */
-  manualCheck: false,
 };
+
+/**
+ * 这一轮检查是不是用户主动点的。
+ *
+ * 放在模块级而不是塞进 updateState：这个字段要从主进程推到渲染进程，但渲染端
+ * 不需要它，塞进去只会让两边的类型定义对不上。
+ */
+let manualCheck = false;
+
+/** 8 秒自动检查的定时器。留着句柄才能在退出时清掉，避免 timer 撑着事件循环。 */
+let autoCheckTimer = null;
+
+/** 下载是否在进行中，防止弹窗和设置页同时点出两次 downloadUpdate。 */
+let downloadInFlight = false;
 
 function setUpdateState(patch) {
   Object.assign(updateState, patch);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('update:state', updateState);
   }
+  refreshTrayStatus();
+}
+
+/**
+ * 把原始错误归类成人能看懂的一类。
+ *
+ * 以前的做法是把 `ERR_UPDATER_*` 加完整 URL 直接塞进弹框，用户看到一屏英文
+ * 只能得出「坏了」。归类的价值在于能给出下一步：网络问题就换网络，没发布就等，
+ * 校验失败就重下。
+ */
+function classifyError(err) {
+  const text = String((err && (err.message || err.code)) || err || '');
+  if (/net::|ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|getaddrinfo|socket hang up|ERR_INTERNET_DISCONNECTED/i.test(text)) {
+    return 'network';
+  }
+  if (/sha512|integrity|checksum/i.test(text)) return 'checksum';
+  if (/ENOSPC|EACCES|EPERM|disk full|no space/i.test(text)) return 'disk';
+  if (/404|latest\.ya?ml|Cannot find latest|not found/i.test(text)) return 'noRelease';
+  if (/download/i.test(text)) return 'download';
+  return 'unknown';
 }
 
 function releaseNotesText(info) {
@@ -370,80 +481,106 @@ function releaseNotesText(info) {
   return '';
 }
 
-async function promptDownload(info) {
-  const { response } = await dialog.showMessageBox({
-    type: 'info',
-    title: '发现新版本',
-    message: `发现 chaierww ${info.version}`,
-    detail: `当前版本 ${app.getVersion()}。是否现在下载更新？下载完成后重启即可生效。`,
-    buttons: ['立即下载', '稍后'],
-    defaultId: 0,
-    cancelId: 1,
-  });
-  if (response === 0) {
-    setUpdateState({ status: 'downloading', percent: 0 });
-    autoUpdater.downloadUpdate().catch((err) => {
-      setUpdateState({ status: 'error', message: String(err && err.message ? err.message : err) });
-    });
-  }
+/**
+ * 有没有「等着用户处理」的更新。
+ *
+ * 被跳过的版本不算：用户已经明确表示不想看到它，托盘不该继续亮着。
+ */
+function hasPendingUpdate() {
+  if (updateState.status === 'downloaded') return true;
+  if (updateState.status === 'available') return !isSkipped(updateState.version);
+  return false;
 }
 
-async function promptInstall() {
-  const { response } = await dialog.showMessageBox({
-    type: 'info',
-    title: '更新已就绪',
-    message: `chaierww ${updateState.version} 已下载完成`,
-    detail: '重启应用即可完成升级。',
-    buttons: ['立即重启', '稍后'],
-    defaultId: 0,
-    cancelId: 1,
+/** 通知渲染层「该弹更新弹窗了」。只发事件，不 show / 不 focus。 */
+function sendPrompt(kind) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('update:prompt', { kind });
+}
+
+/**
+ * 「有新版本了」要不要打扰用户。
+ *
+ * 规则：窗口在屏幕上（且没最小化）才发弹窗事件；在托盘里就只更新 tooltip 和菜单，
+ * 等用户自己点开。8 秒后的自动检查可能撞上开会、演示、全屏视频，任何时候
+ * 抢焦点都是负收益。
+ */
+function maybeNotify(kind) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow.isVisible() || mainWindow.isMinimized()) return;
+  sendPrompt(kind);
+}
+
+/** 开始下载。弹窗和设置页两个入口共用，靠 downloadInFlight 防重入。 */
+function startDownload() {
+  if (downloadInFlight) return updateState;
+  if (updateState.status !== 'available') return updateState;
+  downloadInFlight = true;
+  setUpdateState({
+    status: 'downloading',
+    percent: 0,
+    transferred: 0,
+    total: 0,
+    bytesPerSecond: 0,
+    errorKind: '',
+    message: '',
   });
-  if (response === 0) installUpdate();
+  autoUpdater
+    .downloadUpdate()
+    .catch((err) => {
+      setUpdateState({
+        status: 'error',
+        errorKind: classifyError(err),
+        message: String(err && err.message ? err.message : err),
+        checkedAt: new Date().toISOString(),
+      });
+    })
+    .finally(() => {
+      downloadInFlight = false;
+    });
+  return updateState;
 }
 
 function installUpdate() {
   quitting = true;
-  // isSilent=false 走安装向导，isForceRunAfter=true 装完自动拉起
+  // isSilent=false 走安装向导（静默装的话用户看不到进度条，也更难判断卡在哪），
+  // isForceRunAfter=true 装完自动拉起后端与窗口。
   autoUpdater.quitAndInstall(false, true);
 }
 
 async function checkForUpdates({ manual = false } = {}) {
+  manualCheck = Boolean(manual);
+
   if (!app.isPackaged) {
     setUpdateState({
       status: 'disabled',
       message: '开发模式下不检查更新（未打包的版本没有更新源）。',
     });
-    if (manual) {
-      dialog.showMessageBox({
-        type: 'info',
-        title: '检查更新',
-        message: '开发模式下不检查更新',
-        detail: '只有打包安装后的版本才会连更新源。',
-      });
-    }
+    // 手动点的时候要有反馈，否则设置页看起来「点了没反应」。
+    if (manual) sendPrompt('unavailable');
     return updateState;
   }
 
-  if (updateState.status === 'checking' || updateState.status === 'downloading') {
+  // downloaded 之后没必要再查：包已经在本地，重查只会把状态打回 checking。
+  if (
+    updateState.status === 'checking' ||
+    updateState.status === 'downloading' ||
+    updateState.status === 'downloaded'
+  ) {
     return updateState;
   }
 
-  // 记下这次是不是用户主动点的：主动查要知道「已是最新」，自动查不该弹框打扰。
-  updateState.manualCheck = Boolean(manual);
-  setUpdateState({ status: 'checking', message: '', percent: 0 });
+  setUpdateState({ status: 'checking', message: '', errorKind: '', percent: 0 });
   try {
     await autoUpdater.checkForUpdates();
   } catch (err) {
-    const message = String(err && err.message ? err.message : err);
-    setUpdateState({ status: 'error', message, checkedAt: new Date().toISOString() });
-    if (manual) {
-      dialog.showMessageBox({
-        type: 'error',
-        title: '检查更新失败',
-        message: '没能连上更新源',
-        detail: `${message}\n\n常见原因：网络不通、GitHub 被墙，或最新版本还没发布到 Releases。`,
-      });
-    }
+    setUpdateState({
+      status: 'error',
+      errorKind: classifyError(err),
+      message: String(err && err.message ? err.message : err),
+      checkedAt: new Date().toISOString(),
+    });
+    if (manual) sendPrompt('error');
   }
   return updateState;
 }
@@ -459,14 +596,18 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-available', (info) => {
+    const skipped = isSkipped(info.version);
     setUpdateState({
       status: 'available',
       version: info.version,
       releaseNotes: releaseNotesText(info),
       checkedAt: new Date().toISOString(),
+      errorKind: '',
       message: '',
     });
-    void promptDownload(info);
+    // 跳过的版本：自动检查就当没看见（不弹、不亮徽标、不改 tooltip）。
+    // 手动检查照样弹 —— 用户主动问「有没有新版」，静默反而像坏了。
+    if (!skipped || manualCheck) sendPrompt('available');
   });
 
   autoUpdater.on('update-not-available', () => {
@@ -474,23 +615,20 @@ function setupAutoUpdater() {
       status: 'up-to-date',
       version: null,
       percent: 0,
+      errorKind: '',
       checkedAt: new Date().toISOString(),
       message: '',
     });
-    if (updateState.manualCheck) {
-      dialog.showMessageBox({
-        type: 'info',
-        title: '检查更新',
-        message: '已经是最新版本',
-        detail: `当前版本 ${app.getVersion()}。`,
-      });
-    }
+    // 「已是最新」在设置卡片里已经写着，不再弹框；手动点的人看得见状态变化。
   });
 
   autoUpdater.on('download-progress', (progress) => {
     setUpdateState({
       status: 'downloading',
       percent: Math.round(progress.percent || 0),
+      transferred: progress.transferred || 0,
+      total: progress.total || 0,
+      bytesPerSecond: progress.bytesPerSecond || 0,
       message: '',
     });
   });
@@ -500,29 +638,29 @@ function setupAutoUpdater() {
       status: 'downloaded',
       version: info.version,
       percent: 100,
+      errorKind: '',
       message: '',
     });
-    void promptInstall();
+    maybeNotify('downloaded');
   });
 
   autoUpdater.on('error', (err) => {
-    const message = String(err && err.message ? err.message : err);
-    setUpdateState({ status: 'error', message, checkedAt: new Date().toISOString() });
+    const downloading = updateState.status === 'downloading';
+    setUpdateState({
+      status: 'error',
+      errorKind: classifyError(err),
+      message: String(err && err.message ? err.message : err),
+      checkedAt: new Date().toISOString(),
+    });
     // 自动检查时静默：首次启动没发版、断网都很常见，不该弹一堆框。
-    if (updateState.manualCheck) {
-      dialog.showMessageBox({
-        type: 'error',
-        title: '更新出错',
-        message: '更新过程中出错',
-        detail: message,
-      });
-    }
+    // 但「下载到一半失败」必须说 —— 用户以为在下，其实早停了。
+    if (manualCheck || downloading) maybeNotify('error');
   });
 
-  // 启动 8 秒后静默查一次；查不到就算了，查到就弹「发现新版本」。
+  // 启动 8 秒后静默查一次。查不到就算了，查到也只在托盘与设置页提示。
   // 用户可以在「设置 → 常规」里关掉自动检查，关掉后只有手动点才查。
   if (updatePrefs.autoCheck) {
-    setTimeout(() => { void checkForUpdates({ manual: false }); }, 8000);
+    autoCheckTimer = setTimeout(() => { void checkForUpdates({ manual: false }); }, 8000);
   }
 }
 
@@ -531,22 +669,35 @@ function setupAutoUpdater() {
 // ---------------------------------------------------------------------------
 ipcMain.handle('update:get', () => updateState);
 ipcMain.handle('update:check', () => checkForUpdates({ manual: true }));
-ipcMain.handle('update:download', async () => {
-  if (updateState.status !== 'available') return updateState;
-  setUpdateState({ status: 'downloading', percent: 0 });
-  try {
-    await autoUpdater.downloadUpdate();
-  } catch (err) {
-    setUpdateState({ status: 'error', message: String(err && err.message ? err.message : err) });
-  }
-  return updateState;
-});
+ipcMain.handle('update:download', async () => startDownload());
 ipcMain.handle('update:install', () => {
   if (updateState.status === 'downloaded') installUpdate();
   return true;
 });
 ipcMain.handle('update:get-prefs', () => updatePrefs);
-ipcMain.handle('update:set-prefs', (_event, patch) => saveUpdatePrefs(patch || {}));
+ipcMain.handle('update:set-prefs', (_event, patch) => {
+  const next = saveUpdatePrefs(patch || {});
+  // 开关状态变了，托盘里那行「查看更新」要跟着消失或出现。
+  refreshTrayStatus();
+  return next;
+});
+/**
+ * 跳过 / 取消跳过某个版本。
+ *
+ * 单独开两个通道而不是复用 `update:set-prefs`，是因为「跳过」在语义上是
+ * 「对当前这个版本做的决定」，让渲染层自己拼 `{skippedVersion: version}`
+ * 容易传成 undefined 而静默失败。
+ */
+ipcMain.handle('update:skip', (_event, version) => {
+  const next = saveUpdatePrefs({ skippedVersion: typeof version === 'string' ? version : null });
+  refreshTrayStatus();
+  return next;
+});
+ipcMain.handle('update:unskip', () => {
+  const next = saveUpdatePrefs({ skippedVersion: null });
+  refreshTrayStatus();
+  return next;
+});
 
 // ---------------------------------------------------------------------------
 // 应用生命周期
@@ -579,6 +730,11 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+  // 定时器不清掉的话，退出前那 8 秒内计时还在跑，可能在拆后端的同时去查更新。
+  if (autoCheckTimer) {
+    clearTimeout(autoCheckTimer);
+    autoCheckTimer = null;
+  }
   stopBackend();
 });
 

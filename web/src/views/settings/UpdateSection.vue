@@ -5,30 +5,45 @@
  * 为什么放在常规里而不是单开一个分栏：更新一年也就点几次，但「我现在是什么版本」
  * 是随时会看的。独立分栏让设置左栏多一项消耗注意力，塞进常规反而顺手。
  *
- * 这里不自己判断有没有新版本 —— 状态全由主进程的更新状态机推过来（`update:state`），
- * 前端只负责画。唯一本地状态是「自动检查」开关，它存在主进程的 userData 里。
+ * 这里不自己判断有没有新版本 —— 状态全由主进程的更新状态机推过来，经
+ * `stores/update.ts` 这个单例中转（弹窗和这张卡片看到同一份状态）。本组件
+ * 只负责画，不再自己订阅 `update:state`。
  *
- * 完整链路：启动 8 秒（可关）→ 静默查 → 有新版本弹窗问 → 下载（带进度）→
+ * 完整链路：启动 8 秒（可关）→ 静默查 → 托盘与这里提示 → 弹窗确认下载（带进度）→
  * 下载完弹窗问重启 → `quitAndInstall`。用户选「稍后」的话，退出应用时自动装上
  * （主进程 `autoInstallOnAppQuit = true`）。
  */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { AlertCircle, ArrowUpCircle, CheckCircle2, Download, Loader2, RefreshCw } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
 import { t } from "../../lib/i18n";
-import { desktop, type DesktopUpdatePrefs, type DesktopUpdateState } from "../../lib/desktop";
+import { desktop } from "../../lib/desktop";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  estimateEtaSeconds,
+  formatEta,
+  formatRate,
+  installUpdate,
+  isSkipped,
+  toggleAutoCheck,
+  unskipVersion,
+  updatePrefs,
+  updateState,
+} from "../../stores/update";
 
-const state = ref<DesktopUpdateState | null>(null);
-const prefs = ref<DesktopUpdatePrefs>({ autoCheck: true });
+const state = updateState;
+const prefs = updatePrefs;
 const busy = ref(false);
 const savingPrefs = ref(false);
-let unsubscribe: (() => void) | null = null;
 
 const updating = computed(() => {
   const status = state.value?.status;
   return status === "checking" || status === "downloading";
 });
+
+const skipped = computed(() => isSkipped(state.value?.version));
 
 const platformLabel = computed(() => {
   const platform = desktop?.platform;
@@ -49,13 +64,26 @@ const statusText = computed(() => {
     case "up-to-date":
       return t("settings.update.status.upToDate", { version: current.currentVersion });
     case "available":
+      if (skipped.value) {
+        return t("settings.update.status.availableSkipped", { version: current.version ?? "" });
+      }
       return t("settings.update.status.available", { version: current.version ?? "" });
-    case "downloading":
+    case "downloading": {
+      // 有速率数据时显示得更详细；否则退化为纯百分比。
+      if (current.bytesPerSecond > 0 && current.total > 0) {
+        return t("settings.update.status.downloadingDetail", {
+          percent: String(current.percent),
+          rate: formatRate(current.bytesPerSecond),
+          time: formatEta(estimateEtaSeconds(current)),
+        });
+      }
       return t("settings.update.status.downloading", { percent: String(current.percent) });
+    }
     case "downloaded":
       return t("settings.update.status.downloaded", { version: current.version ?? "" });
     case "error":
-      return current.message || t("settings.update.status.error");
+      // 归类后的错误由弹窗展示；卡片里只给一个简短结论，不把原始英文 message 糊上来。
+      return t("settings.update.status.error");
     default:
       return t("settings.update.status.idle");
   }
@@ -79,7 +107,7 @@ async function check(): Promise<void> {
   if (!desktop || busy.value) return;
   busy.value = true;
   try {
-    state.value = await desktop.update.check();
+    await checkForUpdates();
   } catch {
     /* 主进程查更新本身不抛，这里兜的是窗口正在关闭时 IPC 被拒的情况 */
   } finally {
@@ -89,41 +117,22 @@ async function check(): Promise<void> {
 
 async function download(): Promise<void> {
   if (!desktop) return;
-  state.value = await desktop.update.download();
+  await downloadUpdate();
 }
 
 async function install(): Promise<void> {
-  await desktop?.update.install();
+  await installUpdate();
 }
 
-async function toggleAutoCheck(): Promise<void> {
+async function toggleAuto(): Promise<void> {
   if (!desktop || savingPrefs.value) return;
   savingPrefs.value = true;
   try {
-    prefs.value = await desktop.update.setPrefs({ autoCheck: !prefs.value.autoCheck });
+    await toggleAutoCheck();
   } finally {
     savingPrefs.value = false;
   }
 }
-
-onMounted(async () => {
-  if (!desktop) return;
-  // 先订阅再拉初值：反之若某个 IPC 抛错，订阅就注册不上，之后主进程怎么推
-  // 都收不到，页面会一直停在旧状态。
-  unsubscribe = desktop.update.onState((next) => {
-    state.value = next;
-  });
-  try {
-    state.value = await desktop.update.get();
-    prefs.value = await desktop.update.getPrefs();
-  } catch {
-    /* 取不到就按默认值渲染，订阅已经挂上，主进程下一次推送会纠正 */
-  }
-});
-
-onUnmounted(() => {
-  unsubscribe?.();
-});
 </script>
 
 <template>
@@ -208,15 +217,35 @@ onUnmounted(() => {
         <span v-else class="shrink-0 text-[12px] text-muted">{{ state.percent }}%</span>
       </div>
 
+      <!-- 已跳过这个版本：给一个「取消跳过」的出口，否则用户再也想不起怎么把它找回来 -->
+      <button
+        v-if="state.status === 'available' && skipped"
+        type="button"
+        class="mt-2 text-[12px] text-brand underline-offset-2 hover:underline"
+        @click="unskipVersion"
+      >
+        {{ t("settings.update.unskip") }}
+      </button>
+
       <div v-if="state.status === 'downloading'" class="mt-2.5 h-1 overflow-hidden rounded-full bg-line">
         <div
           class="h-full rounded-full bg-brand transition-[width] duration-300"
           :style="{ width: `${state.percent}%` }"
         />
       </div>
+
+      <!-- 出错：给「重试」出口，弹窗里也有更细的归类文案 -->
+      <button
+        v-if="state.status === 'error'"
+        type="button"
+        class="mt-2 text-[12px] text-brand underline-offset-2 hover:underline"
+        @click="check"
+      >
+        {{ t("settings.update.retry") }}
+      </button>
     </div>
 
-    <!-- 自动检查开关：放在卡片里而不是另开一页，用户看到「启动时会自动检查一次」
+    <!-- 自动检查开关：放在卡片里而不是另开一页，用户看到「启动时会静默检查一次」
          这行字时手边就能关掉 -->
     <div class="mt-4 flex items-center gap-3 border-t border-line-soft pt-3.5">
       <div class="min-w-0 flex-1">
@@ -226,7 +255,7 @@ onUnmounted(() => {
       <ToggleSwitch
         :model-value="prefs.autoCheck"
         :disabled="savingPrefs"
-        @update:model-value="toggleAutoCheck"
+        @update:model-value="toggleAuto"
       />
     </div>
 

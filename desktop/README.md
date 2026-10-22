@@ -36,32 +36,35 @@
            checkForUpdates(自动)
                  │
                  ├─ 无新版本 → 静默（不打扰）
-                 └─ 有新版本 → 弹窗「发现 chaierww x.y.z，是否现在下载？」
-                                 │
-                     ┌───────────┴───────────┐
-                  「立即下载」             「稍后」
-                     │                       │
-              downloadUpdate()         什么都不做，下次退出应用时自动装
-                     │                  （autoInstallOnAppQuit）
-              download-progress ──► 设置页进度条
-                     │
-              update-downloaded ──► 弹窗「重启并安装」/ 设置页按钮
+                 └─ 有新版本 → 只更新托盘 tooltip / 侧栏小圆点 / 设置页状态
+                                  │
+                             用户点开（托盘菜单「查看更新」/ 设置页 / 手动检查）
+                                  │
+                             自绘弹窗：release notes + [立即下载][稍后][跳过此版本]
+                                  │
+                          download-progress ──► 弹窗进度 + 速率 + 剩余时间
+                                  │
+                          update-downloaded ──► 弹窗「立即重启并安装 / 稍后重启」
 ```
 
 两条入口共用这一个状态机：
 
 | 入口 | 行为 |
 | --- | --- |
-| 启动自动检查 | 查到就问；查不到 / 出错都静默（首启没发版、断网很常见，不该弹一堆框）。可在设置里关掉 |
-| 设置 → 常规 → 版本与更新 | 手动：明确告诉你「已是最新」或失败原因，带进度条和「重启并安装」 |
+| 启动自动检查 | 查到也**不弹窗**，只在托盘与设置页提示；查不到 / 出错都静默。可在设置里关掉 |
+| 设置 → 常规 → 版本与更新 | 手动：明确告诉你「已是最新」或失败原因，带进度条、速率、剩余时间和「重启并安装」 |
 
-**托盘右键菜单不再有「检查更新」**，只有「打开 chaierww」和「退出」。更新是一年点不了
-几次的操作，不该在常驻菜单里占一格。
+**弹窗是自绘的，不再用系统原生 `dialog.showMessageBox`**：原生框按钮最多两个、塞不进
+release notes、也没有进度条。现在由 `web/src/components/UpdateDialog.vue` 渲染，主进程只推
+`update:prompt` 事件。托盘有「查看更新 x.y.z」时，右键或左键点一下就能唤回窗口看弹窗。
 
-状态通过 IPC 推给渲染进程：`preload.js` 暴露 `window.chaierwwDesktop.update` 与
-`getPrefs` / `setPrefs`，前端 `views/settings/UpdateSection.vue` 渲染（它嵌在
-`GeneralTab.vue` 顶部）。状态机字段见 `main.js` 的 `updateState`，
-自动检查偏好存在 `userData/update-prefs.json`。
+**「跳过此版本」**记在 `userData/update-prefs.json` 的 `skippedVersion` 里：自动检查碰到它
+就当没看见，手动检查仍会提示（弹窗上标「你已跳过」+ 取消跳过）。
+
+状态通过 IPC 推给渲染进程：`preload.js` 暴露 `window.chaierwwDesktop.update`（含
+`skip` / `unskip` / `onPrompt`）与 `getPrefs` / `setPrefs`，前端经 `stores/update.ts`
+单例分发到 `views/settings/UpdateSection.vue` 与 `components/UpdateDialog.vue`。
+状态机字段见 `main.js` 的 `updateState`，自动检查偏好存在 `userData/update-prefs.json`。
 
 > **发布时注意**：`latest.yml` 必须和安装包一起上传到同一个 Release，且**不要改名**——
 > electron-updater 按这个文件里的 `path` 取包，名字对不上就是 404。CI
@@ -71,7 +74,7 @@
 
 | 平台 | 产物 | 更新 |
 | --- | --- | --- |
-| Windows 10 / 11 x64 | `chaierww-Setup.exe`（NSIS，免管理员） | ✅ 支持 |
+| Windows 10 / 11 x64 | `chaierww-Setup-<版本号>.exe`（NSIS，默认仅当前用户、免管理员） | ✅ 支持 |
 
 **为什么不做 macOS / Linux。** Electron 外壳是跨平台的——托盘、窗口、进程回收、更新
 都写了平台分支，安装包也能打出来。但后端只有 Windows 实现：`infra/secrets.py` 的凭据
@@ -90,13 +93,38 @@
 `main.js` 里已有的跨平台分支（mac 关窗不退、Linux 托盘依赖 `libappindicator`、
 `kill(-pid)` 收进程组等）也先留着，不是死代码。
 
-> 产物名里**不带版本号**：版本只出现在 `latest.yml` 和「设置 → 常规」里。
-> 要改回带版本，把 `build.nsis.artifactName` 改成
-> `chaierww-Setup-${version}.${ext}`，同时确认 `latest.yml` 里的 `path` 跟着变——
-> electron-updater 认的是那个字段，两边不一致就是 404。
+> 产物名**带版本号**（`chaierww-Setup-0.1.6.exe`）：手动下载时从文件名就能分清新旧，
+> 浏览器缓存 / 镜像也不会拿旧文件糊你。`latest.yml` 里的 `path` 自动跟着产物名走
+> （取的是产物 basename，不是 `artifactName` 模板），electron-updater 照常工作，
+> 不用额外维护。
 
 **PyInstaller 不能交叉编译。** 打哪个平台的包就要在哪个平台上跑，所以构建放在
 `.github/workflows/build-desktop.yml` 里；推 `v*` 标签自动构建并发版。
+
+## 安装包向导
+
+NSIS 安装器（`oneClick: false`，辅助向导）比「一键装」多了几步，但换来的是能选路径、
+能看清装到哪。相关资源都在 `build/` 下（buildResources）：
+
+| 资源 | 用途 |
+| --- | --- |
+| `build/license.txt` | 安装协议页（`MUI_PAGE_LICENSE`）。**UTF-8 带 BOM**，约 15 行中文要点 + 指向安装目录里的全文 |
+| `build/installerHeader.bmp` | 150×57，内页页眉右侧的品牌图 |
+| `build/installerSidebar.bmp` | 164×314，欢迎页/完成页左侧品牌图（卸载侧栏缺省复用） |
+| `build/INSTALL.txt` | 打进安装目录的说明：常驻托盘、数据位置、怎么卸载 |
+
+三份文件随包分发到安装目录：`LICENSE.txt`（PolyForm 全文）、`DISCLAIMER.md`（免责声明）、
+`INSTALL.txt`（`extraFiles` 配置）。协议页只放要点，完整法律文本以安装目录里的为准。
+
+`build/installer.nsh` 里的两个界面动作：
+
+- **卸载前提示**（`customUnInit` 开头）：弹一次「数据在 `~/.chaierww` 不会被删，重装会回来」，
+  允许取消。**用 `IfSilent` 而不是 LogicLib 的 `${IfNot}`**——本文件被前插在
+  `!include MUI2.nsh` 之前，LogicLib 还没进来；静默卸载（自动更新带 `/S`）绝不能弹框，
+  否则升级会永久卡住。
+- **安装完成页说明**（`MUI_FINISHPAGE_TEXT`）：写清「常驻托盘、关窗不退、数据位置、怎么卸载」，
+  补上 README 里「关闭按钮是收进托盘」这个用户最容易误解的点。
+
 
 ## 开发模式运行
 

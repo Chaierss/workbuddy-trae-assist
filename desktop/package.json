@@ -3,7 +3,7 @@
   "version": "0.1.6",
   "description": "WorkBuddy / Trae 多账号本地切换工作台（桌面端）",
   "author": "Chaierss",
-  "license": "SEE LICENSE IN ../LICENSE",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -55,6 +55,25 @@
         "from": "../web/dist",
         "to": "webui",
         "filter": ["**/*"]
+      },
+      {
+        "from": "../docs",
+        "to": "docs",
+        "filter": ["README.md", "policies/DISCLAIMER.md"]
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "../docs/policies/DISCLAIMER.md",
+        "to": "DISCLAIMER.md"
+      },
+      {
+        "from": "build/INSTALL.txt",
+        "to": "INSTALL.txt"
       }
     ],
     "win": {
@@ -73,7 +92,10 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "chaierww",
-      "artifactName": "chaierww-Setup.${ext}"
+      "artifactName": "chaierww-Setup-${version}.${ext}",
+      "license": "license.txt",
+      "installerHeader": "installerHeader.bmp",
+      "installerSidebar": "installerSidebar.bmp"
     },
     "mac": {
       "target": [

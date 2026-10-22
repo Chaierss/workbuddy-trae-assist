@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from
 import { RouterView, useRoute, useRouter } from "vue-router";
 import CommandPalette from "./CommandPalette.vue";
 import SidebarRail from "./SidebarRail.vue";
+import UpdateDialog from "./UpdateDialog.vue";
+import { initUpdateStore } from "../stores/update";
 import SettingsRail from "../views/settings/SettingsRail.vue";
 import GatewayRail from "../views/gateway/GatewayRail.vue";
 import { NAV_DESTINATIONS } from "../lib/nav";
@@ -105,7 +107,12 @@ function onShortcut(event: KeyboardEvent): void {
   goTo(target.path);
 }
 
-onMounted(() => document.addEventListener("keydown", onShortcut));
+onMounted(() => {
+  document.addEventListener("keydown", onShortcut);
+  // 更新 store 要尽早初始化：先订阅主进程的 update:state / update:prompt，再拉初值，
+  // 否则启动 8 秒后那次自动检查推来的「发现新版本」会没人接。
+  initUpdateStore();
+});
 onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
 </script>
 
@@ -131,5 +138,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
     </div>
 
     <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
+    <!-- 更新弹窗挂在壳层：不依赖任何路由，主进程一推 update:prompt 就能弹 -->
+    <UpdateDialog />
   </div>
 </template>
