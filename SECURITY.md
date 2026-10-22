@@ -84,6 +84,16 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 - **仓库内的第三方二进制**：`desktop/build/tools/rcedit-x64.exe`（打包时改 exe 资源，
   取自官方 winCodeSign-2.6.0 包，未做修改，仅 Windows 构建用）
 - **CI**：跑在 GitHub Actions 上，构建产物不签名，但附 `latest.yml` 供校验
+- **依赖漏洞告警**：GitHub 的 Dependabot 漏洞告警与「自动安全修复」都已开启。
+  前者被动提示，后者只在有真实安全公告时才开 PR，平时不会制造噪音。
+  Python 依赖见 `pyproject.toml`，前端与桌面端靠两处 `package-lock.json`，
+  合计进入依赖图约 522 个包（2026-10-22 自查时开放告警为 0）。
+- **漏洞披露通道**：仓库已开启 Private vulnerability reporting，
+  上面「报告漏洞」里的 `/security/advisories/new` 可用。若哪天入口被关，
+  按那一节的备用方案走。
+
+这几项都在仓库设置里，**代码里看不出来**，所以记在这里。换维护者或换仓库时，
+先去 Settings → Code security 确认它们还是开着的。
 
 ## 上线前自查
 
@@ -102,6 +112,9 @@ node --check desktop/main.js && node --check desktop/preload.js
 `node --check` 那行不是形式主义：桌面端的功能全部经 `preload.js` 暴露，
 **preload 里任何一行抛错，`exposeInMainWorld` 就整段不执行**，前端会把自己当成普通
 浏览器，该隐藏的桌面专属入口全部失效，而主进程日志里通常什么都看不到。
+
+命令之外还有一条要人工看：仓库 **Security → Dependabot** 里 `high` / `critical`
+告警必须为 0 才能发版。`medium` 及以下可以排期，但要知道它们存在。
 
 ### 二、危险 API 扫描
 
