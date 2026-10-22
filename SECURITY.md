@@ -41,6 +41,7 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | **备份默认不含凭据** | `GLOBAL_PARTS` 把 `gateway` / `accounts` 标为 `CREDENTIAL_PARTS`，全局备份默认只收 `config`。勾选含凭据分区要显式确认，确认后自动备份沿用该范围（见下条） |
 | **导出含凭据，必须显式确认** | `/api/accounts/export` 导出的是**解密后的明文凭据**，拿到文件即可登录这些账号。前端落盘前强制弹确认（说明明文后果 + 禁止发到群/网盘），确认一次后不再逐次打扰 |
 | **凭据只在本机闭环** | 导出包与含凭据备份都属于「等价登录态」的产物：不上传、不外发，界面一律提示只留本机 |
+| **网页版登录态也只在本机** | `domain/webview_state.py` 按账号搬客户端的 Chromium 分区，快照落在 `~/.chaierww/webview/`。cookie 由 `Local State` 里的 DPAPI 密钥加密，密钥绑当前 Windows 用户，**换台机器解不开** —— 所以它不进凭据表、不进导出包，跨机也不会跟着账号走 |
 
 ## 这些不算漏洞
 
@@ -130,11 +131,13 @@ python -c "import json;d=json.load(open('desktop/package-lock.json',encoding='ut
 [print(k,v.get('version'),'dev=',v.get('dev')) for k,v in d['packages'].items() if '<包名>' in k]"
 ```
 
-**v0.1.5 核对结论**（照这个格式每次重查，别只看告警总数）：10 条开放告警全是
-`scope=development`。其中 `builder-util-runtime` 有两套副本——顶层 9.7.0（electron-updater
+**v0.1.6 核对结论**（照这个格式每次重查，别只看告警总数）：10 条开放告警全是
+`scope=development`，涉及 `app-builder-lib`(high)、`builder-util-runtime`(high)、`tar`(high/medium)。
+其中 `builder-util-runtime` 有两套副本——顶层 9.7.0（electron-updater
 的运行时依赖，**已修复**，告警范围是 `< 9.7.0`），其余 9.2.10 副本嵌套在
 `app-builder-lib` / `electron-builder` / `dmg-builder` 等构建期包下，`dev: true`，不打包。
 `app-builder-lib < 26.15.0` 与 `tar` 同样只在 electron-builder 子树里，只影响构建机。
+按 lock 里 `dev` 字段统计，进 asar 的生产依赖共 16 个，其中没有带 high/critical 告警的版本。
 
 `medium` 及以下可以排期，但要知道它们存在。
 
@@ -192,3 +195,4 @@ G '0\.0\.0\.0'                                            # 监听地址
 | :-- | :-- | :-- |
 | v0.1.2 | 上游请求域名取自凭据里的 `host` 字段，篡改凭据文件可把 JWT 送到任意域 | `platform_api.py` 加 `TRAE_ALLOWED_HOSTS = ("trae.cn",)`，`_safe_trae_origin()` 校验 scheme 必须是 https、主机必须精确匹配或为子域，否则回落官方地址；11 组参数化用例覆盖 `evil.com`、`api.trae.cn.evil.com`、`http://` 等绕过写法 |
 | v0.1.2 | `preload.js` 在渲染进程调用 `require('electron').app`，抛错致桌面能力全线失效 | 主进程经 `webPreferences.additionalArguments` 传 `--chaierww-version=`，preload 从 `process.argv` 读取 |
+| v0.1.6 | 网页版快照把账号 `external_id` 直接拼进路径，`..` 这类形状理论上会让快照读写落到 `~/.chaierww/webview/` 之外 | `webview_state._unsafe_uid()` 拒绝 `.` / `..` / 路径分隔符 / 盘符 / NUL，`snapshot` / `restore` / `has_snapshot` / `snapshot_bytes` / `drop` 五个入口统一拦截；7 组参数化用例验证「拒绝时连快照目录都不创建」 |

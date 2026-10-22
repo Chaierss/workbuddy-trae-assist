@@ -161,3 +161,25 @@ def test_real_uids_and_purposes_survive_json_roundtrip(parts):
     payload = json.dumps([item.name for item in webview_state.discover()])
 
     assert f"wb-webview-{UID_B}-tdoc-import" in payload
+
+
+@pytest.mark.parametrize("uid", ["..", ".", "", "a/b", "a\\b", "C:evil", "x\x00y"])
+def test_unsafe_uid_never_touches_the_filesystem(parts, uid):
+    """uid 要拼进路径：`..` / 分隔符 / 盘符这类形状一律拒绝。
+
+    uid 来自账号的 external_id，正常是 UUID。这条防线不是为「正常账号」准备的，
+    而是把「拼路径先校验」这条规矩钉住：一旦上游给了奇怪的值，快照读写只会
+    变成空操作，绝不会跑到 `snapshot_root()` 之外去。
+    """
+    root, snapshots = parts
+    _make_partition(root, UID_A, "lexiang-auth")
+
+    assert webview_state.snapshot(uid) == 0
+    assert webview_state.restore(uid) == 0
+    assert webview_state.has_snapshot(uid) is False
+    assert webview_state.snapshot_bytes(uid) == 0
+    assert webview_state.drop(uid) == 0
+
+    # 快照目录一个都没建，正常账号的分区也没被误删
+    assert not snapshots.exists() or list(snapshots.iterdir()) == []
+    assert len(webview_state.discover()) == 1

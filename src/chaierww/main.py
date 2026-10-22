@@ -263,7 +263,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 两者路径冲突会让浏览器直接落到 Swagger UI 上。规格本身仍挂在 /api/openapi.json。
     app = FastAPI(
         title="chaierww",
-        version="0.1.0",
+        version="0.1.6",
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,

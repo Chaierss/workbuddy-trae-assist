@@ -158,11 +158,26 @@ def _copy_partition(src: Path, dst: Path) -> int:
     return copied
 
 
+def _unsafe_uid(uid: str) -> bool:
+    """uid 要拼进路径，所以先确认它能当「单层目录名」用。
+
+    uid 来自账号的 ``external_id``（客户端登录态解析而来），正常是 UUID。但既然
+    要拼路径，就不能接受 ``.`` / ``..`` / 带分隔符或盘符的形状 —— 这类值会让
+    ``snapshot_root() / uid`` 指到快照目录之外去（例如 ``..`` 会变成 ``~/.chaierww``）。
+    正常账号不会被这条拦到，它只是把「拼路径必须先校验」这条规矩落成代码。
+    """
+    if not uid or uid in {".", ".."}:
+        return True
+    return any(token in uid for token in ("/", "\\", ":", "\x00"))
+
+
 def snapshot(uid: str) -> int:
     """把某个 uid 的分区存到本机快照目录，返回复制的分区目录数。
 
     快照是「覆盖式」的：每次都整份重写，避免旧 cookie 与新 cookie 混在一起。
     """
+    if _unsafe_uid(uid):
+        return 0
     parts = [item for item in discover() if item.uid == uid]
     if not parts:
         return 0
@@ -178,6 +193,8 @@ def snapshot(uid: str) -> int:
 
 
 def has_snapshot(uid: str) -> bool:
+    if _unsafe_uid(uid):
+        return False
     root = snapshot_root() / uid
     if not root.is_dir():
         return False
@@ -188,6 +205,8 @@ def has_snapshot(uid: str) -> bool:
 
 def restore(uid: str) -> int:
     """把某个 uid 的快照铺回客户端分区目录，返回铺回的分区目录数。"""
+    if _unsafe_uid(uid):
+        return 0
     root = snapshot_root() / uid
     if not root.is_dir():
         return 0
@@ -208,6 +227,8 @@ def drop(uid: str) -> int:
     比空着更糟。返回删除的分区目录数。
     """
     removed = 0
+    if _unsafe_uid(uid):
+        return removed
     for item in discover():
         if item.uid != uid:
             continue
@@ -219,6 +240,8 @@ def drop(uid: str) -> int:
 
 def snapshot_bytes(uid: str) -> int:
     """快照占用的字节数（诊断用）。"""
+    if _unsafe_uid(uid):
+        return 0
     root = snapshot_root() / uid
     if not root.is_dir():
         return 0

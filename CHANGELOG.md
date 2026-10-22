@@ -218,7 +218,9 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.4...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.6
+[0.1.5]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.5
 [0.1.4]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.4
 [0.1.3]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.3
 [0.1.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.2
