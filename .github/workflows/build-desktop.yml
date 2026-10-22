@@ -1,0 +1,102 @@
+# 三平台桌面端构建。
+#
+# 为什么需要这个：PyInstaller **不能交叉编译**——Windows 上跑不出 macOS / Linux
+# 的后端二进制。所以每个平台的安装包必须在对应平台构建，这里用矩阵并行跑。
+#
+# 触发：
+#   - 推 v* 标签：构建并上传到 GitHub Releases（electron-builder --publish always）
+#   - 手动触发：只构建，产物作为 workflow artifact 下载，不发版
+name: build-desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows x64
+            builder_args: --win nsis
+          - os: macos-latest
+            label: macOS universal
+            builder_args: --mac
+          - os: ubuntu-latest
+            label: Linux x64
+            builder_args: --linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ---------- 后端依赖 ----------
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller pillow
+
+      # ---------- 前端产物 ----------
+      - name: Build web
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      # ---------- 图标 ----------
+      - name: Build icons
+        run: python desktop/scripts/build_icons.py
+
+      # ---------- 后端二进制 ----------
+      # 产物名按平台自动切换：Windows 是 chaierww-backend.exe，其它是 chaierww-backend
+      - name: Build backend binary
+        working-directory: desktop
+        run: python scripts/build_backend.py
+
+      # ---------- Electron 壳 ----------
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build installer
+        working-directory: desktop
+        env:
+          # 标签触发时才发版；手动触发只产出 artifact
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 无签名证书，跳过签名（用户首次打开需右键 → 打开）
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: >
+          npx electron-builder ${{ matrix.builder_args }}
+          --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaierww-${{ matrix.os }}
+          if-no-files-found: warn
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/latest*.yml
+

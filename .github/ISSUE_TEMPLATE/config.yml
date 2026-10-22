@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞（私密披露）
+    url: https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
+    about: 凭据处理、路径写入、网关绕过等问题请走私密渠道，不要开公开 issue
+  - name: 使用问题 / 怎么用
+    url: https://github.com/Chaierss/workbuddy-trae-assist#常见问题
+    about: 先看 README 的常见问题与「设置 → 环境」，很多问题是路径或客户端没退出

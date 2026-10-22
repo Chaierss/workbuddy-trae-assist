@@ -1,0 +1,680 @@
+@import "tailwindcss";
+
+/* 深色变体：挂在 <html data-theme> 上，由 stores/app.ts 的 applyTheme 写入。
+   只有在语义变量覆盖不到的地方（例如写死的 bg-white/80）才需要 dark: 前缀。 */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --color-canvas: #f6f7f6;
+  --color-surface: #ffffff;
+  --color-line: #e5e7e4;
+  --color-line-soft: #f0f1ef;
+  --color-ink: #1c1e1c;
+  --color-ink-soft: #4b4f4a;
+  --color-muted: #767b74;
+  --color-brand: #16a34a;
+  --color-brand-dark: #12813c;
+  --color-brand-soft: #e9f7ef;
+  --color-warn: #9a6206;
+  --color-warn-soft: #fdf3e2;
+  --color-danger: #b0322f;
+  --color-danger-soft: #fdeceb;
+  --color-info: #1f6fb2;
+  --color-info-soft: #eaf2fb;
+
+  --font-sans: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --radius-card: 14px;
+  --radius-control: 9px;
+  --radius-chip: 999px;
+  /* 卡片与浮层的阴影统一走这两档，避免各页写不同的一长串 rgba。 */
+  --shadow-card: 0 1px 2px rgba(28, 30, 28, 0.04);
+  --shadow-card-hover: 0 6px 20px -12px rgba(28, 30, 28, 0.28);
+  --shadow-float: 0 16px 48px -12px rgba(28, 30, 28, 0.28);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+/* ---------- 壳层令牌 ----------
+   三个宽度必须互相自洽：侧栏宽度与内容列偏移共用 --nav-rail-current，
+   否则收展时内容列会晚一帧、抖 1~2px。 */
+:root {
+  --sider-width: 240px; /* 沉浸式（shell）模块左栏 */
+  --nav-rail-width: 208px; /* 全局侧栏展开 */
+  --nav-rail-width-collapsed: 64px; /* 全局侧栏收起 */
+  --nav-rail-current: var(--nav-rail-width); /* 运行期由 AppShell 改写 */
+
+  --header-height: 56px;
+
+  /* 层级：浮层要压在侧栏之上、模态之下 */
+  --z-sidebar: 200;
+  --z-dropdown: 900;
+  --z-modal: 1001;
+}
+
+/* ---------- 深色主题 ----------
+   组件的配色全部走语义类（bg-surface / text-ink / border-line …），
+   所以深色只需要覆写这一组 CSS 变量，不必逐个组件写 dark: 分支。
+   选择器 = :root 伪类 + 属性，比 @theme 生成的 :root 高一档，覆写必然生效。 */
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #121413;
+  --color-surface: #1a1e1b;
+  --color-line: #2c322d;
+  --color-line-soft: #232824;
+  --color-ink: #e7eae6;
+  --color-ink-soft: #b3bab1;
+  --color-muted: #838b80;
+  --color-brand: #23a85c;
+  /* 深色下 brand-dark 同时充当「浅底上的强调文字」和「按钮 hover 底色」，
+     取值偏亮：前者保证对比度，后者是深色界面常见的「悬停变亮」反馈。 */
+  --color-brand-dark: #4fd18a;
+  --color-brand-soft: #16311f;
+  --color-warn: #dda43c;
+  --color-warn-soft: #32280f;
+  --color-danger: #e07b74;
+  --color-danger-soft: #3a1e1c;
+  --color-info: #63aee0;
+  --color-info-soft: #16293a;
+}
+
+html[data-theme="dark"] ::selection {
+  background: #2c5a3d;
+}
+
+html[data-theme="dark"] * {
+  scrollbar-color: #3b423c transparent;
+}
+html[data-theme="dark"] *::-webkit-scrollbar-thumb {
+  background: #3b423c;
+}
+
+html[data-theme="dark"] .doc-prose pre {
+  background: #1e2320;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 页面底色：极轻的顶部光晕，避免大片留白时整屏「一片死灰」。
+   颜色从主题变量混出来，深浅色自动适配，不额外维护第二套配色。 */
+.app-canvas {
+  background-image:
+    radial-gradient(
+      1100px 420px at 16% -12%,
+      color-mix(in srgb, var(--color-brand) 7%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      900px 360px at 100% -6%,
+      color-mix(in srgb, var(--color-info) 6%, transparent),
+      transparent 68%
+    );
+}
+
+/* 浮层（下拉选择、菜单）：淡入 + 轻微上移 + 缩放，让它「从按钮下面长出来」。 */
+.popover-enter-active,
+.popover-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.14s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.popover-enter-from,
+.popover-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+
+/* 键盘可达性：鼠标点击不出圈，Tab 到可交互元素时给一致的品牌色焦点环。 */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* 路由切换：只做很短的淡入 + 2px 上移，足够「换页了」，又不打断阅读。 */
+.page-enter-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.page-leave-active {
+  transition: opacity 0.08s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(3px);
+}
+.page-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active,
+  .popover-enter-active,
+  .popover-leave-active {
+    transition: none;
+  }
+  .page-enter-from,
+  .page-leave-to,
+  .popover-enter-from,
+  .popover-leave-to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: #cdebd9;
+}
+
+/* 细滚动条，避免侧栏和内容区出现粗重滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d5d8d3 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d5d8d3;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- Markdown 正文排版 ----------
+   文档页把 md 渲染成 HTML 后直接注入，这里给出与整体风格一致的排版。
+   全部走主题变量，改配色只需要动 @theme。 */
+.doc-prose {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--color-ink-soft);
+  word-break: break-word;
+}
+
+.doc-prose > :first-child {
+  margin-top: 0;
+}
+.doc-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.doc-prose h1,
+.doc-prose h2,
+.doc-prose h3,
+.doc-prose h4 {
+  color: var(--color-ink);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  scroll-margin-top: 12px;
+}
+.doc-prose h1 {
+  margin: 0 0 14px;
+  font-size: 19px;
+}
+.doc-prose h2 {
+  margin: 26px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-line-soft);
+  font-size: 15.5px;
+}
+.doc-prose h3 {
+  margin: 20px 0 8px;
+  font-size: 14px;
+}
+.doc-prose h4 {
+  margin: 16px 0 6px;
+  font-size: 13.5px;
+}
+
+.doc-prose p {
+  margin: 10px 0;
+}
+
+.doc-prose a {
+  color: var(--color-brand-dark);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-brand) 35%, transparent);
+}
+.doc-prose a:hover {
+  border-bottom-color: var(--color-brand);
+}
+
+.doc-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.doc-prose ul,
+.doc-prose ol {
+  margin: 10px 0;
+  padding-left: 22px;
+}
+.doc-prose ul {
+  list-style: disc;
+}
+.doc-prose ol {
+  list-style: decimal;
+}
+.doc-prose li {
+  margin: 4px 0;
+}
+.doc-prose li > ul,
+.doc-prose li > ol {
+  margin: 4px 0;
+}
+
+.doc-prose blockquote {
+  margin: 12px 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--color-line);
+  background: var(--color-line-soft);
+  border-radius: 0 8px 8px 0;
+  color: var(--color-muted);
+}
+.doc-prose blockquote > :first-child {
+  margin-top: 0;
+}
+.doc-prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.doc-prose code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--color-line-soft);
+  color: var(--color-ink);
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+}
+.doc-prose pre {
+  margin: 12px 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--color-line);
+  background: #fbfcfb;
+  line-height: 1.6;
+}
+.doc-prose pre code {
+  padding: 0;
+  background: none;
+  font-size: 12px;
+}
+
+.doc-prose table {
+  margin: 12px 0;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.doc-prose th,
+.doc-prose td {
+  padding: 7px 10px;
+  border: 1px solid var(--color-line);
+  text-align: left;
+  vertical-align: top;
+}
+.doc-prose th {
+  background: var(--color-line-soft);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.doc-prose hr {
+  margin: 22px 0;
+  border: 0;
+  border-top: 1px solid var(--color-line-soft);
+}
+
+.doc-prose img {
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+/* ---------- 号池「当前登录」卡面光圈 ----------
+   卡片内沿一圈缓慢流动的极光，让「现在用的是哪个号」一眼可见（替代静态竖条）。
+   颜色全部走主题变量，深浅色自动适配；`prefers-reduced-motion` 下停转、只留静态圈。 */
+@property --aurora-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.aurora-ring {
+  isolation: isolate;
+}
+
+.aurora-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--aurora-angle),
+    color-mix(in srgb, var(--color-brand) 45%, transparent) 0deg,
+    var(--color-brand) 70deg,
+    color-mix(in srgb, var(--color-info) 80%, transparent) 150deg,
+    color-mix(in srgb, var(--color-brand) 30%, transparent) 235deg,
+    color-mix(in srgb, var(--color-brand) 45%, transparent) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: aurora-spin 5s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes aurora-spin {
+  to {
+    --aurora-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-ring::before {
+    animation: none;
+  }
+}
+
+/* ---------- 号池卡片光晕 ----------
+   每张卡片外圈一圈淡淡的品牌色柔光；当前登录的卡片再叠一层扩散涟漪，
+   让「哪个号正在用」在扫一眼时就能分清。box-shadow 不受 overflow 裁剪。 */
+.card-halo {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-brand) 13%, transparent),
+    0 8px 24px -16px color-mix(in srgb, var(--color-brand) 55%, transparent);
+  transition:
+    box-shadow 0.35s ease,
+    transform 0.3s ease;
+}
+
+.card-halo:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-brand) 26%, transparent),
+    0 12px 32px -16px color-mix(in srgb, var(--color-brand) 68%, transparent);
+}
+
+.card-halo--selected {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-brand) 38%, transparent),
+    0 10px 28px -14px color-mix(in srgb, var(--color-brand) 60%, transparent);
+}
+
+.card-current {
+  animation: card-ripple 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes card-ripple {
+  0% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-brand) 45%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--color-brand) 32%, transparent),
+      0 0 26px -6px color-mix(in srgb, var(--color-brand) 62%, transparent);
+  }
+  70% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-brand) 30%, transparent),
+      0 0 0 12px color-mix(in srgb, var(--color-brand) 0%, transparent),
+      0 0 30px -8px color-mix(in srgb, var(--color-brand) 42%, transparent);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-brand) 45%, transparent),
+      0 0 0 14px color-mix(in srgb, var(--color-brand) 0%, transparent),
+      0 0 26px -6px color-mix(in srgb, var(--color-brand) 62%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-current {
+    animation: none;
+  }
+}
+
+/* ---------- 号池积分余量条 ----------
+   余量 = 剩余 / 总额。宽度用缓动过渡，条上有一道循环扫光，低于阈值时整条泛红，
+   目的是「不点开也知道这个号还剩多少」。 */
+.credit-track {
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 0.3s ease;
+}
+
+.credit-fill {
+  position: relative;
+  min-width: 6%;
+  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.credit-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 42%,
+    rgba(255, 255, 255, 0.8) 50%,
+    rgba(255, 255, 255, 0.35) 58%,
+    transparent 100%
+  );
+  transform: translateX(-120%);
+  animation: credit-sweep 2.6s ease-in-out infinite;
+}
+
+.credit-fill--normal {
+  background: linear-gradient(
+    90deg,
+    var(--color-brand),
+    color-mix(in srgb, var(--color-brand) 55%, #86efac)
+  );
+}
+
+.credit-fill--mid {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
+}
+
+.credit-fill--low {
+  background: linear-gradient(90deg, #dc2626, #f87171);
+}
+
+.credit-track--low {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #dc2626 28%, transparent),
+    0 0 14px -5px rgba(220, 38, 38, 0.55);
+}
+
+@keyframes credit-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+/* ---------- 号池「今日活动」分段进度 ----------
+   一项活动一段：绿=完成、浅绿=可自动、灰=需手动。执行中待做的段循环呼吸。 */
+.activity-seg--running {
+  background-color: color-mix(in srgb, var(--color-brand) 55%, #86efac);
+  animation: activity-pulse 1.15s ease-in-out infinite;
+}
+
+@keyframes activity-pulse {
+  0%,
+  100% {
+    background-color: color-mix(in srgb, var(--color-brand) 28%, #d9f99d);
+    opacity: 0.65;
+  }
+  50% {
+    background-color: var(--color-brand);
+    opacity: 1;
+  }
+}
+
+/* ---------- 活动页卡片内执行进度 ----------
+   一键执行是同步整批返回，前端拿不到单账号的百分比，所以用不确定态滑块：
+   只要这条在动，就说明「这个号正在执行」，避免点了没反应。 */
+.run-fill {
+  width: 38%;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-brand) 55%, #ffffff) 45%,
+    var(--color-brand) 100%
+  );
+  animation: run-slide 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes run-slide {
+  0% {
+    transform: translateX(-105%);
+  }
+  100% {
+    transform: translateX(275%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-fill {
+    width: 100%;
+    animation: none;
+  }
+}
+
+/* 执行完的积分奖励：轻轻跳一下再淡出 */
+.reward-pop {
+  animation: reward-pop 2.4s ease-out forwards;
+}
+
+@keyframes reward-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
+  14% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+  }
+  26% {
+    transform: scale(1);
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .credit-fill {
+    transition: none;
+  }
+
+  .credit-fill::after {
+    animation: none;
+    display: none;
+  }
+
+  .activity-seg--running {
+    animation: none;
+  }
+
+  .reward-pop {
+    animation: none;
+  }
+
+  .stat-tile,
+  .stat-bump,
+  .stat-dot {
+    animation: none;
+  }
+}
+
+/* ---------- 号池健康度卡片（号池总数 / 凭据可用 / …） ----------
+   数据是异步到的，直接换数字看不出「刚刚更新过」；这里让整块入场时错开浮起，
+   数字变了先滚动再轻轻跳一下，异常项点一颗会呼吸的圆点。 */
+.stat-tile {
+  animation: stat-in 0.46s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes stat-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 数字变化时的一次性脉冲：只放大不改色，避免和红/黄/绿的语义色打架 */
+.stat-bump {
+  animation: stat-bump 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes stat-bump {
+  0% {
+    transform: translateY(2px) scale(0.94);
+  }
+  45% {
+    transform: translateY(-1px) scale(1.14);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+/* 异常标记：不写数字也一眼看到「这块有问题」。颜色走 currentColor，
+   圆点本体与呼吸光圈同色，danger 只换一个 color 值。 */
+.stat-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  color: var(--color-warn);
+  background: currentColor;
+  box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent);
+  animation: stat-dot 2.2s ease-out infinite;
+}
+
+.stat-dot--danger {
+  color: var(--color-danger);
+}
+
+@keyframes stat-dot {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
+  }
+  35% {
+    box-shadow: 0 0 0 3.5px color-mix(in srgb, currentColor 22%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 3.5px transparent;
+  }
+}
+
