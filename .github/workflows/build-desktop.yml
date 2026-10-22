@@ -19,6 +19,14 @@ on:
     tags:
       - "v*"
 
+# electron-builder --publish always 要调 GitHub API 创建 Release 并上传资产。
+# 仓库的默认 GITHUB_TOKEN 是只读的，不显式要 write 就会在最后一步
+# 「creating GitHub release」时 403（Resource not accessible by integration）——
+# 安装包其实已经打好了，只是发不出去。
+# 只给 contents：写 Release 只需要这一项，不要给 workflows。
+permissions:
+  contents: write
+
 concurrency:
   group: build-desktop-${{ github.ref }}
   cancel-in-progress: true
