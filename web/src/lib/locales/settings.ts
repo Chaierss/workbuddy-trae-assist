@@ -42,12 +42,14 @@ export const settingsZh = {
   "settings.backup.credential": "含凭据",
   "settings.backup.globalEmpty":
     "还没有全局备份。勾选分区后点「立即备份」。全局备份用于换机或导出，不支持原地恢复。",
+  "settings.backup.partRemoved": "已把「{name}」移出备份范围，手动与自动备份都不再收录",
+  "settings.backup.partAdded": "已纳入「{name}」，手动与自动备份都会收录（含登录凭据）",
   "settings.backup.partConfirm":
-    "「{names}」含登录凭据。确认后它会写进备份文件，且之后的每日自动备份也会一并收录。",
+    "「{names}」含登录凭据：备份文件里会存明文，拿到备份文件等于拿到这些账号。确认后手动备份与每日自动备份都会收录它，之后不再逐次询问。",
   "settings.backup.confirmPart": "确认纳入",
-  "settings.backup.cancelPart": "取消",
+  "settings.backup.cancelPart": "不收录",
   "settings.backup.autoScopeNote":
-    "已勾选「{names}」：手动与每日自动备份都会收录它们。取消勾选即可退出这个范围。",
+    "已收录「{names}」：手动备份与每日自动备份都会写入明文凭据，备份文件请只留在本机。取消勾选即退出这个范围。",
   "settings.backup.rulesTitle": "备份说明",
   "settings.backup.rulesSubtitle": "全局备份用于换机或导出，不做原地恢复",
   "settings.backup.rule4":
@@ -165,12 +167,14 @@ export const settingsEn = {
   "settings.backup.credential": "Includes credentials",
   "settings.backup.globalEmpty":
     "No global backups yet. Pick sections, then click “Back up now”. Global backups are for migration or export and cannot be restored in place.",
+  "settings.backup.partRemoved": "“{name}” removed from backup scope — no longer included in manual or auto backups",
+  "settings.backup.partAdded": "“{name}” added: manual and auto backups will include it (with login credentials)",
   "settings.backup.partConfirm":
-    "“{names}” contains login credentials. Confirm to write it into backups — the daily auto backup will include it from now on.",
-  "settings.backup.confirmPart": "Confirm",
-  "settings.backup.cancelPart": "Cancel",
+    "“{names}” contains login credentials: the backup file will hold them in plain text, so anyone with that file effectively has these accounts. Confirm to include it in both manual and daily auto backups — you won't be asked again.",
+  "settings.backup.confirmPart": "Include it",
+  "settings.backup.cancelPart": "Don't include",
   "settings.backup.autoScopeNote":
-    "“{names}” is selected: both manual and daily auto backups will include them. Clear the checkbox to opt out.",
+    "“{names}” is included: manual and daily auto backups will write plain-text credentials. Keep backup files on this machine only. Clear the checkbox to opt out.",
   "settings.backup.rulesTitle": "Backup notes",
   "settings.backup.rulesSubtitle":
     "Global backups are for migration or export; there is no in-place restore",

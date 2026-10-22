@@ -57,24 +57,29 @@ const parts = ref<GlobalBackupPart[]>([]);
 const globalSnapshots = ref<Snapshot[]>([]);
 const selectedParts = ref<string[]>([]);
 /**
- * 待确认的含凭据分区：勾它时不立刻生效，先在界面上停一拍。
+ * 待确认的含凭据分区（可能有多个）：勾它时不立刻生效，先在界面上停一拍。
  *
  * 语义是「勾选即确认」—— 确认一次就够了，之后手动「立即备份」不再弹二次确认，
  * 自动备份也把这个范围接过去。取消勾选不需要确认，直接生效。
+ *
+ * 关键是**勾的那一下必须看得见反馈**：待确认期间复选框走 indeterminate（横杠），
+ * 否则用户勾完发现框没打勾、只在下面冒出一条字，只会以为界面坏了。
  */
-const pendingPart = ref<string | null>(null);
+const pendingParts = ref<string[]>([]);
 const globalMessage = ref<string | null>(null);
 const globalFailed = ref(false);
 
-/** 待确认分区的展示信息，用于提示文案。 */
-const pendingInfo = computed(() =>
-  parts.value.find((part) => part.key === pendingPart.value),
-);
+function isPending(key: string): boolean {
+  return pendingParts.value.includes(key);
+}
 
 /** 本次勾选里含凭据的分区，用于提示用户「自动备份也会收录」。 */
 const riskySelected = computed(() =>
   parts.value.filter((part) => part.credential && selectedParts.value.includes(part.key)),
 );
+
+/** 已收录的含凭据分区名，文案里直接念出来，别让用户对「它」猜。 */
+const riskyNames = computed(() => riskySelected.value.map((part) => part.label).join("、"));
 
 /** 备份说明只留全局备份这一条，其余讲的都是已经下线的快照恢复。 */
 const NOTES = ["settings.backup.rule4"] as const;
@@ -105,16 +110,19 @@ async function persistParts(next: string[]): Promise<void> {
 }
 
 /**
- * 勾选分区。含凭据分区不直接勾上，先进入确认态；取消勾选直接生效。
+ * 勾选分区。含凭据分区不直接勾上，先进入确认态（再点一次＝放弃，退回未选）；
+ * 取消勾选直接生效，但要留一句反馈，不然「勾掉了」和没反应长得一样。
  */
 async function togglePart(key: string): Promise<void> {
   const part = parts.value.find((item) => item.key === key);
   const selected = selectedParts.value.includes(key);
 
   if (selected) {
-    // 取消勾选不需要确认，但要同步收窄自动备份范围。
     const next = selectedParts.value.filter((item) => item !== key);
     selectedParts.value = next;
+    pendingParts.value = pendingParts.value.filter((item) => item !== key);
+    globalFailed.value = false;
+    globalMessage.value = t("settings.backup.partRemoved", { name: part?.label ?? key });
     try {
       await persistParts(next);
     } catch {
@@ -123,9 +131,15 @@ async function togglePart(key: string): Promise<void> {
     return;
   }
 
+  // 已在待确认态：再点一次视为放弃，不必非得去找「取消」按钮。
+  if (isPending(key)) {
+    cancelPart(key);
+    return;
+  }
+
   if (part?.credential) {
-    // 含凭据分区：停在确认态，等用户明确点头。
-    pendingPart.value = key;
+    // 含凭据分区：停在确认态，等用户明确点头。多个可以同时挂着。
+    pendingParts.value = [...pendingParts.value, key];
     return;
   }
 
@@ -139,21 +153,26 @@ async function togglePart(key: string): Promise<void> {
 }
 
 /** 确认纳入含凭据分区：勾上 + 写进自动备份范围。 */
-async function confirmPart(): Promise<void> {
-  const key = pendingPart.value;
-  if (!key) return;
+async function confirmPart(key: string): Promise<void> {
+  if (!isPending(key)) return;
   const next = [...selectedParts.value, key];
   try {
     await persistParts(next);
     selectedParts.value = next;
-    pendingPart.value = null;
+    pendingParts.value = pendingParts.value.filter((item) => item !== key);
+    globalFailed.value = false;
+    globalMessage.value = t("settings.backup.partAdded", {
+      name: parts.value.find((item) => item.key === key)?.label ?? key,
+    });
   } catch {
     /* 失败时保持待确认态，用户可以重试 */
   }
 }
 
-function cancelPart(): void {
-  pendingPart.value = null;
+function cancelPart(key?: string): void {
+  pendingParts.value = key
+    ? pendingParts.value.filter((item) => item !== key)
+    : [];
 }
 
 async function createGlobal(): Promise<void> {
@@ -237,74 +256,64 @@ onMounted(() => {
       </template>
 
       <div class="border-b border-line-soft px-5 py-2">
-        <label
-          v-for="part in parts"
-          :key="part.key"
-          class="flex cursor-pointer items-start gap-2.5 py-1.5"
-        >
-          <input
-            type="checkbox"
-            class="mt-0.5 size-[15px] accent-[var(--color-brand)]"
-            :checked="selectedParts.includes(part.key)"
-            @change="togglePart(part.key)"
-          />
-          <span class="min-w-0 flex-1">
-            <span class="flex items-center gap-2 text-[13px] font-medium text-ink">
-              {{ part.label }}
-              <StatusPill v-if="part.credential" tone="warn">{{ t("settings.backup.credential") }}</StatusPill>
+        <div v-for="part in parts" :key="part.key" class="py-1.5">
+          <label class="flex cursor-pointer items-start gap-2.5">
+            <!-- 待确认期间走 indeterminate（横杠）：勾下去必须看得见「已接住，等你确认」 -->
+            <input
+              type="checkbox"
+              class="mt-0.5 size-[15px] accent-[var(--color-brand)]"
+              :checked="selectedParts.includes(part.key) || isPending(part.key)"
+              :indeterminate="isPending(part.key)"
+              @change="togglePart(part.key)"
+            />
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-2 text-[13px] font-medium text-ink">
+                {{ part.label }}
+                <StatusPill v-if="part.credential" tone="warn">
+                  {{ t("settings.backup.credential") }}
+                </StatusPill>
+              </span>
+              <span class="mt-0.5 block truncate text-[11.5px] text-muted">
+                {{ part.files.join(" · ") }}
+              </span>
             </span>
-            <span class="mt-0.5 block truncate text-[11.5px] text-muted">
-              {{ part.files.join(" · ") }}
-            </span>
-          </span>
-        </label>
+          </label>
 
-        <!-- 勾含凭据分区时停一拍：确认一次，之后手动与自动备份都不再问 -->
-        <div
-          v-if="pendingPart && pendingInfo"
-          class="mt-1.5 flex items-start gap-2 rounded-[9px] bg-warn-soft px-3 py-2 text-[12px] leading-relaxed text-warn"
-        >
-          <ShieldAlert :size="14" :stroke-width="1.9" class="mt-0.5 shrink-0" />
-          <div class="min-w-0 flex-1">
-            <p>
-              {{
-                t("settings.backup.partConfirm", {
-                  names: pendingInfo.label,
-                })
-              }}
-            </p>
-            <div class="mt-1.5 flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded-[7px] bg-warn px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90"
-                @click="confirmPart"
-              >
-                {{ t("settings.backup.confirmPart") }}
-              </button>
-              <button
-                type="button"
-                class="rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:text-ink"
-                @click="cancelPart"
-              >
-                {{ t("settings.backup.cancelPart") }}
-              </button>
+          <!-- 确认块贴着被勾的那一项，而不是甩到列表底部让人看不见 -->
+          <div
+            v-if="isPending(part.key)"
+            class="mt-1.5 ml-[22px] flex items-start gap-2 rounded-[9px] bg-warn-soft px-3 py-2 text-[12px] leading-relaxed text-warn"
+          >
+            <ShieldAlert :size="14" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p>{{ t("settings.backup.partConfirm", { names: part.label }) }}</p>
+              <div class="mt-1.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded-[7px] bg-warn px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90"
+                  @click="confirmPart(part.key)"
+                >
+                  {{ t("settings.backup.confirmPart") }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:text-ink"
+                  @click="cancelPart(part.key)"
+                >
+                  {{ t("settings.backup.cancelPart") }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- 已勾了含凭据分区：告知用户自动备份也会收录，避免默默写入 -->
+        <!-- 已收录含凭据分区：把后果摆明，别用灰字糊过去 -->
         <p
-          v-else-if="riskySelected.length"
-          class="mt-1.5 flex items-start gap-2 rounded-[9px] bg-line-soft px-3 py-2 text-[11.5px] leading-relaxed text-muted"
+          v-if="riskySelected.length"
+          class="mt-1.5 flex items-start gap-2 rounded-[9px] bg-warn-soft/70 px-3 py-2 text-[11.5px] leading-relaxed text-warn"
         >
           <ShieldAlert :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
-          <span>
-            {{
-              t("settings.backup.autoScopeNote", {
-                names: riskySelected.map((part) => part.label).join("、"),
-              })
-            }}
-          </span>
+          <span>{{ t("settings.backup.autoScopeNote", { names: riskyNames }) }}</span>
         </p>
       </div>
 

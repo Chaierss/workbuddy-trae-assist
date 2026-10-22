@@ -8,8 +8,10 @@ import {
   Download,
   FileUp,
   Loader2,
+  MinusSquare,
   QrCode,
   Search,
+  Shuffle,
   Square,
   Trash2,
   UserPlus,
@@ -262,7 +264,7 @@ const dialog = reactive({
 const confirm = reactive({
   open: false,
   busy: false,
-  mode: "" as "" | "delete" | "batch-delete",
+  mode: "" as "" | "delete" | "batch-delete" | "export",
   account: null as Account | null,
 });
 
@@ -351,16 +353,68 @@ function loadMore(): void {
 
 /**
  * 全选 = 选中「当前筛选结果」的全部账号，而不是只选已渲染的那一页。
- * 这样按平台/风险筛完之后，批量刷新积分才不会漏掉没滚到的卡片。
+ * 这样按平台/风险筛完之后，批量操作才不会漏掉没滚到的卡片。
  */
 const allSelected = computed(
   () => visible.value.length > 0 && visible.value.every((item) => selectedIds.value.has(item.id)),
 );
 
+/** 半选：筛选结果里选了一部分。全选按钮据此显示「－」，否则只有勾/不勾两态看不出中间态。 */
+const someSelected = computed(
+  () => !allSelected.value && visible.value.some((item) => selectedIds.value.has(item.id)),
+);
+
+/**
+ * 选中项里落在「当前筛选结果之外」的个数。
+ *
+ * 筛选/搜索变化时不清空选择（静默丢弃用户勾的号比留着更糟），但批量删除会连它们一起删，
+ * 所以这个数字必须显式报出来，让用户自己决定要不要收敛。
+ */
+const hiddenSelectedCount = computed(() => {
+  if (!selectedIds.value.size) return 0;
+  const inView = new Set(visible.value.map((item) => item.id));
+  let hidden = 0;
+  for (const id of selectedIds.value) {
+    if (!inView.has(id)) hidden += 1;
+  }
+  return hidden;
+});
+
+/** 全选只增减当前筛选结果，不动被筛掉的选择。 */
 function toggleSelectAll(): void {
-  selectedIds.value = allSelected.value
-    ? new Set()
-    : new Set(visible.value.map((item) => item.id));
+  const next = new Set(selectedIds.value);
+  if (allSelected.value) {
+    for (const item of visible.value) next.delete(item.id);
+  } else {
+    for (const item of visible.value) next.add(item.id);
+  }
+  selectedIds.value = next;
+}
+
+/** 反选：只翻当前筛选结果里的项，被筛掉的不动。 */
+function invertSelection(): void {
+  const next = new Set(selectedIds.value);
+  for (const item of visible.value) {
+    if (next.has(item.id)) next.delete(item.id);
+    else next.add(item.id);
+  }
+  selectedIds.value = next;
+}
+
+/** 把选择收敛到当前筛选结果：要批量删除前用它排掉看不见的账号，避免误删。 */
+function keepVisibleOnly(): void {
+  const next = new Set<string>();
+  for (const item of visible.value) {
+    if (selectedIds.value.has(item.id)) next.add(item.id);
+  }
+  selectedIds.value = next;
+}
+
+/** Esc 退出选择；弹层开着时优先关弹层，不抢它的 Esc。 */
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || !selectedIds.value.size) return;
+  if (jsonDialog.open || dialog.open || confirm.open || noteDialog.open || oauthOpen.value) return;
+  clearSelection();
 }
 
 /** 顶部「号池健康度」：只用本地已有数据，不额外打上游。 */
@@ -619,13 +673,17 @@ async function loadPulse(): Promise<void> {
   }
 }
 
-onMounted(applyRefreshTimer);
+onMounted(() => {
+  applyRefreshTimer();
+  window.addEventListener("keydown", onKeydown);
+});
 onMounted(() => {
   void loadPulse();
   void loadActivityBrief();
 });
 onBeforeUnmount(() => {
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
+  window.removeEventListener("keydown", onKeydown);
 });
 
 function isCurrent(account: Account): boolean {
@@ -641,6 +699,19 @@ function showToast(message: string): void {
   (showToast as unknown as { timer?: number }).timer = window.setTimeout(() => {
     toast.value = null;
   }, 2400);
+}
+
+/**
+ * 导出前先确认一次。
+ *
+ * 导出物里是**解密后的明文登录凭据**，拿到文件等于拿到这些账号，
+ * 落到桌面/网盘/聊天附件都可能泄出去 —— 这一步不能只在 tooltip 里提一句。
+ */
+function askExport(): void {
+  if (!selectedIds.value.size) return;
+  confirm.account = null;
+  confirm.mode = "export";
+  confirm.open = true;
 }
 
 /** 导出选中的账号（含登录凭据）为 JSON 文件。 */
@@ -685,6 +756,24 @@ function looksLikeAccountBundle(content: string): boolean {
     return false;
   }
 }
+
+/**
+ * 认出导出包后预告会恢复什么。
+ *
+ * 「导入后账号显示未验证」很容易被读成「凭据没导进来」，所以在导入之前就把
+ * 「这是号池导出包 / 含 N 个账号的登录凭据」说清楚，别等用户猜。
+ */
+const detectedBundle = computed(() => {
+  const content = jsonDialog.content.trim();
+  if (!content || !looksLikeAccountBundle(content)) return null;
+  try {
+    const parsed = JSON.parse(content) as { accounts?: unknown };
+    const count = Array.isArray(parsed.accounts) ? parsed.accounts.length : 0;
+    return count > 0 ? { count } : null;
+  } catch {
+    return null;
+  }
+});
 
 async function onImport(): Promise<void> {
   importing.value = true;
@@ -763,6 +852,11 @@ function askDelete(account: Account): void {
 
 async function onConfirm(): Promise<void> {
   const account = confirm.account;
+  if (confirm.mode === "export") {
+    confirm.open = false;
+    await exportSelected();
+    return;
+  }
   if (!account && confirm.mode !== "batch-delete") return;
   confirm.busy = true;
   try {
@@ -826,10 +920,24 @@ function closeSwitchDialog(): void {
 
 const confirmText = computed(() => {
   const name = confirm.account?.displayName ?? "";
+  if (confirm.mode === "export") {
+    return {
+      title: t("accounts.export.title"),
+      message: t("accounts.export.message", { count: selectedCount.value }),
+      confirmText: t("accounts.export.confirm", { count: selectedCount.value }),
+      tone: "danger" as const,
+    };
+  }
   if (confirm.mode === "batch-delete") {
     return {
       title: t("accounts.batchDelete.title"),
-      message: t("accounts.batchDelete.message", { count: selectedCount.value }),
+      // 选择里混着被筛掉的账号时挑明数量：删掉看不见的号是最容易挨骂的误操作。
+      message: hiddenSelectedCount.value
+        ? t("accounts.batchDelete.messageHidden", {
+            count: selectedCount.value,
+            hidden: hiddenSelectedCount.value,
+          })
+        : t("accounts.batchDelete.message", { count: selectedCount.value }),
       confirmText: t("accounts.batchDelete.confirm", { count: selectedCount.value }),
       tone: "danger" as const,
     };
@@ -928,20 +1036,46 @@ const confirmText = computed(() => {
       <span class="text-[12.5px] font-medium text-ink">
         {{ t("accounts.selectedOf", { count: selectedCount, total: visible.length }) }}
       </span>
+      <span v-if="hiddenSelectedCount" class="text-[11.5px] text-warn">
+        {{ t("accounts.hiddenSelected", { count: hiddenSelectedCount }) }}
+      </span>
       <button
         type="button"
         class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark transition-colors hover:bg-surface/60"
+        :title="t('accounts.selectAllHint')"
         @click="toggleSelectAll"
       >
-        <component :is="allSelected ? Square : CheckSquare" :size="12" :stroke-width="2" />
+        <component
+          :is="allSelected ? CheckSquare : someSelected ? MinusSquare : Square"
+          :size="12"
+          :stroke-width="2"
+        />
         {{ allSelected ? t("accounts.unselectAll") : t("accounts.selectAll", { count: visible.length }) }}
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark transition-colors hover:bg-surface/60"
+        :title="t('accounts.invertHint')"
+        @click="invertSelection"
+      >
+        <Shuffle :size="12" :stroke-width="2" />
+        {{ t("accounts.invert") }}
+      </button>
+      <button
+        v-if="hiddenSelectedCount"
+        type="button"
+        class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark underline decoration-dotted transition-colors hover:bg-surface/60"
+        :title="t('accounts.keepVisibleHint')"
+        @click="keepVisibleOnly"
+      >
+        {{ t("accounts.keepVisible") }}
       </button>
       <button
         type="button"
         class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
         :disabled="exporting"
         :title="t('accounts.exportHint')"
-        @click="exportSelected"
+        @click="askExport"
       >
         <Loader2 v-if="exporting" :size="12" :stroke-width="2" class="animate-spin" />
         <Download v-else :size="12" :stroke-width="2" />
@@ -958,6 +1092,7 @@ const confirmText = computed(() => {
       <button
         type="button"
         class="ml-auto inline-flex items-center gap-1 rounded-[8px] px-2 py-1.5 text-[12px] text-muted transition-colors hover:text-ink"
+        :title="t('accounts.clearHint')"
         @click="clearSelection"
       >
         <X :size="12" :stroke-width="2" />
@@ -1014,16 +1149,37 @@ const confirmText = computed(() => {
         class="w-[132px]"
       />
 
+      <!-- 全选常驻：选中后不搬走，否则按钮会在眼前消失又从别处冒出来 -->
       <button
-        v-if="!selectedCount"
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-[13px] transition-colors disabled:opacity-60"
+        :class="
+          selectedCount
+            ? 'border-brand/40 bg-brand-soft/60 text-brand-dark'
+            : 'border-line bg-surface text-ink-soft hover:border-[#d5d8d3] hover:text-ink'
+        "
         :disabled="!visible.length"
-        :title="allSelected ? t('accounts.unselectAll') : t('accounts.selectAll', { count: visible.length })"
+        :title="t('accounts.selectAllHint')"
         @click="toggleSelectAll"
       >
-        <component :is="allSelected ? CheckSquare : Square" :size="14" :stroke-width="1.9" />
+        <component
+          :is="allSelected ? CheckSquare : someSelected ? MinusSquare : Square"
+          :size="14"
+          :stroke-width="1.9"
+        />
         {{ allSelected ? t("accounts.unselectAll") : t("accounts.selectAll", { count: visible.length }) }}
+      </button>
+
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        :disabled="!selectedCount || exporting"
+        :title="selectedCount ? t('accounts.exportHint') : t('accounts.exportNeedSelection')"
+        @click="askExport"
+      >
+        <Loader2 v-if="exporting" :size="14" :stroke-width="1.9" class="animate-spin" />
+        <Download v-else :size="14" :stroke-width="1.9" />
+        {{ exporting ? t("accounts.exporting") : t("accounts.export") }}
       </button>
 
       <button
@@ -1215,6 +1371,15 @@ const confirmText = computed(() => {
             :placeholder="t('accounts.jsonPlaceholder')"
             class="mt-3 w-full resize-y rounded-[10px] border border-line bg-surface p-3 font-mono text-[12px] leading-relaxed text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
           ></textarea>
+
+          <!-- 认出是本工具的导出包：明确告知含登录凭据，别让用户猜导入后有没有凭据 -->
+          <div
+            v-if="detectedBundle"
+            class="mt-2 flex items-start gap-2 rounded-[9px] bg-brand-soft px-3 py-2 text-[12px] leading-relaxed text-brand-dark"
+          >
+            <Download :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+            <span>{{ t("accounts.bundleDetected", { count: detectedBundle.count }) }}</span>
+          </div>
 
           <p v-if="jsonDialog.error" class="mt-2 text-[12px] text-danger">{{ jsonDialog.error }}</p>
 
