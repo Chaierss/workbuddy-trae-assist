@@ -86,8 +86,10 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 - **CI**：跑在 GitHub Actions 上，构建产物不签名，但附 `latest.yml` 供校验
 - **依赖漏洞告警**：GitHub 的 Dependabot 漏洞告警与「自动安全修复」都已开启。
   前者被动提示，后者只在有真实安全公告时才开 PR，平时不会制造噪音。
-  Python 依赖见 `pyproject.toml`，前端与桌面端靠两处 `package-lock.json`，
-  合计进入依赖图约 522 个包（2026-10-22 自查时开放告警为 0）。
+  Python 依赖见 `pyproject.toml`，前端与桌面端靠两处 `package-lock.json`。
+  **注意**：告警开关打开后 Dependabot 要几分钟到几小时才扫完第一遍，期间
+  「0 告警」是假象——本项目 2026-10-22 首次扫描实际报出 52 条（22 高危），
+  根因是 electron 33 已 EOL，升级 43 后清零。每次升级大版本后都该回来看一眼这里。
 - **漏洞披露通道**：仓库已开启 Private vulnerability reporting，
   上面「报告漏洞」里的 `/security/advisories/new` 可用。若哪天入口被关，
   按那一节的备用方案走。
