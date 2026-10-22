@@ -357,3 +357,78 @@ def test_unsupported_token_switch_is_blocked_before_backup(world):
     assert snapshots == []
     # 文件未被触碰
     assert file_hash(world["root"] / INFO) == before
+
+
+# ---------- 网页版登录态（Chromium 分区）随账号迁移 ----------
+
+UUID_A = "11111111-1111-1111-1111-111111111111"
+UUID_B = "22222222-2222-2222-2222-222222222222"
+
+
+@pytest.fixture
+def webview(tmp_path, monkeypatch):
+    """把网页版分区的三个路径指到临时目录，别碰真实的 ~/.workbuddy。"""
+    from chaierww.domain import webview_state
+
+    session = tmp_path / "session"
+    snapshots = tmp_path / "webview-snapshots"
+    monkeypatch.setattr(webview_state, "session_dir", lambda: session)
+    monkeypatch.setattr(webview_state, "partitions_dir", lambda: session / "Partitions")
+    monkeypatch.setattr(webview_state, "snapshot_root", lambda: snapshots)
+    return {"session": session, "snapshots": snapshots, "module": webview_state}
+
+
+def _make_partition(session: Path, uid: str, *, purpose: str = "lexiang-auth") -> Path:
+    """造一个最小可辨识的网页版分区：Network/Cookies 就是登录态本体。"""
+    part = session / "Partitions" / f"wb-webview-{uid}-{purpose}"
+    (part / "Network").mkdir(parents=True, exist_ok=True)
+    (part / "Network" / "Cookies").write_bytes(f"cookie-{uid}".encode())
+    return part
+
+
+def test_switch_carries_webview_state_across_accounts(world, webview):
+    """核心场景：A 在网页版登录过、B 没登录过。
+
+    切到 B：A 的分区必须先被快照下来，再清掉（留着会让网页版继续显示 A）。
+    切回 A：快照铺回去，网页版不用重新登录。
+    """
+    (world["root"] / INFO).write_bytes(info_bytes(UUID_A))
+    account_a = world["add"](UUID_A)
+    account_b = world["add"](UUID_B)
+    _make_partition(webview["session"], UUID_A)
+
+    report = world["engine"].execute(SCOPE, account_b.id)
+
+    assert report.succeeded is True
+    # A 的登录态进了本机快照
+    assert (webview["snapshots"] / UUID_A / "lexiang-auth" / "Network" / "Cookies").exists()
+    # B 没有可铺的东西 → 旧号分区被清掉，并明说「网页版需要登录一次」
+    assert not (webview["session"] / "Partitions" / f"wb-webview-{UUID_A}-lexiang-auth").exists()
+    assert any("网页版" in warning for warning in report.warnings)
+
+    report_back = world["engine"].execute(SCOPE, account_a.id)
+
+    assert report_back.succeeded is True
+    restored = (
+        webview["session"]
+        / "Partitions"
+        / f"wb-webview-{UUID_A}-lexiang-auth"
+        / "Network"
+        / "Cookies"
+    )
+    assert restored.read_bytes() == f"cookie-{UUID_A}".encode()
+    assert any("网页分区" in step.detail for step in report_back.steps)
+
+
+def test_switch_leaves_webview_alone_when_disabled(world, webview):
+    """关掉「网页版登录态迁移」后，分区一个都不该动。"""
+    (world["root"] / INFO).write_bytes(info_bytes(UUID_A))
+    account_b = world["add"](UUID_B)
+    part = _make_partition(webview["session"], UUID_A)
+
+    report = world["engine"].execute(SCOPE, account_b.id, migrate_webview=False)
+
+    assert report.succeeded is True
+    assert part.is_dir()
+    assert (part / "Network" / "Cookies").exists()
+    assert not (webview["snapshots"] / UUID_A).exists()

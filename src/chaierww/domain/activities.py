@@ -84,6 +84,7 @@ from chaierww.domain.wb_extras import (
     run_school,
     run_streak_rewards,
     run_travel,
+    run_travel_stage,
     school_headers,
 )
 from chaierww.domain.wb_tasks import ACTIONS, GrowthTaskRunner
@@ -1061,6 +1062,72 @@ class ActivitiesService:
             "results": [item.payload() for item in results],
             "summary": _summarize_results(results),
         }
+
+    def run_travel_stage(self, accounts: list[Account], *, stage: str) -> dict[str, Any]:
+        """只跑派猫猫旅行的一个阶段（depart / claim），给计划任务用。
+
+        为什么不复用 ``run()``：计划任务一天要跑两次（早上派、下午领），走整包会把
+        签到、成长任务、其它活动一起再打一遍上游 —— 又慢又容易触发风控。
+        这里只发「读状态 + 一个写动作」两次请求。
+
+        非 WorkBuddy 账号直接跳过：派猫猫是 WorkBuddy 专属活动，不是策略省略。
+        """
+        if not self._run_lock.acquire(blocking=False):
+            raise ActivityBusyError("上一次一键执行还没结束，请稍等")
+        results: list[RunResult] = []
+        try:
+            for index, account in enumerate(accounts):
+                if index:
+                    time.sleep(ACCOUNT_GAP_SECONDS)
+                results.extend(self._run_travel_one(account, stage=stage))
+        finally:
+            self._run_lock.release()
+            self.invalidate()
+        return {
+            "results": [item.payload() for item in results],
+            "summary": _summarize_results(results),
+        }
+
+    def _run_travel_one(self, account: Account, *, stage: str) -> list[RunResult]:
+        try:
+            platform = get_scope(account.scope).platform
+        except UnknownScope:
+            return []
+        if platform != "workbuddy":
+            return []
+        try:
+            credential = self._repo.current_credential(account.id)
+        except AccountNotFound:
+            return []
+        try:
+            token, uid, domain = workbuddy_credentials(credential)
+        except CredentialError as exc:
+            return [
+                self._result(
+                    account, "workbuddy.travel", "派猫猫旅行", RESULT_SKIPPED, str(exc)
+                )
+            ]
+        origin = workbuddy_origin(domain)
+        headers = workbuddy_headers(token, uid, domain)
+
+        def extra_call(
+            method: str, url: str, extra_headers: dict[str, str], body: Any = None
+        ) -> tuple[int, Any]:
+            status_code, payload, _ = _call(self._client, method, url, extra_headers, body)
+            return status_code, payload
+
+        try:
+            step = run_travel_stage(extra_call, origin, headers, stage)
+        except Exception as exc:  # noqa: BLE001 - 单项异常不炸整体
+            logger.exception("派猫猫旅行异常（%s）：%s", stage, exc)
+            return [
+                self._result(
+                    account, "workbuddy.travel", "派猫猫旅行", RESULT_FAILED, str(exc)
+                )
+            ]
+        return [
+            self._result(account, step.key, step.title, step.status, step.message, step.reward)
+        ]
 
     def _run_one(self, account: Account, *, include_growth: bool = True) -> list[RunResult]:
         try:

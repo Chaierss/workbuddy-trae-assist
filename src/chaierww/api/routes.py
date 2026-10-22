@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from chaierww.adapters.base import AdapterError, NotInstalled, NotLoggedIn, StateUnreadable
+from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import Account, CredentialState
 from chaierww.domain.accounts.repository import AccountNotFound
 from chaierww.domain.accounts.service import AccountBusyError, AccountInUseError, AccountService
@@ -187,6 +190,7 @@ class PreferencesRequest(BaseModel):
     migrateSessions: bool | None = None
     migrateProfile: bool | None = None
     migrateWorkspaces: bool | None = None
+    migrateWebview: bool | None = None
     autoBackup: bool | None = None
     autoGlobalBackup: bool | None = None
     #: 自动备份收录的分区（含凭据分区需在前端勾选确认后传）。省略 = 不修改。
@@ -557,6 +561,137 @@ def import_json(request: Request, body: JsonImportRequest) -> dict[str, Any]:
     }
 
 
+def _has_refresh_token(credential: dict[str, Any]) -> bool:
+    value = credential.get("refreshToken") or credential.get("refresh_token")
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _credential_gaps(credential: dict[str, Any]) -> list[str]:
+    """凭据缺了哪些字段。只报字段名，不回传内容。"""
+    gaps: list[str] = []
+    access = credential.get("accessToken") or credential.get("access_token")
+    if not isinstance(access, str) or not access.strip():
+        gaps.append("accessToken")
+    if not _has_refresh_token(credential):
+        gaps.append("refreshToken")
+    return gaps
+
+
+@router.get(
+    "/accounts/credential-health",
+    summary="凭据完整性体检：缺 refreshToken 的号过期后会被要求重新登录",
+    tags=["账号"],
+)
+def credential_health(request: Request) -> dict[str, Any]:
+    """列出号池里凭据有缺口的账号（合并号池口径）。
+
+    设计上只回答「这个号的凭据够不够长期用」，不返回任何 token 内容：
+    refresh token 是上游签发的，本工具补不出来，能做的只有如实告知并引导重新扫码。
+    """
+    implemented = [scope.key for scope in all_scopes() if scope.implemented]
+    repository = request.app.state.repository
+    items: list[dict[str, Any]] = []
+    try:
+        accounts = _service(request).list_merged(implemented)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    for account in accounts:
+        try:
+            kind, credential = repository.credential_record(account.id)
+        except (AccountNotFound, ValueError):
+            # 连凭据都取不出来，这本身就是最严重的缺口。
+            items.append(
+                {
+                    "accountId": account.id,
+                    "displayName": account.display_name,
+                    "scope": account.scope,
+                    "credentialKind": "",
+                    "gaps": ["credential"],
+                }
+            )
+            continue
+        gaps = _credential_gaps(credential)
+        if gaps:
+            items.append(
+                {
+                    "accountId": account.id,
+                    "displayName": account.display_name,
+                    "scope": account.scope,
+                    "credentialKind": kind,
+                    "gaps": gaps,
+                }
+            )
+
+    return {
+        "accounts": items,
+        "total": len(accounts),
+        "withGaps": len(items),
+    }
+
+
+@router.get(
+    "/diagnostics/login-state",
+    summary="登录态诊断：凭据缺口 + 网页版分区归属（只读）",
+    tags=["诊断"],
+)
+def diagnostics_login_state(request: Request) -> dict[str, Any]:
+    """把「切号后网页版用不了」这类问题的现场摊开，不做任何写入。
+
+    回答两件事：哪些账号的凭据不完整；客户端为本机哪些账号建过网页版分区
+    （分区名里的 uid 就是账号 id）。有分区的号网页版能直接用，没分区的号需要
+    在网页版登录一次 —— 后者以前完全没有地方能看出来。
+    """
+    partitions = webview_state.discover()
+    per_uid: dict[str, dict[str, Any]] = {}
+    for item in partitions:
+        entry = per_uid.setdefault(item.uid, {"uid": item.uid, "purposes": [], "bytes": 0})
+        entry["purposes"].append(item.purpose)
+        entry["bytes"] += webview_state.partition_bytes(item.path)
+
+    snapshots = []
+    if webview_state.snapshot_root().is_dir():
+        with contextlib.suppress(OSError):
+            snapshots = [
+                {
+                    "uid": path.name,
+                    "bytes": webview_state.snapshot_bytes(path.name),
+                    "hasData": webview_state.has_snapshot(path.name),
+                }
+                for path in webview_state.snapshot_root().iterdir()
+                if path.is_dir()
+            ]
+
+    try:
+        accounts = _service(request).list_merged(
+            [scope.key for scope in all_scopes() if scope.implemented]
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    return {
+        "sessionDir": str(webview_state.session_dir()),
+        "partitionsDir": str(webview_state.partitions_dir()),
+        "snapshotRoot": str(webview_state.snapshot_root()),
+        "webview": {
+            "partitionCount": len(partitions),
+            "uids": sorted(per_uid.values(), key=lambda item: item["uid"]),
+        },
+        "snapshots": sorted(snapshots, key=lambda item: item["uid"]),
+        "accounts": [
+            {
+                "accountId": account.id,
+                "displayName": account.display_name,
+                "scope": account.scope,
+                "externalId": account.external_id,
+                "hasWebviewPartition": account.external_id in per_uid,
+            }
+            for account in accounts
+        ],
+    }
+
+
+
 @router.post(
     "/accounts/export",
     summary="导出选中账号（含登录凭据，可再用 JSON 导入恢复）",
@@ -594,6 +729,9 @@ def export_accounts(request: Request, body: AccountExportRequest) -> dict[str, A
                 "note": account.note,
                 "credentialKind": kind,
                 "credential": credential,
+                # 导出包里有凭据 ≠ 导回去能长期用：缺 refresh token 的号照样会被要求重新登录。
+                # 前端据此在确认弹窗里提前说清楚，别让用户导完才发现。
+                "refreshTokenMissing": not _has_refresh_token(credential),
             }
         )
 
@@ -914,13 +1052,45 @@ def account_stats(request: Request, scope: str) -> dict[str, Any]:
     }
 
 
-@router.get("/accounts/recycle-bin", summary="列出回收站中的账号", tags=["账号"])
-def recycle_bin(request: Request, scope: str) -> dict[str, Any]:
+@router.get(
+    "/accounts/recycle-bin",
+    summary="列出回收站中的账号（scope 不传=合并号池口径）",
+    tags=["账号"],
+)
+def recycle_bin(request: Request, scope: str | None = None) -> dict[str, Any]:
+    """回收站列表。
+
+    `scope` 改为可选：号池页是合并号池，拿不到单一平台，以前必须传 scope 导致这个
+    接口在界面上根本无法调用。剩余天数由后端算，前端不再重复做日期运算。
+    """
+    recycle_days = int(getattr(request.app.state.settings, "recycle_days", 30))
     try:
         accounts = _service(request).list_recycle_bin(scope)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
-    return {"accounts": [_account_payload(a) for a in accounts if a.is_deleted]}
+    return {
+        "accounts": [
+            {
+                **_account_payload(account),
+                "daysLeft": _recycle_days_left(account.deleted_at, recycle_days),
+            }
+            for account in accounts
+        ]
+    }
+
+
+def _recycle_days_left(deleted_at: str | None, limit: int) -> int:
+    """距自动清理还剩几天。算不出来就按「满额」处理 —— 宁可多给几天，不要虚报已过期。"""
+    if not deleted_at:
+        return limit
+    try:
+        removed = datetime.fromisoformat(deleted_at.replace("Z", "+00:00"))
+    except ValueError:
+        return limit
+    if removed.tzinfo is None:
+        removed = removed.replace(tzinfo=UTC)
+    elapsed = (datetime.now(UTC) - removed).days
+    return max(0, limit - elapsed)
 
 
 @router.patch("/accounts/{account_id}/note", summary="修改账号备注", tags=["账号"])
@@ -989,6 +1159,7 @@ def switch(request: Request, body: SwitchRequest) -> dict[str, Any]:
             migrate_sessions=prefs.migrate_sessions,
             migrate_profile=prefs.migrate_profile,
             migrate_workspaces=prefs.migrate_workspaces,
+            migrate_webview=prefs.migrate_webview,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -1047,6 +1218,7 @@ def _report_payload(report: Any) -> dict[str, Any]:
         "error": report.error,
         "rollbackFailed": report.rollback_failed,
         "migration": report.migration,
+        "warnings": list(getattr(report, "warnings", ())),
         "steps": [{"step": s.step, "ok": s.ok, "detail": s.detail} for s in report.steps],
         "plan": (
             {
@@ -1228,6 +1400,7 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
         migrate_sessions=pick(body.migrateSessions, current.migrate_sessions),
         migrate_profile=pick(body.migrateProfile, current.migrate_profile),
         migrate_workspaces=pick(body.migrateWorkspaces, current.migrate_workspaces),
+        migrate_webview=pick(body.migrateWebview, current.migrate_webview),
         auto_backup=pick(body.autoBackup, current.auto_backup),
         auto_global_backup=pick(body.autoGlobalBackup, current.auto_global_backup),
         auto_global_parts=(

@@ -73,6 +73,18 @@ export const chromeZh = {
   "migrate.profile.desc": "合并源账号的身份/偏好文档与客户端界面状态（按行/键去重）。",
   "migrate.workspaces.title": "工作区与项目元数据",
   "migrate.workspaces.desc": "把源账号的工作区列表并集到目标账号，切换后能看到原来的工作区。",
+  "migrate.webview.title": "网页版登录态",
+  "migrate.webview.desc":
+    "切换时把源账号的网页版登录态（客户端内嵌浏览器的分区）一并换过来，切完不用在网页版重新登录。",
+  "webview.title": "网页版登录态",
+  "webview.subtitle": "客户端按账号存的网页版登录态；这里只读展示归属，不改任何文件。",
+  "webview.summary": "本机 {partitions} 个网页版分区，{covered}/{total} 个 WorkBuddy 账号有登录态。",
+  "webview.loading": "正在读取…",
+  "webview.unavailable": "读不到诊断信息。",
+  "webview.error": "诊断失败：{reason}",
+  "webview.refresh": "重新检测",
+  "webview.missingHint": "以下 {count} 个账号在本机还没有网页版登录态，切过去后网页版需要登录一次：",
+  "webview.allCovered": "号池里的 WorkBuddy 账号都有网页版登录态，切号后网页版可以直接用。",
   "migrate.footnote":
     "关闭「切换时迁移」里的某一项后，切换账号只替换登录态，不再复制该块数据。保活与签到的执行时点与抖动在「计划任务」里配置，执行结果在活动页可见。",
 };
@@ -152,6 +164,22 @@ export const chromeEn = {
   "migrate.workspaces.title": "Workspaces and project metadata",
   "migrate.workspaces.desc":
     "Union the previous account's workspace list into the target so the same workspaces stay visible.",
+  "migrate.webview.title": "Web sign-in state",
+  "migrate.webview.desc":
+    "Carry the source account's web sign-in state (the embedded browser partitions) across when switching, so the web view doesn't ask you to sign in again.",
+  "webview.title": "Web sign-in state",
+  "webview.subtitle":
+    "The client stores web sign-in state per account; this read-only view shows the mapping without touching any file.",
+  "webview.summary":
+    "{partitions} web partitions on this machine — {covered}/{total} WorkBuddy accounts have sign-in state.",
+  "webview.loading": "Reading…",
+  "webview.unavailable": "Diagnostics unavailable.",
+  "webview.error": "Diagnostics failed: {reason}",
+  "webview.refresh": "Recheck",
+  "webview.missingHint":
+    "These {count} accounts have no web sign-in state on this machine; after switching, the web view will ask you to sign in once:",
+  "webview.allCovered":
+    "Every WorkBuddy account in the pool has web sign-in state — the web view works right after switching.",
   "migrate.footnote":
     "Turning an item off only stops that block from being copied — the switch still replaces the login state. Keep-alive and check-in timings live under Scheduled tasks, and results appear on the Activity page.",
 };

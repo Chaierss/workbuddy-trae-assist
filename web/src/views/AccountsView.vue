@@ -2,14 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
+  AlertTriangle,
   CheckSquare,
   ClipboardPaste,
   Coins,
   Download,
   FileUp,
+  History,
   Loader2,
   MinusSquare,
   QrCode,
+  RotateCcw,
   Search,
   Shuffle,
   Square,
@@ -31,8 +34,10 @@ import {
   type Account,
   type ActivityBrief,
   type ClientSlot,
+  type CredentialHealth,
   type MigrationPreview,
   type OverviewPulse,
+  type RecycleBinAccount,
   type SwitchReport,
 } from "../api";
 import {
@@ -268,6 +273,85 @@ const confirm = reactive({
   account: null as Account | null,
 });
 
+/* ---------- 回收站 ---------- */
+
+/**
+ * 删除是软删除：确认框里写了「保留 30 天，期间可以恢复」，
+ * 那这里就必须真有一个能点进去的入口，否则那句承诺等于空话。
+ */
+const recycle = reactive({
+  open: false,
+  busy: false,
+  loaded: false,
+  error: "",
+  items: [] as RecycleBinAccount[],
+});
+
+async function loadRecycleBin(): Promise<void> {
+  recycle.busy = true;
+  recycle.error = "";
+  try {
+    const body = await api.recycleBin();
+    recycle.items = body.accounts;
+    recycle.loaded = true;
+  } catch (error) {
+    recycle.error = (error as Error).message;
+  } finally {
+    recycle.busy = false;
+  }
+}
+
+function openRecycle(): void {
+  recycle.open = true;
+  void loadRecycleBin();
+}
+
+/** 恢复一个账号：凭据没被删过，所以恢复后可以直接切号，不必重新扫码。 */
+async function restoreFromRecycle(item: RecycleBinAccount): Promise<void> {
+  recycle.busy = true;
+  try {
+    await api.restoreAccount(item.id);
+    showToast(t("accounts.recycle.restored", { name: item.displayName }));
+    await Promise.all([loadRecycleBin(), refreshAll()]);
+  } catch (error) {
+    showToast((error as Error).message);
+  } finally {
+    recycle.busy = false;
+  }
+}
+
+/* ---------- 凭据体检 ---------- */
+
+/**
+ * 只报「缺字段」的账号（目前是缺 refresh token）。
+ * 这类账号能切号、能导出，但 token 一过期就要重新扫码 —— 早说比晚说好。
+ */
+const credentialHealth = ref<CredentialHealth | null>(null);
+
+async function loadCredentialHealth(): Promise<void> {
+  try {
+    credentialHealth.value = await api.credentialHealth();
+  } catch {
+    // 体检失败不影响号池，顶多不显示这条提示。
+    credentialHealth.value = null;
+  }
+}
+
+const gapAccounts = computed(() => credentialHealth.value?.accounts ?? []);
+
+/** 缺口账号的名字，最多列 3 个，剩下的折成「等 N 个」。 */
+const gapNames = computed(() => {
+  const names = gapAccounts.value.map((item) => item.displayName);
+  if (names.length <= 3) return names.join("、");
+  return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
+});
+
+/** 选中项里凭据残缺的个数：导出确认里点明它，免得用户以为导出的是完整登录态。 */
+const selectedGapCount = computed(() => {
+  if (!selectedIds.value.size) return 0;
+  return gapAccounts.value.filter((item) => selectedIds.value.has(item.accountId)).length;
+});
+
 const visible = computed(() => {
   const key = keyword.value.trim().toLowerCase();
   let list = accounts.value;
@@ -412,7 +496,13 @@ function keepVisibleOnly(): void {
 
 /** Esc 退出选择；弹层开着时优先关弹层，不抢它的 Esc。 */
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Escape" || !selectedIds.value.size) return;
+  if (event.key !== "Escape") return;
+  // 回收站是普通弹层，Esc 直接关它，别顺手把底下的选择也清了。
+  if (recycle.open) {
+    recycle.open = false;
+    return;
+  }
+  if (!selectedIds.value.size) return;
   if (jsonDialog.open || dialog.open || confirm.open || noteDialog.open || oauthOpen.value) return;
   clearSelection();
 }
@@ -680,6 +770,9 @@ onMounted(() => {
 onMounted(() => {
   void loadPulse();
   void loadActivityBrief();
+  // 回收站只在打开弹层时才需要明细，但按钮上的角标要有数，所以启动时拉一次。
+  void loadRecycleBin();
+  void loadCredentialHealth();
 });
 onBeforeUnmount(() => {
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
@@ -762,14 +855,20 @@ function looksLikeAccountBundle(content: string): boolean {
  *
  * 「导入后账号显示未验证」很容易被读成「凭据没导进来」，所以在导入之前就把
  * 「这是号池导出包 / 含 N 个账号的登录凭据」说清楚，别等用户猜。
+ *
+ * `gapCount` 是包里**自带**的缺口标记（导出时就写进每条 `refreshTokenMissing`）。
+ * 有了它，「导入后还是要重新登录」这件事在导入前就能被看见，不用等用户自己撞上。
  */
 const detectedBundle = computed(() => {
   const content = jsonDialog.content.trim();
   if (!content || !looksLikeAccountBundle(content)) return null;
   try {
     const parsed = JSON.parse(content) as { accounts?: unknown };
-    const count = Array.isArray(parsed.accounts) ? parsed.accounts.length : 0;
-    return count > 0 ? { count } : null;
+    if (!Array.isArray(parsed.accounts)) return null;
+    const entries = parsed.accounts as Array<{ refreshTokenMissing?: unknown }>;
+    if (!entries.length) return null;
+    const gapCount = entries.filter((item) => item?.refreshTokenMissing === true).length;
+    return { count: entries.length, gapCount };
   } catch {
     return null;
   }
@@ -782,6 +881,7 @@ async function onImport(): Promise<void> {
     const result = await api.importAccount();
     showToast(result.created ? t("accounts.importedNew") : result.restored ? t("accounts.importedRestored") : t("accounts.importedUpdated"));
     await refreshAll();
+    void loadCredentialHealth();
   } catch (error) {
     showToast((error as Error).message);
   } finally {
@@ -807,12 +907,15 @@ async function onJsonImport(): Promise<void> {
           : t("accounts.importBundleDone", { imported: result.imported }),
       );
       await refreshAll();
+      // 新导进来的号凭据是否完整，只有体检接口知道；立刻刷一次别让用户等。
+      void loadCredentialHealth();
       return;
     }
     const result = await api.importJsonAccount(content);
     showToast(result.created ? t("accounts.importedNew") : result.restored ? t("accounts.importedRestored") : t("accounts.importedUpdated"));
     jsonDialog.open = false;
     await refreshAll();
+    void loadCredentialHealth();
   } catch (error) {
     showToast((error as Error).message);
   } finally {
@@ -873,6 +976,8 @@ async function onConfirm(): Promise<void> {
       clearSelection();
       showToast(failed ? t("accounts.deletePartial", { success: ids.length - failed, failed }) : t("accounts.deletedCount", { count: ids.length }));
       await refreshAll();
+      // 刚删的号就在回收站里，角标要立刻反映出来，否则「去哪恢复」无从点起。
+      void loadRecycleBin();
       confirm.open = false;
       return;
     }
@@ -880,6 +985,7 @@ async function onConfirm(): Promise<void> {
     await api.deleteAccount(account.id);
     showToast(t("accounts.deleted"));
     await refreshAll();
+    void loadRecycleBin();
     confirm.open = false;
   } catch (error) {
     showToast((error as Error).message);
@@ -921,9 +1027,15 @@ function closeSwitchDialog(): void {
 const confirmText = computed(() => {
   const name = confirm.account?.displayName ?? "";
   if (confirm.mode === "export") {
+    // 选中里混着缺 refresh token 的账号时，把「导出也解决不了重新登录」当场讲明。
+    const base = t("accounts.export.message", { count: selectedCount.value });
+    // 文案自带换行前缀，这里只拼内容。
+    const gaps = selectedGapCount.value
+      ? t("accounts.exportGap", { count: selectedGapCount.value })
+      : "";
     return {
       title: t("accounts.export.title"),
-      message: t("accounts.export.message", { count: selectedCount.value }),
+      message: base + gaps,
       confirmText: t("accounts.export.confirm", { count: selectedCount.value }),
       tone: "danger" as const,
     };
@@ -968,6 +1080,20 @@ const confirmText = computed(() => {
       >
         {{ importing ? t("accounts.importing") : t("accounts.poolIn") }}
       </button>
+    </div>
+
+    <!-- 凭据缺口：能切号但 token 一过期就要重登。早说清楚，别等用户撞上 -->
+    <div
+      v-if="gapAccounts.length"
+      class="mb-3 flex items-start gap-2 rounded-[var(--radius-card)] border border-warn/30 bg-warn-soft px-4 py-2.5 text-[12.5px] leading-relaxed text-warn"
+    >
+      <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+      <div class="min-w-0 flex-1">
+        <p>{{ t("accounts.credential.gapBanner", { count: gapAccounts.length }) }}</p>
+        <p class="mt-0.5 text-[11.5px] opacity-85">
+          {{ gapNames }} · {{ t("accounts.credential.gapBannerHint") }}
+        </p>
+      </div>
     </div>
 
     <div class="flex items-start justify-between gap-4">
@@ -1039,19 +1165,7 @@ const confirmText = computed(() => {
       <span v-if="hiddenSelectedCount" class="text-[11.5px] text-warn">
         {{ t("accounts.hiddenSelected", { count: hiddenSelectedCount }) }}
       </span>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark transition-colors hover:bg-surface/60"
-        :title="t('accounts.selectAllHint')"
-        @click="toggleSelectAll"
-      >
-        <component
-          :is="allSelected ? CheckSquare : someSelected ? MinusSquare : Square"
-          :size="12"
-          :stroke-width="2"
-        />
-        {{ allSelected ? t("accounts.unselectAll") : t("accounts.selectAll", { count: visible.length }) }}
-      </button>
+      <!-- 全选只在工具栏放一个；这里重复会让「选中共几个」和「再点一次全选」挤在一起 -->
       <button
         type="button"
         class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark transition-colors hover:bg-surface/60"
@@ -1220,6 +1334,28 @@ const confirmText = computed(() => {
         <ClipboardPaste :size="14" :stroke-width="1.9" />
         {{ t("accounts.jsonImport") }}
       </button>
+
+      <!-- 删除确认框承诺「保留 30 天可恢复」，这里就是那个恢复入口 -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3.5 py-2 text-[13px] transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        :class="recycle.items.length ? 'text-ink-soft' : 'text-muted hover:text-ink-soft'"
+        :title="
+          recycle.items.length
+            ? t('accounts.recycle.countHint', { count: recycle.items.length })
+            : t('accounts.recycle.openHint')
+        "
+        @click="openRecycle"
+      >
+        <History :size="14" :stroke-width="1.9" />
+        {{ t("accounts.recycle.open") }}
+        <span
+          v-if="recycle.items.length"
+          class="rounded-full bg-line-soft px-1.5 py-px text-[11px] text-ink-soft"
+        >
+          {{ recycle.items.length }}
+        </span>
+      </button>
     </div>
 
     <div v-if="riskFilter" class="mt-3 flex items-center gap-2 text-[12px] text-ink-soft">
@@ -1381,6 +1517,15 @@ const confirmText = computed(() => {
             <span>{{ t("accounts.bundleDetected", { count: detectedBundle.count }) }}</span>
           </div>
 
+          <!-- 导出包里自带的缺口标记：导入前就说清「这几个过期要重登」 -->
+          <div
+            v-if="detectedBundle && detectedBundle.gapCount"
+            class="mt-2 flex items-start gap-2 rounded-[9px] bg-warn-soft/70 px-3 py-2 text-[12px] leading-relaxed text-warn"
+          >
+            <AlertTriangle :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+            <span>{{ t("accounts.importBundleGap", { count: detectedBundle.gapCount }) }}</span>
+          </div>
+
           <p v-if="jsonDialog.error" class="mt-2 text-[12px] text-danger">{{ jsonDialog.error }}</p>
 
           <div class="mt-4 flex justify-end gap-2">
@@ -1400,6 +1545,90 @@ const confirmText = computed(() => {
               {{ jsonDialog.busy ? t("accounts.importing") : t("accounts.import") }}
             </button>
           </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 回收站：软删除的账号在这里放 30 天，期间可恢复到号池 -->
+    <Teleport to="body">
+      <div
+        v-if="recycle.open"
+        class="fixed inset-0 z-[500] flex items-center justify-center bg-black/30 p-6"
+        @click.self="recycle.open = false"
+      >
+        <div
+          class="w-full max-w-[560px] rounded-[14px] border border-line bg-surface p-5 shadow-[0_16px_48px_-12px_rgba(28,30,28,0.28)]"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-[15px] font-semibold text-ink">{{ t("accounts.recycle.title") }}</h2>
+              <p class="mt-1 text-[12px] leading-relaxed text-muted">
+                {{ t("accounts.recycle.desc") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="shrink-0 rounded-[8px] p-1 text-muted transition-colors hover:bg-line-soft hover:text-ink"
+              @click="recycle.open = false"
+            >
+              <X :size="15" :stroke-width="2" />
+            </button>
+          </div>
+
+          <p v-if="recycle.error" class="mt-3 text-[12px] text-danger">
+            {{ t("accounts.recycle.loadFailed", { reason: recycle.error }) }}
+          </p>
+
+          <div
+            v-else-if="recycle.busy && !recycle.items.length"
+            class="mt-4 flex items-center justify-center gap-2 py-8 text-[12.5px] text-muted"
+          >
+            <Loader2 :size="14" :stroke-width="2" class="animate-spin" />
+            {{ t("accounts.recycle.busy") }}
+          </div>
+
+          <div
+            v-else-if="!recycle.items.length"
+            class="mt-4 rounded-[10px] border border-dashed border-line bg-line-soft/40 px-4 py-10 text-center"
+          >
+            <p class="text-[12.5px] text-ink-soft">{{ t("accounts.recycle.empty") }}</p>
+            <p class="mt-1 text-[11.5px] text-muted">{{ t("accounts.recycle.emptyHint") }}</p>
+          </div>
+
+          <ul v-else class="mt-3 max-h-[336px] space-y-1.5 overflow-y-auto pr-1">
+            <li
+              v-for="item in recycle.items"
+              :key="item.id"
+              class="flex items-center gap-2.5 rounded-[10px] border border-line px-3 py-2"
+            >
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="truncate text-[12.5px] text-ink">{{ item.displayName }}</span>
+                  <span
+                    class="shrink-0 rounded-[5px] bg-line-soft px-1.5 py-px text-[10.5px] text-muted"
+                  >
+                    {{ platformLabel(item.platform) }}
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] text-muted">
+                  {{
+                    item.daysLeft > 0
+                      ? t("accounts.recycle.daysLeft", { days: item.daysLeft })
+                      : t("accounts.recycle.dueToday")
+                  }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-brand/30 bg-brand-soft px-2.5 py-1.5 text-[12px] font-medium text-brand-dark transition-colors hover:bg-brand-soft/70 disabled:opacity-60"
+                :disabled="recycle.busy"
+                @click="restoreFromRecycle(item)"
+              >
+                <RotateCcw :size="12" :stroke-width="2" />
+                {{ t("accounts.recycle.restore") }}
+              </button>
+            </li>
+          </ul>
         </div>
       </div>
     </Teleport>

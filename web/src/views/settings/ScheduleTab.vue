@@ -6,7 +6,9 @@ import {
   HeartPulse,
   Play,
   RotateCcw,
+  Send,
   Sparkles,
+  PackageCheck,
   Timer,
 } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
@@ -44,6 +46,16 @@ const META: Record<string, TaskMeta> = {
     titleKey: "schedule.activityRunTitle",
     descKey: "schedule.activityRunDesc",
     icon: Sparkles,
+  },
+  travel_depart: {
+    titleKey: "schedule.travelDepartTitle",
+    descKey: "schedule.travelDepartDesc",
+    icon: Send,
+  },
+  travel_claim: {
+    titleKey: "schedule.travelClaimTitle",
+    descKey: "schedule.travelClaimDesc",
+    icon: PackageCheck,
   },
 };
 

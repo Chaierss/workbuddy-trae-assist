@@ -36,8 +36,17 @@ export const accountsZh = {
   "accounts.export.message":
     "将导出 {count} 个账号解密后的登录凭据（明文）。\n\n拿到这个文件的人可以直接登录这些账号，不需要再扫码或验证。\n\n请只存在本机，不要发到群里、网盘或聊天附件。",
   "accounts.export.confirm": "我已知悉，导出 {count} 个",
+  "accounts.exportGap": "\n\n其中 {count} 个账号的凭据缺 refresh token，导入到别的机器后一旦 token 过期就得重新扫码。",
+  "accounts.credential.gapBadge": "凭据不完整",
+  "accounts.credential.gapHint":
+    "这个账号的凭据缺 {fields}，本次切换现在能用，但 token 过期后会要求重新登录。",
+  "accounts.credential.gapBanner":
+    "{count} 个账号的凭据不完整（缺 refresh token），现在能切号，但 token 过期后要重新扫码登录。",
+  "accounts.credential.gapBannerHint": "导出这些账号时也会缺同样的字段，换机器导入后同样会要求重新登录。",
   "accounts.bundleDetected":
     "识别为号池导出包：{count} 个账号，含登录凭据，导入后可直接使用。导入后状态标为「未验证」，切换一次即确认可用。",
+  "accounts.importBundleGap":
+    "其中 {count} 个账号的凭据缺 refresh token：导入后能立刻切号，但 token 过期后仍然要重新扫码登录。这是导出时它们本身就不完整，不是导入漏了。",
   "accounts.importBundleDone": "已从导出包恢复 {imported} 个账号（含登录凭据，切换一次即确认可用）",
   "accounts.importBundlePartial": "已恢复 {imported} 个账号（含登录凭据），{failed} 个失败",
   "accounts.poolIn": "一键入池",
@@ -72,14 +81,29 @@ export const accountsZh = {
   "accounts.importedUpdated": "账号已更新",
   "accounts.delete.title": "删除账号",
   "accounts.delete.message":
-    "「{name}」将被移入回收站，保留 30 天，期间可以恢复。\n\n本机已保存的凭据会一起删除。",
+    "「{name}」将被移入回收站，保留 30 天。\n\n登录凭据不会立刻删除：这 30 天里在「回收站」点恢复就能直接用回来；到期被清理时才连凭据一起删掉。",
   "accounts.delete.confirm": "移入回收站",
   "accounts.batchDelete.title": "批量删除账号",
   "accounts.batchDelete.message":
-    "已选中的 {count} 个账号将被移入回收站，保留 30 天，期间可以恢复。\n\n本机已保存的凭据会一起删除。",
+    "已选中的 {count} 个账号将被移入回收站，保留 30 天。\n\n登录凭据不会立刻删除，期间在「回收站」里可以恢复；到期清理时才连凭据一起删掉。",
   "accounts.batchDelete.messageHidden":
-    "已选中的 {count} 个账号将被移入回收站，其中 {hidden} 个已被筛选/搜索隐藏，列表里看不到。\n\n本机已保存的凭据会一起删除。",
+    "已选中的 {count} 个账号将被移入回收站，其中 {hidden} 个已被筛选/搜索隐藏，列表里看不到。\n\n登录凭据不会立刻删除，期间在「回收站」里可以恢复；到期清理时才连凭据一起删掉。",
   "accounts.batchDelete.confirm": "删除 {count} 个",
+  "accounts.recycle.title": "回收站",
+  "accounts.recycle.desc":
+    "删除的账号在这里保留 30 天，期间点「恢复」就能回到号池。到期后账号和登录凭据一起清理，不可找回。",
+  "accounts.recycle.empty": "回收站是空的。",
+  "accounts.recycle.emptyHint": "在号池里删除的账号会先放到这里，30 天后才真正清理。",
+  "accounts.recycle.busy": "正在读取回收站…",
+  "accounts.recycle.restore": "恢复",
+  "accounts.recycle.restored": "已恢复「{name}」",
+  "accounts.recycle.daysLeft": "还剩 {days} 天",
+  "accounts.recycle.dueToday": "今天到期",
+  "accounts.recycle.deletedAt": "{time} 删除",
+  "accounts.recycle.open": "回收站",
+  "accounts.recycle.openHint": "查看已删除的账号（保留 30 天，可恢复）",
+  "accounts.recycle.countHint": "回收站里有 {count} 个账号",
+  "accounts.recycle.loadFailed": "回收站读取失败：{reason}",
   "accounts.fileTooLarge": "文件超过 5 MB，请确认选的是登录态文件而非别的数据。",
   "accounts.fileEmpty": "文件是空的，没有可导入的内容。",
   "accounts.fileReadFailed": "读取文件失败，请换一个文件或直接粘贴内容。",
@@ -269,8 +293,19 @@ export const accountsEn = {
   "accounts.export.message":
     "This exports the decrypted login credentials (in plain text) of {count} accounts.\n\nAnyone who gets this file can sign in as those accounts — no QR scan or verification needed.\n\nKeep it on this machine only. Do not send it to a group chat, cloud drive, or chat attachment.",
   "accounts.export.confirm": "I understand — export {count}",
+  "accounts.exportGap":
+    "\n\n{count} of them have credentials without a refresh token — after importing on another machine they will need a fresh QR sign-in once the token expires.",
+  "accounts.credential.gapBadge": "Incomplete credentials",
+  "accounts.credential.gapHint":
+    "This account's credentials are missing {fields}. Switching works for now, but you'll be asked to sign in again once the token expires.",
+  "accounts.credential.gapBanner":
+    "{count} accounts have incomplete credentials (no refresh token). Switching works for now, but a new QR sign-in will be required once the token expires.",
+  "accounts.credential.gapBannerHint":
+    "Exporting them carries the same gap — importing on another machine will ask for sign-in too.",
   "accounts.bundleDetected":
     "Recognized as an account bundle: {count} accounts with login credentials, ready to use after import. They will be marked “unverified” until you switch to them once.",
+  "accounts.importBundleGap":
+    "{count} of them have credentials without a refresh token: they work right after import, but once the token expires you will need a fresh QR sign-in. Their credentials were already incomplete when exported — the import did not drop anything.",
   "accounts.importBundleDone":
     "Restored {imported} accounts from the bundle (with login credentials — switch once to confirm they work)",
   "accounts.importBundlePartial": "Restored {imported} accounts (with credentials); {failed} failed",
@@ -316,6 +351,22 @@ export const accountsEn = {
   "accounts.batchDelete.messageHidden":
     "The {count} selected accounts will be moved to the trash for 30 days. {hidden} of them are hidden by the current filter/search and are not visible in the list.\n\nCredentials saved on this machine will be deleted too.",
   "accounts.batchDelete.confirm": "Delete {count}",
+  "accounts.recycle.title": "Trash",
+  "accounts.recycle.desc":
+    "Deleted accounts stay here for 30 days — press Restore to put one back in the pool. After that the account and its credentials are purged for good.",
+  "accounts.recycle.empty": "The trash is empty.",
+  "accounts.recycle.emptyHint":
+    "Accounts you delete in the pool land here first; nothing is purged until 30 days have passed.",
+  "accounts.recycle.busy": "Loading the trash…",
+  "accounts.recycle.restore": "Restore",
+  "accounts.recycle.restored": "Restored “{name}”",
+  "accounts.recycle.daysLeft": "{days} days left",
+  "accounts.recycle.dueToday": "Expires today",
+  "accounts.recycle.deletedAt": "Deleted {time}",
+  "accounts.recycle.open": "Trash",
+  "accounts.recycle.openHint": "View deleted accounts (kept 30 days, restorable)",
+  "accounts.recycle.countHint": "{count} accounts in the trash",
+  "accounts.recycle.loadFailed": "Couldn't load the trash: {reason}",
   "accounts.fileTooLarge":
     "The file is over 5 MB — make sure it's a login-state file and not other data.",
   "accounts.fileEmpty": "The file is empty; there's nothing to import.",

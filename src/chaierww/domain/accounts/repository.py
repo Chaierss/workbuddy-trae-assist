@@ -227,12 +227,15 @@ class AccountRepository:
         scope: str,
         *,
         include_deleted: bool = False,
+        only_deleted: bool = False,
         query: str | None = None,
     ) -> list[Account]:
         require_implemented(scope)
         sql = "SELECT * FROM accounts WHERE scope = ?"
         params: list[object] = [scope]
-        if not include_deleted:
+        if only_deleted:
+            sql += " AND deleted_at IS NOT NULL"
+        elif not include_deleted:
             sql += " AND deleted_at IS NULL"
         if query:
             sql += " AND (display_name LIKE ? OR note LIKE ?)"
@@ -248,6 +251,7 @@ class AccountRepository:
         scopes: list[str] | tuple[str, ...],
         *,
         include_deleted: bool = False,
+        only_deleted: bool = False,
         query: str | None = None,
     ) -> list[Account]:
         """跨作用域读取：合并号池用。
@@ -262,7 +266,9 @@ class AccountRepository:
         placeholders = ",".join("?" for _ in scopes)
         sql = f"SELECT * FROM accounts WHERE scope IN ({placeholders})"
         params: list[object] = list(scopes)
-        if not include_deleted:
+        if only_deleted:
+            sql += " AND deleted_at IS NOT NULL"
+        elif not include_deleted:
             sql += " AND deleted_at IS NULL"
         if query:
             sql += " AND (display_name LIKE ? OR note LIKE ?)"

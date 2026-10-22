@@ -24,6 +24,27 @@ export interface Account {
   deletedAt: string | null;
 }
 
+/** 回收站里的一条：软删除的账号 + 后端算好的剩余保留天数。 */
+export interface RecycleBinAccount extends Account {
+  /** 距 30 天清理还剩几天（后端按 `recycle_days` 算，前端不重复算日期）。 */
+  daysLeft: number;
+}
+
+/** 单个账号的凭据缺口。只报字段名，界面上据此提示「需要重新扫码」。 */
+export interface CredentialGap {
+  accountId: string;
+  displayName: string;
+  scope: string;
+  credentialKind: string;
+  gaps: string[];
+}
+
+export interface CredentialHealth {
+  accounts: CredentialGap[];
+  total: number;
+  withGaps: number;
+}
+
 /** 单个账号的导出物：凭据是解密后的明文，等价于登录态本身。 */
 export interface AccountBundleEntry {
   scope: string;
@@ -32,6 +53,8 @@ export interface AccountBundleEntry {
   note: string;
   credentialKind: string;
   credential: Record<string, unknown>;
+  /** 这份凭据缺 refresh token：导进去照样会在 token 过期后被要求重新登录。 */
+  refreshTokenMissing?: boolean;
 }
 
 /** `/api/accounts/export` 的产物，可直接下载成 .json 再导回来。 */
@@ -373,6 +396,8 @@ export interface SwitchReport {
   error: string | null;
   rollbackFailed: boolean;
   steps: StepOutcome[];
+  /** 切成功了但这套凭据有先天缺陷（例如缺 refresh token），必须展示给用户。 */
+  warnings?: string[];
   plan: {
     requiresAppExit: boolean;
     warnings: string[];
@@ -493,12 +518,38 @@ export interface Preferences {
   migrateProfile: boolean;
   /** 切换时把源账号的工作区与项目元数据并集到目标账号。 */
   migrateWorkspaces: boolean;
+  /** 切换时把源账号的网页版登录态（Chromium 分区）换到目标账号，切完不用重登。 */
+  migrateWebview: boolean;
   /** 每日自动备份，默认开启；每个客户端只留最近 7 份快照。界面已无开关。 */
   autoBackup: boolean;
   /** 每日自动做一份全局备份（默认分区，不含凭据），默认开启。开关在设置 → 备份页。 */
   autoGlobalBackup: boolean;
   /** 自动备份收录的分区；勾选含凭据分区并确认后会随之更新。 */
   autoGlobalParts: string[];
+}
+
+/**
+ * 登录态诊断：凭据缺口 + 网页版分区归属，**只读**。
+ *
+ * 「切号后网页版还得重登」这类问题以前没有任何地方能看出来：分区名里带账号 uid，
+ * 有分区的号网页版能直接用，没分区的号必须在网页版登录一次。
+ */
+export interface LoginStateDiagnostics {
+  sessionDir: string;
+  partitionsDir: string;
+  snapshotRoot: string;
+  webview: {
+    partitionCount: number;
+    uids: Array<{ uid: string; purposes: string[]; bytes: number }>;
+  };
+  snapshots: Array<{ uid: string; bytes: number; hasData: boolean }>;
+  accounts: Array<{
+    accountId: string;
+    displayName: string;
+    scope: string;
+    externalId: string;
+    hasWebviewPartition: boolean;
+  }>;
 }
 
 /** 一个计划任务：保活 / 签到 / 全部活动。 */
@@ -984,6 +1035,20 @@ export const api = {
 
   /** 合并号池：所有已实现作用域的账号合成一张表，平台在 account.platform 里。 */
   mergedAccounts: () => request<{ accounts: Account[] }>("/api/accounts/merged"),
+
+  /** 凭据体检：只返回有缺口的账号（缺 refresh token 之类），不含任何凭据内容。 */
+  credentialHealth: () =>
+    request<CredentialHealth>("/api/accounts/credential-health"),
+
+  /** 登录态诊断：网页版分区归属 + 凭据缺口，纯读。 */
+  loginStateDiagnostics: () => request<LoginStateDiagnostics>("/api/diagnostics/login-state"),
+
+  /** 回收站：已软删除、还没到 30 天清理期的账号。 */
+  recycleBin: () =>
+    request<{ accounts: RecycleBinAccount[] }>("/api/accounts/recycle-bin"),
+
+  restoreAccount: (accountId: string) =>
+    request<Account>(`/api/accounts/${accountId}/restore`, { method: "POST" }),
 
   /** 各账号积分余额与到期时间（按 accountId 索引）。refresh=true 绕过缓存。 */
   credits: (refresh = false, accountIds?: string[]) => {

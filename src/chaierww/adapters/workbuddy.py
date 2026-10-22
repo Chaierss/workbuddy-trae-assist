@@ -58,6 +58,51 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _parse_expires_at(value: object) -> int | None:
+    """把各种形态的过期时间统一成毫秒时间戳；认不出来就返回 None。
+
+    上游/旧工具给过的形态至少三种：毫秒整数、秒整数、ISO 字符串。
+    统一不了的宁可返回 None —— 调用方据此**不写** ``expiresIn``，
+    而不是像以前那样写 0（0 等于告诉客户端「这个 token 已经过期」）。
+    """
+    if isinstance(value, bool):  # bool 是 int 的子类，先挡掉
+        return None
+    if isinstance(value, (int, float)):
+        number = int(value)
+        if number <= 0:
+            return None
+        # 10 位是秒、13 位是毫秒；更小的当秒处理（2001 年前的秒级时间戳不现实）。
+        return number if number >= 100_000_000_000 else number * 1000
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.isdigit():
+            return _parse_expires_at(int(text))
+        with contextlib.suppress(ValueError):
+            from datetime import datetime
+
+            return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp() * 1000)
+    return None
+
+
+def credential_gaps(account: dict) -> list[str]:
+    """这个凭据缺了什么，缺的东西会直接导致切过去之后被要求重新登录。
+
+    只报缺口，不替用户补：refresh token 是上游签发的，本工具造不出来。
+    """
+    gaps: list[str] = []
+    access = account.get("accessToken") or account.get("access_token")
+    if not isinstance(access, str) or not access.strip():
+        gaps.append("accessToken")
+    refresh = account.get("refreshToken") or account.get("refresh_token")
+    if not isinstance(refresh, str) or not refresh.strip():
+        gaps.append("refreshToken")
+    if _parse_expires_at(account.get("expiresAt") or account.get("expires_at")) is None:
+        gaps.append("expiresAt")
+    return gaps
+
+
 def _local_appdata() -> Path:
     raw = os.environ.get("LOCALAPPDATA")
     if not raw:
@@ -81,7 +126,11 @@ def default_paths() -> WorkBuddyPaths:
         for c in (
             Path(override) if override else None,
             _local_appdata() / "Programs" / "WorkBuddy" / "WorkBuddy.exe",
-            Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "WorkBuddy" / "WorkBuddy.exe",
+            (
+                Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
+                / "WorkBuddy"
+                / "WorkBuddy.exe"
+            ),
         )
         if c is not None
     )
@@ -441,13 +490,19 @@ class WorkBuddyAdapter:
         obj["domain"] = account.get("domain") or ""
         obj["lastRefreshTime"] = _now_ms()
         obj.setdefault("scope", "openid profile offline_access email")
-        expires_at = account.get("expiresAt") or account.get("expires_at")
-        if isinstance(expires_at, int):
+        # 过期时间只写能确定的：以前缺 expiresAt 时写 0，等于明说「已经过期」，
+        # 客户端读到就会立刻要求重新登录 —— 这是「导入/切号后还要登录」的直接原因。
+        # 认不出来就整段省略，把判断权交回客户端。
+        expires_at = _parse_expires_at(account.get("expiresAt") or account.get("expires_at"))
+        if expires_at is not None:
             obj["expiresAt"] = expires_at
             obj["expiresIn"] = max(0, (expires_at - _now_ms()) // 1000)
-        else:
-            obj.setdefault("expiresIn", 0)
-            obj.setdefault("refreshExpiresIn", 0)
+        refresh_expires = _parse_expires_at(
+            account.get("refreshExpiresAt") or account.get("refresh_expires_at")
+        )
+        if refresh_expires is not None:
+            obj["refreshExpiresAt"] = refresh_expires
+            obj["refreshExpiresIn"] = max(0, (refresh_expires - _now_ms()) // 1000)
         obj.setdefault("notBeforePolicy", 0)
         obj.setdefault("sessionState", "")
         return obj

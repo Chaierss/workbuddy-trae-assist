@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from chaierww.adapters.base import AdapterError, PlatformAdapter, SwitchPlan
+from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountRepository
 from chaierww.domain.backup import BackupError, BackupService, Snapshot
@@ -74,6 +75,24 @@ def decode_payload(credential: dict[str, Any]) -> DecodedPayload:
     raise SwitchError("凭据格式不受支持，请重新导入该账号")
 
 
+def _credential_warnings(payload: DecodedPayload, scope: str) -> tuple[str, ...]:
+    """切过去之前先看这套凭据能不能**长期**用。
+
+    `oauth-token` 是明文 token：缺 refresh token 就意味着一到 access token 过期就
+    必然被踢回登录页，而且本工具补不出来（refresh token 由上游签发）。这种事只告警、
+    不拦着切 —— 当下这个 token 可能还能用几小时，拦下来反而更糟。
+    """
+    if payload.format != "oauth-token" or payload.account is None:
+        return ()
+    refresh = payload.account.get("refreshToken") or payload.account.get("refresh_token")
+    if isinstance(refresh, str) and refresh.strip():
+        return ()
+    return (
+        "该账号的凭据没有 refresh token：access token 过期后无法自动续期，"
+        "届时会要求重新登录。建议用「扫码登录」重新添加一次以补齐凭据。",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class StepOutcome:
     step: str
@@ -93,6 +112,9 @@ class SwitchReport:
     rollback_failed: bool = False
     plan: SwitchPlan | None = None
     migration: dict[str, Any] | None = None
+    #: 切成功了但这套凭据有先天缺陷（缺 refresh token 之类）。
+    #: 不拦着切，但要如实说出来 —— 否则用户过几小时被踢回登录页，完全不知道为什么。
+    warnings: tuple[str, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -231,11 +253,13 @@ class SwitchEngine:
         migrate_sessions: bool = True,
         migrate_profile: bool = True,
         migrate_workspaces: bool = True,
+        migrate_webview: bool = True,
     ) -> SwitchReport:
         with self._lock:
             adapter = self._adapter(scope, slot)
             account = self._load_target(scope, account_id)
             payload = decode_payload(self._repo.current_credential(account_id))
+            warnings = list(_credential_warnings(payload, scope))
             run = _Run()
             job_id = uuid.uuid4().hex
             started = now_iso()
@@ -300,6 +324,18 @@ class SwitchEngine:
 
             source_external_id = self._current_external_id(adapter)
 
+            # 2.5 保存「切走前那个账号」的网页版登录态。
+            #     客户端里乐享/文档/频道应用跑在按账号隔离的 Chromium 分区
+            #     （Partitions/wb-webview-<uid>-*）。不存这一份，下次切回来网页版就是空的。
+            #     客户端此刻已退出，分区文件不会被占用；失败不阻断切号。
+            if migrate_webview and scope == "workbuddy-cn" and source_external_id:
+                try:
+                    saved = webview_state.snapshot(source_external_id)
+                    if saved:
+                        run.add("保存网页版登录态", True, f"已保存 {saved} 个网页分区")
+                except OSError as exc:
+                    run.add("保存网页版登录态", False, f"保存失败（不影响切号）：{exc}")
+
             # 3. 备份（失败即中止，不写入）
             try:
                 snapshot = self._backups.create(
@@ -343,6 +379,29 @@ class SwitchEngine:
                     failed_step="校验", reason="回读内容与目标账号不一致",
                 )
             run.add("校验", True, "回读确认已切换为目标账号")
+
+            # 4.2 铺开目标账号的网页版登录态。
+            #     有快照 → 铺回去，网页版跟着切号走；
+            #     没快照 → 清掉旧账号的分区，否则网页版继续显示上一个身份，比空着更糟。
+            #     两种情况都只影响网页版，失败一律不阻断切号。
+            if migrate_webview and scope == "workbuddy-cn":
+                try:
+                    restored = webview_state.restore(account.external_id)
+                    if restored:
+                        run.add("网页版登录态", True, f"已恢复 {restored} 个网页分区")
+                    elif source_external_id and source_external_id != account.external_id:
+                        webview_state.drop(source_external_id)
+                        run.add(
+                            "网页版登录态",
+                            False,
+                            "该账号在本机没有网页版登录态，已清掉旧账号残留；网页版需要登录一次",
+                        )
+                        warnings.append(
+                            "该账号在本机还没有网页版登录态：客户端网页版（乐享/文档等）"
+                            "需要登录一次，之后切走再切回会自动保持。"
+                        )
+                except OSError as exc:
+                    run.add("网页版登录态", False, f"迁移失败（不影响切号）：{exc}")
 
             # 4.5 数据迁移：账号切换成功后，把源账号的记忆/连接器/会话迁移到目标账号。
             #     仅 WorkBuddy 有对应本地数据（Trae 无）。迁移失败不阻断切换（切换已成功）。
@@ -392,6 +451,7 @@ class SwitchEngine:
                 steps=tuple(run.steps),
                 snapshot_id=snapshot.id,
                 migration=migration,
+                warnings=tuple(warnings),
             )
 
     def _rollback_and_report(

@@ -70,8 +70,16 @@ def write_schedules(path: Path, payload: dict[str, Any]) -> None:
 
 
 #: 任务键。语义见 `main.py` 的执行体：keepalive = 保活探测；checkin = 只签到；
-#: activity_run = 全部可自动活动（含成长任务）。
-TASK_KEYS: tuple[str, ...] = ("keepalive", "checkin", "activity_run")
+#: activity_run = 全部可自动活动（含成长任务）；
+#: travel_depart / travel_claim = 派猫猫旅行「只派出」/「只回领」两个独立动作。
+#: 拆成两个任务是因为派出后猫要在路上待一段时间，同一次执行里做不完两件事。
+TASK_KEYS: tuple[str, ...] = (
+    "keepalive",
+    "checkin",
+    "activity_run",
+    "travel_depart",
+    "travel_claim",
+)
 
 #: 抖动的可选半径（分钟）。实际偏移在 `[-n, +n]` 内确定性派生。
 JITTER_CHOICES: tuple[int, ...] = (0, 5, 15, 30)
@@ -89,6 +97,9 @@ _DEFAULT_TIMES: dict[str, tuple[str, ...]] = {
     "keepalive": ("09:00",),
     "checkin": ("09:10",),
     "activity_run": ("09:20",),
+    # 派出放在签到/活动之后；回领留到下午，给猫留出在路上的时间。
+    "travel_depart": ("09:30",),
+    "travel_claim": ("15:30",),
 }
 
 

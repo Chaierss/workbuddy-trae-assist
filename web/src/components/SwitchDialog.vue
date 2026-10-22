@@ -17,6 +17,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: []; confirm: [] }>();
 
+/**
+ * 切成功了、但凭据本身有先天缺陷（缺 refresh token 之类）。
+ * 这类问题不写清楚，用户会在下次 token 过期时以为「切号把登录态弄坏了」。
+ */
+const warnings = computed(() => props.report?.warnings ?? []);
+
 const title = computed(() => {
   if (props.confirming) return props.busy ? t("switch.title.checking") : t("switch.title.confirm");
   if (props.busy) return t("switch.title.running");
@@ -239,6 +245,17 @@ const duplicateCount = computed(() =>
                   <span class="mt-0.5 shrink-0 text-brand">✓</span>
                   <span class="min-w-0 flex-1">{{ line }}</span>
                 </div>
+              </div>
+            </div>
+
+            <!-- 切换成功但有隐患：缺 refresh token 的账号，token 过期后要重新扫码 -->
+            <div
+              v-if="warnings.length && !busy"
+              class="mt-4 flex items-start gap-2 rounded-[10px] bg-warn-soft px-3 py-2.5 text-[12px] leading-relaxed text-warn"
+            >
+              <AlertTriangle :size="14" class="mt-0.5 shrink-0" />
+              <div class="min-w-0 flex-1 space-y-1">
+                <p v-for="(warning, index) in warnings" :key="index">{{ warning }}</p>
               </div>
             </div>
           </template>

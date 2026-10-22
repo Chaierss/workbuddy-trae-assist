@@ -109,6 +109,32 @@ def test_delete_then_recycle_bin_then_restore(client):
     assert len(client.get("/api/accounts", params={"scope": SCOPE}).json()["accounts"]) == 1
 
 
+def test_recycle_bin_without_scope_covers_merged_pool(client):
+    """号池页是合并号池，前端拿不到单一平台，所以不能传 scope。
+
+    这个参数以前是必填的 —— 结果是「保留 30 天可恢复」这句承诺在界面上根本无法兑现。
+    """
+    account_id = _seed(client).account.id
+    client.delete(f"/api/accounts/{account_id}")
+
+    body = client.get("/api/accounts/recycle-bin").json()
+    assert [item["id"] for item in body["accounts"]] == [account_id]
+    entry = body["accounts"][0]
+    assert entry["daysLeft"] == 30  # 刚删的号满额保留，前端不用自己算日期
+    assert entry["platform"]  # 回收站列表要能显示平台徽标
+    assert entry["deletedAt"]
+
+
+def test_restore_brings_back_the_credential(client):
+    """软删除只打标记，凭据还在 —— 恢复后直接切号，不用重新扫码。"""
+    account_id = _seed(client).account.id
+    client.delete(f"/api/accounts/{account_id}")
+    assert client.post(f"/api/accounts/{account_id}/restore").status_code == 200
+
+    credential = client.app.state.repository.current_credential(account_id)
+    assert credential["access_token"] == "tok-secret"
+
+
 def test_delete_missing_account_is_404(client):
     assert client.delete("/api/accounts/does-not-exist").status_code == 404
 
@@ -273,6 +299,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "migrateSessions": True,
         "migrateProfile": True,
         "migrateWorkspaces": True,
+        # 网页版登录态（按账号隔离的 Chromium 分区）随切号迁移，默认开。
+        "migrateWebview": True,
         "autoBackup": True,
         # 全局备份的每日自动备份：默认开，开关在设置 → 备份页。
         "autoGlobalBackup": True,
@@ -291,6 +319,7 @@ def test_preferences_defaults_and_roundtrip(client):
         "migrateSessions": False,
         "migrateProfile": False,
         "migrateWorkspaces": True,
+        "migrateWebview": True,
         "autoBackup": True,
         "autoGlobalBackup": True,
         "autoGlobalParts": ["config"],
@@ -628,12 +657,24 @@ def test_api_conversation_messages_returns_transcript(client, monkeypatch):
     assert body["conversationId"] == "cid-1"
 
 
-def test_schedules_lists_three_tasks(client):
+def test_schedules_lists_all_tasks(client):
+    """五个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领。"""
     tasks = client.get("/api/schedules").json()["tasks"]
-    assert [item["key"] for item in tasks] == ["keepalive", "checkin", "activity_run"]
+    assert [item["key"] for item in tasks] == [
+        "keepalive",
+        "checkin",
+        "activity_run",
+        "travel_depart",
+        "travel_claim",
+    ]
     assert {"enabled", "times", "jitterMinutes", "accountIds", "lastRunAt", "nextRunAt"} <= set(
         tasks[0]
     )
+    # 派猫猫两个阶段默认关，且默认时点是「上午派、下午领」
+    by_key = {item["key"]: item for item in tasks}
+    assert by_key["travel_depart"]["enabled"] is False
+    assert by_key["travel_depart"]["times"] == ["09:30"]
+    assert by_key["travel_claim"]["times"] == ["15:30"]
 
 
 def test_schedules_update_times_and_jitter(client):
@@ -1002,3 +1043,53 @@ def test_import_bundle_rejects_foreign_json(client):
     )
     assert response.status_code == 400
     assert "本工具导出" in response.json()["detail"]
+
+
+def test_export_flags_missing_refresh_token(client):
+    """导出包里有凭据 ≠ 导回去能长期用：缺 refresh token 的号必须被标出来。"""
+    seeded = _seed(client, external_id="u-1", name="账号甲", token="tok-a")
+
+    bundle = client.post("/api/accounts/export", json={"accountIds": [seeded.account.id]}).json()
+
+    assert bundle["accounts"][0]["refreshTokenMissing"] is True
+
+
+def test_export_does_not_flag_complete_credential(client):
+    from chaierww.domain.switching import encode_token_payload
+
+    seeded = client.app.state.repository.upsert(
+        scope=SCOPE,
+        external_id="u-2",
+        display_name="完整号",
+        credential=encode_token_payload(
+            {"uid": "u-2", "accessToken": "a", "refreshToken": "b"}
+        ),
+        credential_kind="oauth_token",
+    )
+
+    bundle = client.post("/api/accounts/export", json={"accountIds": [seeded.account.id]}).json()
+
+    assert bundle["accounts"][0]["refreshTokenMissing"] is False
+
+
+def test_credential_health_lists_only_accounts_with_gaps(client):
+    from chaierww.domain.switching import encode_token_payload
+
+    _seed(client, external_id="u-1", name="缺 refresh")
+    client.app.state.repository.upsert(
+        scope=SCOPE,
+        external_id="u-2",
+        display_name="完整号",
+        credential=encode_token_payload(
+            {"uid": "u-2", "accessToken": "a", "refreshToken": "b"}
+        ),
+        credential_kind="oauth_token",
+    )
+
+    body = client.get("/api/accounts/credential-health").json()
+
+    assert body["withGaps"] == 1
+    assert [item["displayName"] for item in body["accounts"]] == ["缺 refresh"]
+    assert body["accounts"][0]["gaps"] == ["refreshToken"]
+    # 体检接口只回答「缺什么」，不能顺手把凭据内容带出来。
+    assert "credential" not in body["accounts"][0]

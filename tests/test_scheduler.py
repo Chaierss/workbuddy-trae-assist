@@ -249,3 +249,37 @@ def test_keepalive_and_checkin_are_enabled_by_default(tmp_path):
     assert scheduler.get("keepalive").enabled is True
     assert scheduler.get("checkin").enabled is True
     assert scheduler.get("activity_run").enabled is False
+
+
+def test_travel_tasks_are_split_and_default_to_off(tmp_path):
+    """派猫猫旅行拆成「只派出」「只回领」两个独立任务，默认都关。
+
+    默认关是因为它属于「活动」类重动作；两个时点错开（上午派、下午领），
+    才能真正做到一天里既派出又回领——挤在一个任务里时只能做其中一件。
+    """
+    scheduler = _build(tmp_path)
+    depart = scheduler.get("travel_depart")
+    claim = scheduler.get("travel_claim")
+
+    assert depart.enabled is False
+    assert claim.enabled is False
+    assert depart.times == ("09:30",)
+    assert claim.times == ("15:30",)
+    # 领的时刻必须晚于派，否则等于同一次 tick 里连着做两件事
+    assert claim.times[0] > depart.times[0]
+
+
+def test_travel_tasks_run_independently_at_their_own_times(tmp_path):
+    """两个任务的去重互相独立：上午只派，下午才领。"""
+    recorder = _Recorder()
+    scheduler = _build(tmp_path, recorder, now=_at(9, 30))
+    scheduler.update("keepalive", enabled=False)
+    scheduler.update("checkin", enabled=False)
+    scheduler.update("travel_depart", enabled=True, jitter_minutes=0)
+    scheduler.update("travel_claim", enabled=True, jitter_minutes=0)
+
+    scheduler.run_due(_at(9, 30))
+    assert [key for key, _ in recorder.calls] == ["travel_depart"]
+
+    scheduler.run_due(_at(15, 30))
+    assert [key for key, _ in recorder.calls] == ["travel_depart", "travel_claim"]

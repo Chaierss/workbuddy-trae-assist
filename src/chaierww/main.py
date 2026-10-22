@@ -97,6 +97,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return f"保活探测 {len(targets)} 个账号，{healthy} 个正常"
         if key == "checkin":
             report = activities.run(targets, include_growth=False)
+        elif key in ("travel_depart", "travel_claim"):
+            # 派猫猫旅行拆成两个独立动作：早上派、下午领。两者互不挤占，
+            # 同一天能各成功一次 —— 以前挤在一个函数里，一次执行只能做其中一件。
+            report = activities.run_travel_stage(
+                targets, stage="depart" if key == "travel_depart" else "claim"
+            )
         else:
             report = activities.run(targets)
         summary = report.get("summary", {})

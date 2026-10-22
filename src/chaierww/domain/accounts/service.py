@@ -5,6 +5,7 @@ from typing import Protocol
 
 from chaierww.domain.accounts.models import Account, CredentialState
 from chaierww.domain.accounts.repository import AccountNotFound, AccountRepository
+from chaierww.domain.scopes import all_scopes
 
 
 class AccountInUseError(RuntimeError):
@@ -63,8 +64,16 @@ class AccountService:
         """
         return self._repo.list_all(scopes, include_deleted=False, query=query)
 
-    def list_recycle_bin(self, scope: str) -> list[Account]:
-        return self._repo.list_accounts(scope, include_deleted=True)
+    def list_recycle_bin(self, scope: str | None = None) -> list[Account]:
+        """回收站：只取已软删除的账号。
+
+        `scope` 不传 = 合并号池口径（所有已实现作用域），因为号池页本身不区分平台。
+        过滤在 SQL 里做，不再把整张表捞出来在调用方筛。
+        """
+        if scope:
+            return self._repo.list_accounts(scope, only_deleted=True)
+        implemented = [item.key for item in all_scopes() if item.implemented]
+        return self._repo.list_all(implemented, only_deleted=True)
 
     def by_id(self, account_id: str) -> Account:
         return self._repo.get(account_id)

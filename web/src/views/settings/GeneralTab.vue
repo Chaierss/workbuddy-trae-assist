@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, type Component } from "vue";
+import { computed, onMounted, ref, type Component } from "vue";
 import {
   Brain,
   Cable,
+  Globe,
   IdCard,
   LayoutGrid,
   MessagesSquare,
@@ -13,7 +14,7 @@ import {
 import SectionCard from "../../components/SectionCard.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
 import UpdateSection from "./UpdateSection.vue";
-import { api, type Preferences } from "../../api";
+import { api, type LoginStateDiagnostics, type Preferences } from "../../api";
 import { isDesktop } from "../../lib/desktop";
 import { LOCALES, locale, setLocale, t, type MessageKey } from "../../lib/i18n";
 import { setTheme, theme, type ThemeMode } from "../../stores/app";
@@ -35,7 +36,8 @@ type PrefKey =
   | "migrateConnectors"
   | "migrateSessions"
   | "migrateProfile"
-  | "migrateWorkspaces";
+  | "migrateWorkspaces"
+  | "migrateWebview";
 
 interface ToggleItem {
   key: PrefKey;
@@ -50,6 +52,9 @@ const migrateItems: ToggleItem[] = [
   { key: "migrateSessions", titleKey: "migrate.sessions.title", descKey: "migrate.sessions.desc", icon: MessagesSquare },
   { key: "migrateProfile", titleKey: "migrate.profile.title", descKey: "migrate.profile.desc", icon: IdCard },
   { key: "migrateWorkspaces", titleKey: "migrate.workspaces.title", descKey: "migrate.workspaces.desc", icon: LayoutGrid },
+  // 只对 WorkBuddy 生效：网页版登录态存在客户端的内嵌浏览器分区里，
+  // 不换过来的话切号后网页版仍然是上一个号（或直接未登录）。
+  { key: "migrateWebview", titleKey: "migrate.webview.title", descKey: "migrate.webview.desc", icon: Globe },
 ];
 
 const prefs = ref<Preferences | null>(null);
@@ -69,12 +74,48 @@ const themeItems: ThemeItem[] = [
   { key: "system", titleKey: "theme.system", descKey: "theme.system.desc", icon: Monitor },
 ];
 
+/* ---------- 网页版登录态诊断（只读） ---------- */
+
+/**
+ * 客户端把网页版登录态存在按账号 uid 命名的 Chromium 分区里。没分区的号
+ * 切过去之后网页版必然是未登录 —— 以前这件事没有任何地方能看出来，
+ * 用户只会觉得「切号把网页版弄坏了」。这里把归属关系摊开，只读、不修。
+ */
+const diagnostics = ref<LoginStateDiagnostics | null>(null);
+const diagnosticsError = ref("");
+const diagnosticsLoading = ref(false);
+
+async function loadDiagnostics(): Promise<void> {
+  diagnosticsLoading.value = true;
+  diagnosticsError.value = "";
+  try {
+    diagnostics.value = await api.loginStateDiagnostics();
+  } catch (error) {
+    diagnosticsError.value = (error as Error).message;
+    diagnostics.value = null;
+  } finally {
+    diagnosticsLoading.value = false;
+  }
+}
+
+/** 只看 WorkBuddy：网页版登录态是它的能力，Trae 没有这套分区。 */
+const webviewAccounts = computed(() =>
+  (diagnostics.value?.accounts ?? []).filter((item) => item.scope.startsWith("workbuddy")),
+);
+const webviewCovered = computed(
+  () => webviewAccounts.value.filter((item) => item.hasWebviewPartition).length,
+);
+const webviewMissing = computed(() =>
+  webviewAccounts.value.filter((item) => !item.hasWebviewPartition),
+);
+
 onMounted(async () => {
   try {
     prefs.value = await api.preferences();
   } catch {
     prefs.value = null;
   }
+  void loadDiagnostics();
 });
 
 async function toggle(key: PrefKey): Promise<void> {
@@ -159,6 +200,60 @@ async function toggle(key: PrefKey): Promise<void> {
           />
         </div>
       </div>
+    </SectionCard>
+
+    <!-- 网页版登录态诊断：只读摊开归属关系，回答「为什么切完网页版还得登录」 -->
+    <SectionCard :title="t('webview.title')" :subtitle="t('webview.subtitle')">
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-[12.5px] leading-relaxed text-ink-soft">
+          {{
+            diagnostics
+              ? t("webview.summary", {
+                  partitions: diagnostics.webview.partitionCount,
+                  covered: webviewCovered,
+                  total: webviewAccounts.length,
+                })
+              : diagnosticsLoading
+                ? t("webview.loading")
+                : t("webview.unavailable")
+          }}
+        </p>
+        <button
+          type="button"
+          class="shrink-0 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+          :disabled="diagnosticsLoading"
+          @click="loadDiagnostics"
+        >
+          {{ t("webview.refresh") }}
+        </button>
+      </div>
+
+      <p v-if="diagnosticsError" class="mt-2 text-[12px] text-danger">
+        {{ t("webview.error", { reason: diagnosticsError }) }}
+      </p>
+
+      <div v-else-if="webviewMissing.length" class="mt-2.5">
+        <p class="text-[12px] text-warn">
+          {{ t("webview.missingHint", { count: webviewMissing.length }) }}
+        </p>
+        <div class="mt-1.5 flex flex-wrap gap-1.5">
+          <span
+            v-for="item in webviewMissing"
+            :key="item.accountId"
+            class="rounded-full bg-warn-soft/70 px-2 py-0.5 text-[11.5px] text-warn"
+          >
+            {{ item.displayName }}
+          </span>
+        </div>
+      </div>
+
+      <p v-else-if="diagnostics && webviewAccounts.length" class="mt-2 text-[12px] text-muted">
+        {{ t("webview.allCovered") }}
+      </p>
+
+      <p v-if="diagnostics" class="mt-2.5 break-all font-mono text-[11px] leading-relaxed text-muted">
+        {{ diagnostics.partitionsDir }}
+      </p>
     </SectionCard>
 
     <p class="text-[12px] leading-relaxed text-muted">{{ t("migrate.footnote") }}</p>

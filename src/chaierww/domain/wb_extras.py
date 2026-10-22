@@ -433,53 +433,138 @@ def detect_travel(
     return ExtraActivity(state="unavailable", note="旅行状态无法识别")
 
 
-def run_travel(
+TRAVEL_KEY = "workbuddy.travel"
+TRAVEL_TITLE = "派猫猫旅行"
+
+
+def _travel_context(
     call: Call, origin: str, headers: dict[str, str]
-) -> ExtraStep:
-    key, title = "workbuddy.travel", "派猫猫旅行"
+) -> tuple[bool, list[dict[str, Any]], dict[str, Any] | None]:
+    """一次取齐：活动是否开放、可选地点、当前旅行状态。"""
     enabled, locations = _travel_config(call, origin, headers)
     if not enabled:
-        return ExtraStep(key, title, "skipped", "派猫猫旅行当前未开放")
-    status = _travel_status(call, origin, headers)
+        return False, locations, None
+    return True, locations, _travel_status(call, origin, headers)
+
+
+def _travel_guard(enabled: bool, status: dict[str, Any] | None) -> ExtraStep | None:
+    """开场检查：活动没开放 / 接口不可用时直接给跳过项。"""
+    if not enabled:
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "派猫猫旅行当前未开放")
     if status is None:
-        return ExtraStep(key, title, "skipped", "旅行接口不可用（活动可能未开放）")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "旅行接口不可用（活动可能未开放）")
+    return None
+
+
+def travel_claim(
+    call: Call, origin: str, headers: dict[str, str]
+) -> ExtraStep:
+    """只做「回领」：猫回来了就领奖，没回来就说明为什么没领。
+
+    与 ``travel_depart`` 拆开，是为了让「早上派、下午领」能排成两个独立计划任务。
+    以前两者挤在一个函数里、谁先命中就 return，导致同一天只能做其中一件。
+    """
+    enabled, _, status = _travel_context(call, origin, headers)
+    guard = _travel_guard(enabled, status)
+    if guard is not None:
+        return guard
+    assert status is not None
     state = _text(status.get("state"))
+    if state != "arrived":
+        if state == "traveling":
+            return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "猫猫还在路上，等回来再领")
+        if state == "idle" and bool(status.get("daily_limit_reached")):
+            return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "今日已派完，没有待领的奖励")
+        if state == "idle":
+            return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "猫猫还没出门，没有可领的奖励")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "旅行状态无法识别")
+
     growth = growth_headers(headers, origin)
-    if state == "arrived":
-        record_id = _int(status.get("record_id")) or 0
-        payload = {"record_id": record_id} if record_id > 0 else {}
-        status_code, body = call("POST", f"{origin}{TRAVEL_PREFIX}/claim", growth, payload)
-        if _ok(body, status_code):
-            data = _data(body)
-            credit = _num(data.get("reward_credit")) or _num(data.get("credit"))
-            detail = f"领取成功 +{int(credit)}" if credit else "领取成功"
-            return ExtraStep(key, title, "ok", detail, credit)
-        return ExtraStep(key, title, "failed", _message(body) or "领取失败")
+    record_id = _int(status.get("record_id")) or 0
+    payload = {"record_id": record_id} if record_id > 0 else {}
+    status_code, body = call("POST", f"{origin}{TRAVEL_PREFIX}/claim", growth, payload)
+    if _ok(body, status_code):
+        data = _data(body)
+        credit = _num(data.get("reward_credit")) or _num(data.get("credit"))
+        detail = f"领取成功 +{int(credit)}" if credit else "领取成功"
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "ok", detail, credit)
+    return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "failed", _message(body) or "领取失败")
+
+
+def travel_depart(
+    call: Call, origin: str, headers: dict[str, str]
+) -> ExtraStep:
+    """只做「派出」：空闲且今天还没派完就出门。"""
+    enabled, locations, status = _travel_context(call, origin, headers)
+    guard = _travel_guard(enabled, status)
+    if guard is not None:
+        return guard
+    assert status is not None
+    state = _text(status.get("state"))
     if state == "traveling":
-        return ExtraStep(key, title, "skipped", "猫猫还在路上")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "猫猫已经在路上了")
+    if state == "arrived":
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "有奖励待领取，先领再派")
     if state == "idle" and bool(status.get("daily_limit_reached")):
-        return ExtraStep(key, title, "skipped", "今日已派完")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "今日已派完")
     if state != "idle":
-        return ExtraStep(key, title, "skipped", "旅行状态无法识别")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "旅行状态无法识别")
+
+    growth = growth_headers(headers, origin)
     location = locations[0] if locations else {}
     location_id = location.get("id")
     if location_id is None:
-        return ExtraStep(key, title, "skipped", "没有可选的旅行地点")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "没有可选的旅行地点")
     status_code, body = call(
         "POST", f"{origin}{TRAVEL_PREFIX}/depart", growth, {"location_id": location_id}
     )
     if _ok(body, status_code):
         name = _text(location.get("name"))
-        return ExtraStep(key, title, "ok", f"已派出，目的地{name}" if name else "已派出")
+        return ExtraStep(
+            TRAVEL_KEY, TRAVEL_TITLE, "ok", f"已派出，目的地{name}" if name else "已派出"
+        )
     message = _message(body)
     lowered = message.lower()
     if "already traveling" in lowered:
-        return ExtraStep(key, title, "skipped", "猫猫已经在路上了")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "猫猫已经在路上了")
     if "daily limit" in lowered or "daily_limit" in lowered:
-        return ExtraStep(key, title, "skipped", "今日已派完")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "今日已派完")
     if "no active buddy" in lowered:
-        return ExtraStep(key, title, "skipped", "账号还没有 Buddy")
-    return ExtraStep(key, title, "failed", message or "派发失败")
+        return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "skipped", "账号还没有 Buddy")
+    return ExtraStep(TRAVEL_KEY, TRAVEL_TITLE, "failed", message or "派发失败")
+
+
+def run_travel(
+    call: Call, origin: str, headers: dict[str, str]
+) -> ExtraStep:
+    """手动「全部活动」用：先试着回领，领不到再看能不能派出。
+
+    两个动作在同一次执行里不会都成功（领完再派会撞每日上限），所以按「领优先」
+    的次序做；都跳过时用回领的说明，因为它更能反映现状（「还在路上」优于「今日已派完」）。
+    """
+    claim = travel_claim(call, origin, headers)
+    if claim.status != "skipped":
+        return claim
+    depart = travel_depart(call, origin, headers)
+    if depart.status == "ok":
+        return depart
+    return claim
+
+
+#: 计划任务用的阶段名。`all` 是手动「全部活动」的组合行为。
+TRAVEL_STAGES: tuple[str, ...] = ("depart", "claim", "all")
+
+
+def run_travel_stage(
+    call: Call, origin: str, headers: dict[str, str], stage: str
+) -> ExtraStep:
+    """按阶段跑派猫猫旅行。未知阶段按 `all` 处理，绝不静默什么都不做。"""
+    if stage == "depart":
+        return travel_depart(call, origin, headers)
+    if stage == "claim":
+        return travel_claim(call, origin, headers)
+    return run_travel(call, origin, headers)
+
 
 
 # ---------- 夜猫子 ----------

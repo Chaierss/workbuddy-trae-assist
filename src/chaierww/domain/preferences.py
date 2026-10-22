@@ -32,6 +32,9 @@ DEFAULTS: dict[str, Any] = {
     "migrateSessions": True,
     "migrateProfile": True,
     "migrateWorkspaces": True,
+    # 切换时是否把「网页版登录态」（按账号隔离的 Chromium 分区）一起搬。
+    # 不搬的话，切到没在本机网页版登录过的号，桌面端能用、网页版没有登录态。
+    "migrateWebview": True,
     # 每日自动备份，默认开启；每个客户端只留最近 7 份快照。
     # 设置页的开关已随「客户端数据快照」一起下线，这里保留字段与默认值不动。
     "autoBackup": True,
@@ -52,6 +55,7 @@ class Preferences:
     migrate_sessions: bool = True
     migrate_profile: bool = True
     migrate_workspaces: bool = True
+    migrate_webview: bool = True
     auto_backup: bool = True
     auto_global_backup: bool = True
     auto_global_parts: tuple[str, ...] = _DEFAULT_PARTS
@@ -63,6 +67,7 @@ class Preferences:
             "migrateSessions": self.migrate_sessions,
             "migrateProfile": self.migrate_profile,
             "migrateWorkspaces": self.migrate_workspaces,
+            "migrateWebview": self.migrate_webview,
             "autoBackup": self.auto_backup,
             "autoGlobalBackup": self.auto_global_backup,
             "autoGlobalParts": list(self.auto_global_parts),
@@ -92,6 +97,7 @@ class PreferencesStore:
             migrate_sessions=flag("migrateSessions"),
             migrate_profile=flag("migrateProfile"),
             migrate_workspaces=flag("migrateWorkspaces"),
+            migrate_webview=flag("migrateWebview"),
             auto_backup=flag("autoBackup"),
             auto_global_backup=flag("autoGlobalBackup"),
             auto_global_parts=clean_global_parts(data.get("autoGlobalParts")),

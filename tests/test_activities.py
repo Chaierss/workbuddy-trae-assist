@@ -691,3 +691,100 @@ def test_api_activities_run_scope_filter(client, monkeypatch):
     monkeypatch.setattr(client.app.state.activities, "run", fake_run)
     client.post("/api/activities/run", json={"accountIds": ["不存在的 id"]})
     assert seen[-1] == []
+
+
+# ---------- 服务：派猫猫旅行按阶段执行 ----------
+
+
+def _travel_only_calls(monkeypatch, *, state: str) -> list[tuple[str, str]]:
+    """只认旅行四个端点的传输层；返回 (method, path) 记录用于断言。"""
+    seen: list[tuple[str, str]] = []
+
+    def fake(client, method, url, headers, body=None):  # noqa: ANN001, ARG001
+        # origin 由凭据的 domain 推出来（也可能被换成 codebuddy.cn），只认路径。
+        _, _, tail = url.partition(extras.TRAVEL_PREFIX)
+        path = extras.TRAVEL_PREFIX + tail
+        seen.append((method, path))
+        if path == extras.TRAVEL_PREFIX + "/config":
+            return (
+                200,
+                {"code": 0, "data": {"enabled": True, "locations": [{"id": "l1", "name": "西湖"}]}},
+                "",
+            )
+        if path == extras.TRAVEL_PREFIX + "/status":
+            return 200, {"code": 0, "data": {"state": state, "record_id": 9}}, ""
+        if path == extras.TRAVEL_PREFIX + "/depart":
+            return 200, {"code": 0, "data": {}}, ""
+        if path == extras.TRAVEL_PREFIX + "/claim":
+            return 200, {"code": 0, "data": {"reward_credit": 30}}, ""
+        raise AssertionError(f"未预期的请求：{method} {url}")
+
+    monkeypatch.setattr(mod, "_call", fake)
+    return seen
+
+
+def _posted_paths(seen: list[tuple[str, str]]) -> list[str]:
+    return [path for method, path in seen if method == "POST"]
+
+
+def test_run_travel_stage_depart_does_not_touch_claim(monkeypatch):
+    """计划任务里「派出」只该发一次写请求，不能顺手把领奖也做了。"""
+    seen = _travel_only_calls(monkeypatch, state="idle")
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    body = service.run_travel_stage([_FakeAccount()], stage="depart")
+
+    result = body["results"][0]
+    assert result["status"] == RESULT_OK
+    assert result["key"] == "workbuddy.travel"
+    assert _posted_paths(seen) == [extras.TRAVEL_PREFIX + "/depart"]
+    assert body["summary"]["ok"] == 1
+    service.close()
+
+
+def test_run_travel_stage_claim_does_not_touch_depart(monkeypatch):
+    seen = _travel_only_calls(monkeypatch, state="arrived")
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    body = service.run_travel_stage([_FakeAccount()], stage="claim")
+
+    result = body["results"][0]
+    assert result["status"] == RESULT_OK
+    assert result["reward"] == 30
+    assert _posted_paths(seen) == [extras.TRAVEL_PREFIX + "/claim"]
+    service.close()
+
+
+def test_run_travel_stage_claim_mid_flight_is_skipped_with_reason(monkeypatch):
+    _travel_only_calls(monkeypatch, state="traveling")
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    body = service.run_travel_stage([_FakeAccount()], stage="claim")
+
+    result = body["results"][0]
+    assert result["status"] == RESULT_SKIPPED
+    assert "路上" in result["message"]
+    service.close()
+
+
+def test_run_travel_stage_ignores_non_workbuddy_accounts(monkeypatch):
+    """派猫猫是 WorkBuddy 专属活动，Trae 账号不该被记成「失败」。"""
+
+    def boom(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("非 WorkBuddy 账号不该发请求")
+
+    monkeypatch.setattr(mod, "_call", boom)
+    service = ActivitiesService(
+        _FakeRepo({"format": "oauth-token", "accessToken": "jwt", "deviceId": "d", "host": ""})
+    )
+    body = service.run_travel_stage([_FakeAccount(scope="trae-cn")], stage="depart")
+
+    assert body["results"] == []
+    assert body["summary"]["total"] == 0
+    service.close()
+
+
+def test_run_travel_stage_invalidates_cache(monkeypatch):
+    _travel_only_calls(monkeypatch, state="idle")
+    service = ActivitiesService(_FakeRepo(_wb_credential()), ttl=600)
+    service._cache = {"stale": object()}
+    service.run_travel_stage([_FakeAccount()], stage="depart")
+    assert service._cache == {}
+    service.close()

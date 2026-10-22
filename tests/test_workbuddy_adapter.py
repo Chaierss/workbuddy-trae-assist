@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -188,6 +189,46 @@ def test_apply_token_switch_writes_plain_token_to_auth(adapter):
     assert data["account"]["nickname"] == "扫码用户"
     # allAccounts 里包含目标账号
     assert any(a.get("uid") == "token-uid-1" for a in data["allAccounts"])
+    # 没有 expiresAt 时**不能**写 expiresIn=0：那等于告诉客户端「这个 token 已过期」，
+    # 客户端读到会立刻要求重新登录（导入号池后「还要登录」就是踩的这个）。
+    assert "expiresIn" not in data["auth"]
+    assert "refreshExpiresIn" not in data["auth"]
+
+
+def test_apply_token_switch_parses_expiry_from_milliseconds(adapter):
+    """上游给毫秒时间戳时，要算出真实剩余有效期而不是写 0。"""
+    future = int(time.time() * 1000) + 3600 * 1000
+    adapter.apply_token_switch(
+        {
+            "uid": "uid-ms",
+            "nickname": "毫秒号",
+            "accessToken": "tok",
+            "refreshToken": "rt",
+            "expiresAt": future,
+            "refreshExpiresAt": future + 86400 * 1000,
+        }
+    )
+
+    auth = json.loads(adapter._paths.state_file.read_bytes().decode("utf-8"))["auth"]
+    assert auth["expiresAt"] == future
+    assert 3500 <= auth["expiresIn"] <= 3600
+    assert auth["refreshExpiresAt"] == future + 86400 * 1000
+    assert auth["refreshExpiresIn"] > 86000
+
+
+def test_apply_token_switch_parses_expiry_from_iso_string(adapter):
+    """有的来源给秒、有的给 ISO 字符串；统一成毫秒，别因为类型不同就丢掉过期时间。"""
+    adapter.apply_token_switch(
+        {
+            "uid": "uid-iso",
+            "accessToken": "tok",
+            "expiresAt": "2099-01-01T00:00:00+00:00",
+        }
+    )
+
+    auth = json.loads(adapter._paths.state_file.read_bytes().decode("utf-8"))["auth"]
+    assert auth["expiresAt"] == 4070908800000
+    assert auth["expiresIn"] > 0
 
 
 def test_apply_token_switch_rejects_missing_uid(adapter):
