@@ -54,26 +54,26 @@
 状态通过 IPC 推给渲染进程：`preload.js` 暴露 `window.chaierwwDesktop.update`，
 前端 `views/settings/UpdateTab.vue` 渲染。状态机字段见 `main.js` 的 `updateState`。
 
-> **发布时注意**：`latest.yml`（Windows）、`latest-mac.yml`、`latest-linux.yml` 必须和安装包
-> 一起上传到同一个 Release，且**不要改名**——electron-updater 按这些文件里的 `path` 取包，
-> 名字对不上就是 404。CI（`.github/workflows/build-desktop.yml`）会自动带上。
+> **发布时注意**：`latest.yml` 必须和安装包一起上传到同一个 Release，且**不要改名**——
+> electron-updater 按这个文件里的 `path` 取包，名字对不上就是 404。CI
+> （`.github/workflows/build-desktop.yml`）会自动带上。
 
-## 三平台
+## 平台：目前只有 Windows
 
 | 平台 | 产物 | 更新 |
 | --- | --- | --- |
 | Windows 10/11 x64 | `chaierww-Setup.exe`（NSIS，免管理员） | ✅ 支持 |
-| macOS 11+（Intel / Apple Silicon） | `chaierww-x64.dmg`、`chaierww-arm64.dmg`，以及自动更新用的 `.zip` | ✅ 支持（需同时上传 zip） |
-| Linux x64 | `chaierww-x64.AppImage`、`chaierww-amd64.deb` | ⚠️ 只有 AppImage 能自更新，deb 需手动重装 |
 
-> **「能打包」≠「能运行」。** 三个平台的安装包都能构建出来，Electron 外壳本身也是
-> 跨平台的（托盘、窗口、进程回收、更新都做了平台分支）。但后端的账号能力目前只有
-> Windows 实现：`infra/secrets.py` 的凭据加密是 DPAPI，两个 adapter 的
-> `default_paths()` 依赖 `APPDATA` / `LOCALAPPDATA`。所以 macOS / Linux 装完启动时
-> 后端会抛 `PlatformNotSupported`，外壳弹「后端服务已意外退出」。
+> **为什么不做 macOS / Linux。** Electron 外壳本身是跨平台的——托盘、窗口、
+> 进程回收、更新都写了平台分支，安装包也能打出来。但后端只有 Windows 实现：
+> `infra/secrets.py` 的凭据加密是 DPAPI，两个 adapter 的 `default_paths()` 依赖
+> `APPDATA` / `LOCALAPPDATA`。所以 mac/Linux 装完启动时后端会抛
+> `PlatformNotSupported`，外壳弹「后端服务已意外退出」。
 >
+> 发一个下了用不了的包没有意义，所以 CI 矩阵只留了 `windows-latest`。
 > 要补的话按这个顺序：`secrets.py` 换跨平台加密 → `adapters/` 按平台解析目录 →
-> `CLIENT_EXE_NAMES` 去掉 `.exe` 硬编码 → `domain/wb_tasks.py` 的 `os` / `arch` 上报改真实值。
+> `CLIENT_EXE_NAMES` 去掉 `.exe` 硬编码 → `domain/wb_tasks.py` 的 `os` / `arch`
+> 上报改真实值 → 最后在 CI 矩阵里加回 `macos-latest` / `ubuntu-latest`。
 
 > 产物名里**不带版本号**：版本只出现在 `latest.yml` 和「设置 → 版本更新」里。
 > 进程名、托盘提示、安装包文件名都保持干净（`chaierww-Setup.exe`，不是
@@ -118,11 +118,14 @@ cd ../web && npm run build && cd ../desktop
 # 3. 打包后端二进制
 python scripts/build_backend.py
 
-# 4. 打包安装包（自动按当前平台出对应产物）
-npm run dist          # 或 dist:win / dist:mac / dist:linux
+# 4. 打包安装包
+npm run dist:win
 ```
 
 产物在 `desktop/release/` 下。
+
+`package.json` 里 `dist:mac` / `dist:linux` 的脚本还在（配合将来补 mac/Linux 时用），
+但现在打出来的包启动不了，见上面的[平台](#平台目前只有-windows)一节。
 
 ### 国内网络 / 非管理员账户的两个坑（Windows）
 
@@ -144,13 +147,13 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron
 改由 `scripts/afterPack.js` 调用 `build/tools/rcedit-x64.exe` 写入图标与版本信息。
 该 rcedit 来自官方 winCodeSign-2.6.0 包，未做修改。
 
-> 副作用：所有平台的包**都没有代码签名**。Windows 首次运行会提示「未知发布者」，
-> macOS 首次打开需要「右键 → 打开」（Gatekeeper）。要消除得买证书。
+> 副作用：安装包**没有代码签名**。Windows 首次运行会提示「未知发布者」，
+> 需要点「更多信息 → 仍要运行」。要消除得买证书。
 
 ## 自动更新发布
 
 1. 改 `desktop/package.json` 的 `version`
-2. 打标签（`git tag v0.2.0 && git push --tags`）→ CI 三平台构建并上传 Release
+2. 打标签（`git tag v0.2.0 && git push origin v0.2.0`）→ CI 构建并上传 Release
 3. 旧版客户端启动后自动检查 → 弹窗询问 → 下载 → 重启升级
 
 发布通道配置在 `desktop/package.json` 的 `build.publish`（GitHub: `Chaierss/workbuddy-trae-assist`）。

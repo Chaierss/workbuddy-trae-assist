@@ -1,7 +1,12 @@
-# 三平台桌面端构建。
+# Windows 桌面端构建。
 #
-# 为什么需要这个：PyInstaller **不能交叉编译**——Windows 上跑不出 macOS / Linux
-# 的后端二进制。所以每个平台的安装包必须在对应平台构建，这里用矩阵并行跑。
+# 为什么用 CI 而不是本机打：PyInstaller 不能交叉编译，产物必须和目标平台一致；
+# 放在 runner 上能保证「干净环境 + 可复现」，也免去本机装一堆构建依赖。
+#
+# 为什么只有 Windows：凭据加密（`infra/secrets.py` 的 DPAPI）与客户端登录态定位
+# （`APPDATA` / `LOCALAPPDATA`）目前只有 Windows 实现。macOS / Linux 的包能打出来，
+# 但装完启动会失败——与其发一个「下了用不了」的产物，不如先不发。补完这两层再往
+# 矩阵里加 `macos-latest` / `ubuntu-latest`，其余步骤不用改。
 #
 # 触发：
 #   - 推 v* 标签：构建并上传到 GitHub Releases（electron-builder --publish always）
@@ -29,12 +34,6 @@ jobs:
           - os: windows-latest
             label: Windows x64
             builder_args: --win nsis
-          - os: macos-latest
-            label: macOS universal
-            builder_args: --mac
-          - os: ubuntu-latest
-            label: Linux x64
-            builder_args: --linux
 
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +79,7 @@ jobs:
         env:
           # 标签触发时才发版；手动触发只产出 artifact
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS 无签名证书，跳过签名（用户首次打开需右键 → 打开）
+          # 安装包未做代码签名，保持自动发现关闭，避免误用 runner 上的临时证书
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: >
           npx electron-builder ${{ matrix.builder_args }}
@@ -94,9 +93,6 @@ jobs:
           if-no-files-found: warn
           path: |
             desktop/release/*.exe
-            desktop/release/*.dmg
-            desktop/release/*.zip
-            desktop/release/*.AppImage
-            desktop/release/*.deb
+            desktop/release/*.blockmap
             desktop/release/latest*.yml
 

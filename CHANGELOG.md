@@ -34,7 +34,8 @@
 ### 变更
 
 - README 按「使用者 → 贡献者」重排，修正仓库地址、测试用例数，并把平台支持写成实话：
-  macOS / Linux 能构建但启动会失败（凭据加密与客户端目录定位仍是 Windows 实现）。
+  **只有 Windows 10 / 11 x64**。macOS / Linux 未适配（凭据加密与客户端目录定位仍是
+  Windows 实现），CI 构建矩阵也只保留 Windows，不再产出用不了的安装包。
 - 明确许可证定位：PolyForm Noncommercial 是 **source-available**，不是 OSI 开源许可，
   商业使用需另行授权。
 - 重写 `docs/policies/DISCLAIMER.md`：删掉与 `trae_crypto.py` 矛盾的「完全独立开发」表述，
