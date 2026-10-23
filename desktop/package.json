@@ -22,7 +22,7 @@
   "//nsis-hint": "向导语言由 build.nsis 的 language=2052 + installerLanguages=[zh_CN] 决定（不设就是 1033 英文界面）；各页文案在 build/installer.nsh 的 MUI_* define 里。",
   "devDependencies": {
     "electron": "^43.8.3",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
