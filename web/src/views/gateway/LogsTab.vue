@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { MessageSquareText, Network, Trash2 } from "lucide-vue-next";
+import { Download, MessageSquareText, Network, Trash2 } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import SelectMenu from "../../components/SelectMenu.vue";
 import StatusPill from "../../components/StatusPill.vue";
@@ -9,7 +9,7 @@ import { t } from "../../lib/i18n";
 import { useGateway } from "./useGateway";
 
 /**
- * 请求日志：新的在前，最多保留 200 条。用来判断「这把 Key 现在能不能用」。
+ * 请求日志：新的在前，保留条数在「服务」里配置（默认 200）。用来判断「这把 Key 现在能不能用」。
  *
  * 可按 API Key 或客户端传入的会话标识筛选；「按 Key 分组」只是把同一批日志换个
  * 排法，不改数据。会话标识是**客户端给的线索**，给才显示，否则如实写「未提供」。
@@ -86,6 +86,14 @@ function resetFilters(): void {
       >
         {{ t("gateway.logs.groupByKey") }}
       </button>
+      <a
+        :href="store.logsExportUrl"
+        download
+        class="inline-flex items-center gap-1.5 rounded-[9px] border border-line px-2.5 py-2 text-[12px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+      >
+        <Download :size="13" :stroke-width="1.9" />
+        {{ t("gateway.logs.export") }}
+      </a>
       <button
         type="button"
         class="inline-flex items-center gap-1.5 rounded-[9px] border border-line px-2.5 py-2 text-[12px] text-ink-soft transition-colors hover:border-danger/50 hover:text-danger"

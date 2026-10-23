@@ -13,6 +13,7 @@ function saveForm(): void {
     port: Number(store.form.port),
     allowNonLoopback: store.form.allowNonLoopback,
     maxHops: Number(store.form.maxHops),
+    logKeep: Number(store.form.logKeep),
   });
 }
 </script>
@@ -72,6 +73,17 @@ function saveForm(): void {
             class="h-8 w-32 rounded-[9px] border border-line bg-surface px-3 text-[12.5px] text-ink focus:border-[#d5d8d3] focus:outline-none"
           />
           <span class="text-[11.5px] text-muted">{{ t("gateway.service.maxHopsHint") }}</span>
+        </label>
+        <label class="flex items-center gap-3">
+          <span class="w-24 shrink-0 text-[12.5px] text-ink-soft">{{ t("gateway.service.logKeep") }}</span>
+          <input
+            v-model.number="store.form.logKeep"
+            type="number"
+            min="50"
+            max="5000"
+            class="h-8 w-32 rounded-[9px] border border-line bg-surface px-3 text-[12.5px] text-ink focus:border-[#d5d8d3] focus:outline-none"
+          />
+          <span class="text-[11.5px] text-muted">{{ t("gateway.service.logKeepHint") }}</span>
         </label>
 
         <label class="flex items-start gap-3">

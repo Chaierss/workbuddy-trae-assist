@@ -1,11 +1,12 @@
 ﻿<script setup lang="ts">
 import { computed } from "vue";
-import { Check, Copy, KeyRound, Pencil, SlidersHorizontal, X } from "lucide-vue-next";
+import { Check, Copy, Gauge, KeyRound, Pencil, SlidersHorizontal, X } from "lucide-vue-next";
 import ConfirmDialog from "../../components/ConfirmDialog.vue";
 import SectionCard from "../../components/SectionCard.vue";
 import StatusPill from "../../components/StatusPill.vue";
 import { formatTime, type GatewayKey } from "../../api";
 import { t } from "../../lib/i18n";
+import KeyLimitFields from "./KeyLimitFields.vue";
 import ModelScopePicker from "./ModelScopePicker.vue";
 import { compact, useGateway } from "./useGateway";
 
@@ -55,6 +56,21 @@ function scopeSummary(key: GatewayKey): string {
       : t("gateway.keys.summaryNone");
   }
   return t("gateway.keys.summaryAll");
+}
+
+/** 三项额度是否任一设了上限（都为 0 = 完全不限，界面上不用铺一行说明）。 */
+function hasLimits(key: GatewayKey): boolean {
+  return Boolean(key.dailyTokenLimit || key.dailyRequestLimit || key.rpmLimit);
+}
+
+/** 额度摘要：设了上限的显示数字，没设的显示「不限」。 */
+function limitSummary(key: GatewayKey): string {
+  const unlimited = t("gateway.keys.unlimited");
+  return t("gateway.keys.limitLine", {
+    tokens: key.dailyTokenLimit ? compact(key.dailyTokenLimit) : unlimited,
+    requests: key.dailyRequestLimit || unlimited,
+    rpm: key.rpmLimit || unlimited,
+  });
 }
 
 /** 确认弹窗按当前动作切换文案与语气：吊销 / 恢复 / 删除 三态各不相同。 */
@@ -120,6 +136,15 @@ const confirmMessage = computed(() => {
           :catalog="catalogModels"
           @refresh="store.refreshModels"
         />
+      </div>
+
+      <!-- 新 Key 的额度：三项都留空 = 不限，保持与旧版一致的行为 -->
+      <div class="mb-3">
+        <div class="mb-1.5 flex items-center gap-2">
+          <Gauge :size="14" :stroke-width="1.9" class="text-muted" />
+          <span class="text-[12px] font-medium text-ink">{{ t("gateway.keys.limits") }}</span>
+        </div>
+        <KeyLimitFields v-model="store.newLimits" />
       </div>
 
       <div v-if="store.issued" class="mb-3 rounded-[10px] border border-brand/30 bg-brand-soft px-3.5 py-3">
@@ -214,15 +239,28 @@ const confirmMessage = computed(() => {
               <StatusPill :tone="key.scope === 'all' ? 'neutral' : 'info'">
                 {{ scopeBadge(key) }}
               </StatusPill>
+              <StatusPill
+                v-if="key.limitedToday"
+                tone="warn"
+                :title="t('gateway.keys.limitedTodayHint')"
+              >
+                {{ t("gateway.keys.limitedToday") }}
+              </StatusPill>
             </div>
             <div class="mt-0.5 truncate font-mono text-[11.5px] text-muted">{{ key.mask }}</div>
             <div class="mt-0.5 truncate text-[11px] text-muted" :title="scopeSummary(key)">
               {{ t("gateway.keys.availableModels", { models: scopeSummary(key) }) }}
             </div>
+            <div v-if="hasLimits(key)" class="mt-0.5 truncate text-[11px] text-muted">
+              {{ limitSummary(key) }}
+            </div>
           </div>
           <div class="shrink-0 text-right text-[11.5px] text-muted">
             <div>
               {{ t("gateway.keys.usageRow", { requests: key.requests, tokens: compact(key.tokens) }) }}
+            </div>
+            <div v-if="key.dayRequests || key.dayTokens">
+              {{ t("gateway.keys.todayUsage", { requests: key.dayRequests, tokens: compact(key.dayTokens) }) }}
             </div>
             <div>{{ t("gateway.keys.lastUsed", { time: formatTime(key.lastUsedAt) }) }}</div>
           </div>
@@ -304,6 +342,13 @@ const confirmMessage = computed(() => {
               :catalog="catalogModels"
               @refresh="store.refreshModels"
             />
+          </div>
+          <div class="mt-4">
+            <div class="mb-1.5 flex items-center gap-2">
+              <Gauge :size="14" :stroke-width="1.9" class="text-muted" />
+              <span class="text-[12px] font-medium text-ink">{{ t("gateway.keys.limits") }}</span>
+            </div>
+            <KeyLimitFields v-model="store.editing.limits" />
           </div>
           <div class="mt-4 flex justify-end gap-2">
             <button

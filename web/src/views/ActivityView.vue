@@ -609,32 +609,52 @@ const failedResults = computed(() =>
 
     <div
       v-if="runReport"
-      class="mt-3 flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-line bg-surface px-5 py-2.5 text-[11.5px]"
+      class="mt-3 rounded-[var(--radius-card)] border border-line bg-surface px-5 py-2.5 text-[11.5px]"
     >
-      <span class="text-muted">{{ t("activity.accountResultLabel") }}</span>
-      <StatusPill v-if="runReport.summary.ok" tone="brand">
-        {{ t("activity.resultOkCount", { count: runReport.summary.ok }) }}
-      </StatusPill>
-      <StatusPill v-if="runReport.summary.skipped" tone="neutral">
-        {{ t("activity.resultSkippedCount", { count: runReport.summary.skipped }) }}
-      </StatusPill>
-      <StatusPill v-if="runReport.summary.failed" tone="danger">
-        {{ t("activity.resultFailedCount", { count: runReport.summary.failed }) }}
-      </StatusPill>
-      <span
-        v-if="failedResults.length"
-        class="min-w-0 flex-1 truncate text-[11px] text-danger"
-        :title="failedResults.map((item) => `${item.displayName}：${item.message}`).join('\n')"
-      >
-        {{ failedResults[0]?.displayName }}：{{ failedResults[0]?.message }}
-      </span>
-      <button
-        type="button"
-        class="ml-auto text-[11px] text-muted transition-colors hover:text-ink"
-        @click="runReport = null"
-      >
-        {{ t("activity.hide") }}
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="text-muted">{{ t("activity.accountResultLabel") }}</span>
+        <StatusPill v-if="runReport.summary.ok" tone="brand">
+          {{ t("activity.resultOkCount", { count: runReport.summary.ok }) }}
+        </StatusPill>
+        <StatusPill v-if="runReport.summary.skipped" tone="neutral">
+          {{ t("activity.resultSkippedCount", { count: runReport.summary.skipped }) }}
+        </StatusPill>
+        <StatusPill v-if="runReport.summary.failed" tone="danger">
+          {{ t("activity.resultFailedCount", { count: runReport.summary.failed }) }}
+        </StatusPill>
+        <button
+          type="button"
+          class="ml-auto text-[11px] text-muted transition-colors hover:text-ink"
+          @click="runReport = null"
+        >
+          {{ t("activity.hide") }}
+        </button>
+      </div>
+
+      <!-- 失败明细：最多列 3 条；可重试的（网络 / 上游 5xx / Trae 9074）给一键重试。 -->
+      <div v-if="failedResults.length" class="mt-1.5 space-y-1">
+        <div
+          v-for="item in failedResults.slice(0, 3)"
+          :key="`${item.accountId}-${item.key}`"
+          class="flex flex-wrap items-center gap-1.5 text-[11px] text-danger"
+        >
+          <span class="min-w-0 flex-1 truncate" :title="`${item.displayName}：${item.message}`">
+            {{ item.displayName }}：{{ item.message }}
+          </span>
+          <button
+            v-if="item.retryable"
+            type="button"
+            class="shrink-0 rounded-[6px] border border-line px-1.5 py-0.5 text-[11px] text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
+            :disabled="running || busy"
+            @click="runTargets([item.accountId])"
+          >
+            {{ t("activity.retryAccount") }}
+          </button>
+        </div>
+        <div v-if="failedResults.length > 3" class="text-[11px] text-muted">
+          {{ t("activity.moreFailures", { count: failedResults.length - 3 }) }}
+        </div>
+      </div>
     </div>
 
     <div v-if="!visibleAccounts.length" class="mt-4">

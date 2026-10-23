@@ -12,8 +12,10 @@ import {
   Loader2,
   MinusSquare,
   QrCode,
+  RefreshCw,
   RotateCcw,
   Search,
+  ShieldCheck,
   Shuffle,
   Square,
   Trash2,
@@ -35,6 +37,7 @@ import {
   type ActivityBrief,
   type ClientSlot,
   type CredentialHealth,
+  type CredentialRefreshReport,
   type MigrationPreview,
   type OverviewPulse,
   type RecycleBinAccount,
@@ -52,13 +55,15 @@ import {
   refreshAll,
   switchBlockedReason,
 } from "../stores/app";
-import { localeTag, t } from "../lib/i18n";
+import { localeTag, t, type MessageKey } from "../lib/i18n";
 
 const keyword = ref("");
 const sortBy = ref<"recent" | "name" | "credits" | "expiry">("recent");
 const platformFilter = ref<"all" | "workbuddy" | "trae">("all");
 const importing = ref(false);
 const exporting = ref(false);
+/** 凭据巡检进行中的模式：check 验活 / due 续期，null 表示空闲。 */
+const credentialBusy = ref<"check" | "due" | null>(null);
 const toast = ref<string | null>(null);
 
 /**
@@ -195,6 +200,48 @@ function askBatchDelete(): void {
   confirm.account = null;
   confirm.mode = "batch-delete";
   confirm.open = true;
+}
+
+/** 巡检结论 → 提示文案。单号只报结论，多号报汇总。 */
+const CREDENTIAL_RESULT_KEYS: Record<string, MessageKey> = {
+  refreshed: "accounts.credential.result.refreshed",
+  ok: "accounts.credential.result.ok",
+  noop: "accounts.credential.result.noop",
+  relogin_required: "accounts.credential.result.relogin",
+  unsupported: "accounts.credential.result.unsupported",
+  failed: "accounts.credential.result.failed",
+};
+
+function credentialReportText(report: CredentialRefreshReport): string {
+  if (report.results.length === 1) {
+    const result = report.results[0];
+    const key = CREDENTIAL_RESULT_KEYS[result.status] ?? "accounts.credential.result.noop";
+    return t(key, { name: result.displayName });
+  }
+  return t("accounts.credential.sweepDone", {
+    refreshed: report.summary.refreshed,
+    ok: report.summary.ok,
+    noop: report.summary.noop,
+    relogin: report.summary.reloginRequired,
+    unsupported: report.summary.unsupported,
+    failed: report.summary.failed,
+  });
+}
+
+/** 凭据巡检统一入口：验活 / 续期都走 `/credentials/refresh`，不写两套。 */
+async function runCredentialSweep(mode: "check" | "due", accountIds?: string[]): Promise<void> {
+  const ids = accountIds ?? [...selectedIds.value];
+  if (!ids.length || credentialBusy.value) return;
+  credentialBusy.value = mode;
+  try {
+    const report = await api.refreshCredentials(mode, ids);
+    showToast(credentialReportText(report));
+    await refreshAll();
+  } catch (error) {
+    showToast((error as Error).message);
+  } finally {
+    credentialBusy.value = null;
+  }
 }
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
@@ -1283,6 +1330,46 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
+        class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        :disabled="Boolean(credentialBusy)"
+        :title="t('accounts.credential.checkHint')"
+        @click="runCredentialSweep('check')"
+      >
+        <Loader2
+          v-if="credentialBusy === 'check'"
+          :size="12"
+          :stroke-width="2"
+          class="animate-spin"
+        />
+        <ShieldCheck v-else :size="12" :stroke-width="2" />
+        {{
+          credentialBusy === "check"
+            ? t("accounts.credential.checking")
+            : t("accounts.credential.check")
+        }}
+      </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        :disabled="Boolean(credentialBusy)"
+        :title="t('accounts.credential.refreshHint')"
+        @click="runCredentialSweep('due')"
+      >
+        <Loader2
+          v-if="credentialBusy === 'due'"
+          :size="12"
+          :stroke-width="2"
+          class="animate-spin"
+        />
+        <RefreshCw v-else :size="12" :stroke-width="2" />
+        {{
+          credentialBusy === "due"
+            ? t("accounts.credential.refreshing")
+            : t("accounts.credential.refresh")
+        }}
+      </button>
+      <button
+        type="button"
         class="inline-flex items-center gap-1.5 rounded-[8px] border border-danger/30 bg-surface px-2.5 py-1.5 text-[12px] text-danger transition-colors hover:bg-danger-soft"
         @click="askBatchDelete"
       >
@@ -1483,6 +1570,7 @@ const confirmText = computed(() => {
         @edit-note="openNote"
         @filter="applyRisk"
         @preview="loadPreview"
+        @refresh-credential="(item) => runCredentialSweep('due', [item.id])"
       />
     </div>
 

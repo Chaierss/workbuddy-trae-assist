@@ -71,14 +71,16 @@ def write_schedules(path: Path, payload: dict[str, Any]) -> None:
 
 #: 任务键。语义见 `main.py` 的执行体：keepalive = 保活探测；checkin = 只签到；
 #: activity_run = 全部可自动活动（含成长任务）；
-#: travel_depart / travel_claim = 派猫猫旅行「只派出」/「只回领」两个独立动作。
-#: 拆成两个任务是因为派出后猫要在路上待一段时间，同一次执行里做不完两件事。
+#: travel_depart / travel_claim = 派猫猫旅行「只派出」/「只回领」两个独立动作；
+#: credential_refresh = 凭据巡检续期（只动到期前 30 分钟的号）。
+#: 拆成两个旅行任务是因为派出后猫要在路上待一段时间，同一次执行里做不完两件事。
 TASK_KEYS: tuple[str, ...] = (
     "keepalive",
     "checkin",
     "activity_run",
     "travel_depart",
     "travel_claim",
+    "credential_refresh",
 )
 
 #: 抖动的可选半径（分钟）。实际偏移在 `[-n, +n]` 内确定性派生。
@@ -100,6 +102,8 @@ _DEFAULT_TIMES: dict[str, tuple[str, ...]] = {
     # 派出放在签到/活动之后；回领留到下午，给猫留出在路上的时间。
     "travel_depart": ("09:30",),
     "travel_claim": ("15:30",),
+    # 凭据续期一天两次：早、晚各看一次「有没有 30 分钟内到期的号」。
+    "credential_refresh": ("08:00", "20:00"),
 }
 
 
@@ -163,7 +167,8 @@ def _jitter_offset(day: datetime, key: str, time_text: str, jitter: int) -> int:
 
 #: 默认开启的任务。保活 / 签到是「默认就该在跑」的日常动作（原先由常规设置里的
 #: 同名偏好开关给出同样的默认值），所以这里也默认开；全部活动是重动作，默认关。
-_DEFAULT_ENABLED: tuple[str, ...] = ("keepalive", "checkin")
+#: 凭据续期默认开：它只在到期前 30 分钟才发请求，日常轮次基本是空跑。
+_DEFAULT_ENABLED: tuple[str, ...] = ("keepalive", "checkin", "credential_refresh")
 
 
 def _default_tasks() -> dict[str, TaskSpec]:

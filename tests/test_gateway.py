@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import socket
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from typing import Any
 
@@ -20,7 +21,10 @@ from chaierww.api.gateway import _prompt_preview, _session_hint, build_gateway_a
 from chaierww.config import Settings
 from chaierww.domain.credits import CreditInfo
 from chaierww.domain.gateway import (
+    LIMIT_MAX,
     LOG_KEEP,
+    LOG_KEEP_MAX,
+    LOG_KEEP_MIN,
     SCOPE_ALL,
     SCOPE_CAPABILITY,
     SCOPE_LIST,
@@ -1792,3 +1796,203 @@ def test_forget_account_clears_excluded_and_preferred(tmp_path):
     assert GatewayStore(tmp_path).pool_payload() == {"excluded": ["acc-2"], "preferred": None}
     # 已经不在了，再摘一次如实返回 False
     assert store.forget_account("acc-1") is False
+
+
+# ---------- 生产化：日志保留 / 限额 / 429 / 导出 ----------
+
+
+def test_log_keep_config_bounds_and_trim(tmp_path):
+    """日志保留条数可配：调小后内存与落盘都被裁剪，看板口径跟着改。"""
+    GatewayConfig(log_keep=LOG_KEEP_MIN).validate()
+    GatewayConfig(log_keep=LOG_KEEP_MAX).validate()
+    with pytest.raises(GatewayError):
+        GatewayConfig(log_keep=LOG_KEEP_MIN - 1).validate()
+    with pytest.raises(GatewayError):
+        GatewayConfig(log_keep=LOG_KEEP_MAX + 1).validate()
+
+    store = GatewayStore(tmp_path)
+    assert store.log_keep() == LOG_KEEP
+    for index in range(60):
+        store.log({"ok": True, "n": index})
+    assert len(store.logs(500)) == 60
+
+    store.save_config(GatewayConfig(log_keep=LOG_KEEP_MIN))
+    assert store.log_keep() == LOG_KEEP_MIN
+    assert len(store.logs(500)) == LOG_KEEP_MIN
+    lines = (tmp_path / "gateway-logs.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == LOG_KEEP_MIN
+    assert store.breakdown()["scope"] == LOG_KEEP_MIN
+    assert store.logs(1)[0]["n"] == 59
+
+
+def test_issue_and_update_validate_key_limits(tmp_path):
+    """额度只接受 0..上限的整数；非法值直接报错，且不会留下「改了一半」的 Key。"""
+    store = GatewayStore(tmp_path)
+    with pytest.raises(GatewayError):
+        store.issue("坏额度", rpm_limit=-1)
+    with pytest.raises(GatewayError):
+        store.issue("坏额度", daily_token_limit=LIMIT_MAX + 1)
+
+    _, record = store.issue("好额度")
+    assert record.daily_token_limit == 0
+    assert record.daily_request_limit == 0
+    assert record.rpm_limit == 0
+    assert record.usage_day  # 签发当天就记下自然日，跨日判定才有得比
+
+    updated = store.update_key(record.id, rpm_limit=10, daily_token_limit=500)
+    assert updated.rpm_limit == 10
+    assert updated.daily_token_limit == 500
+    assert updated.daily_request_limit == 0
+
+    with pytest.raises(GatewayError):
+        store.update_key(record.id, label="新名字", rpm_limit=-5)
+    assert store.keys()[0].label == "好额度"
+
+
+def test_admit_daily_limits_and_midnight_rollover(tmp_path):
+    """日请求 / 日 token 上限：达到即拒，`Retry-After` 指到次日 0 点，跨日自动清零。"""
+    tz = timezone(timedelta(hours=8))
+    moment = {"now": datetime(2026, 10, 23, 22, 0, tzinfo=tz)}
+    store = GatewayStore(tmp_path, now=lambda: moment["now"], clock=lambda: 0.0)
+
+    _, record = store.issue("日限额", daily_request_limit=2)
+    store.record_use(record.id)
+    store.record_use(record.id)
+
+    decision = store.admit(record.id)
+    assert decision.allowed is False
+    assert decision.reason == "requests"
+    assert decision.limit == 2
+    assert decision.retry_after == 2 * 3600  # 22:00 → 次日 00:00
+    assert store.keys()[0].limited_today is True
+
+    moment["now"] = datetime(2026, 10, 24, 0, 0, 1, tzinfo=tz)
+    assert store.admit(record.id).allowed is True
+    assert store.keys()[0].day_requests == 0
+    assert store.keys()[0].limited_today is False
+
+    _, quota_key = store.issue("token 限额", daily_token_limit=100)
+    store.record_use(quota_key.id, tokens=100)
+    quota = store.admit(quota_key.id)
+    assert quota.allowed is False
+    assert quota.reason == "quota"
+    assert quota.limit == 100
+    assert quota.retry_after > 0
+
+
+def test_admit_rpm_window_slides(tmp_path):
+    """RPM 是 60 秒滑动窗口：第 N+1 次拒绝并给出最早的滑出时间，过了窗口自动恢复。"""
+    clock = {"now": 0.0}
+    store = GatewayStore(tmp_path, clock=lambda: clock["now"])
+    _, record = store.issue("限速", rpm_limit=2)
+
+    assert store.admit(record.id).allowed is True
+    assert store.admit(record.id).allowed is True
+    denied = store.admit(record.id)
+    assert denied.allowed is False
+    assert denied.reason == "rpm"
+    assert denied.retry_after == 60
+
+    clock["now"] = 30.0
+    assert store.admit(record.id).allowed is False
+
+    clock["now"] = 60.0
+    assert store.admit(record.id).allowed is True
+
+
+def test_v1_chat_returns_429_with_standard_headers(client):
+    """日请求上限 1：第一次放行，第二次回 429 + Retry-After / X-RateLimit-*，且不碰上游。"""
+    issued = client.post(
+        "/api/gateway/keys", json={"label": "限流", "dailyRequestLimit": 1}
+    )
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["key"]
+    key_id = issued.json()["record"]["id"]
+    client.app.state.gateway.record_use(key_id)
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "deepseek-v3", "messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert response.status_code == 429
+    assert response.headers["Retry-After"].isdigit()
+    assert response.headers["X-RateLimit-Limit-Requests"] == "1"
+    assert response.headers["X-RateLimit-Remaining-Requests"] == "0"
+    assert response.json()["error"]["code"] == "rate_limit_exceeded"
+
+
+def test_v1_messages_rate_limit_uses_anthropic_shape(client):
+    """Anthropic 客户端只认自己那套错误体：限流也要按 `type=error` 回。"""
+    issued = client.post(
+        "/api/gateway/keys", json={"label": "额度", "dailyTokenLimit": 10}
+    )
+    token = issued.json()["key"]
+    key_id = issued.json()["record"]["id"]
+    client.app.state.gateway.record_use(key_id, tokens=10)
+
+    response = client.post(
+        "/v1/messages",
+        headers={"x-api-key": token},
+        json={
+            "model": "deepseek-v3",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert response.status_code == 429
+    assert response.json()["type"] == "error"
+    assert response.headers["X-RateLimit-Limit-Tokens"] == "10"
+
+
+def test_logs_export_csv_with_bom_and_filters(client):
+    """导出 CSV：带 BOM（Excel 不乱码）、表头固定、按时间正序、筛选条件沿用。"""
+    store = client.app.state.gateway
+    store.log(
+        {
+            "ok": True,
+            "keyId": "k1",
+            "keyLabel": "客户端甲",
+            "model": "glm-5.2",
+            "status": 200,
+            "durationMs": 12,
+            "totalTokens": 34,
+            "sessionId": "s1",
+        }
+    )
+    store.log(
+        {
+            "ok": False,
+            "keyId": "k2",
+            "keyLabel": "客户端乙",
+            "model": "kimi-k2",
+            "status": 500,
+            "error": "上游炸了",
+        }
+    )
+
+    response = client.get("/api/gateway/logs/export")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    text = response.content.decode("utf-8")
+    assert text.startswith("\ufeff")
+
+    lines = text.lstrip("\ufeff").splitlines()
+    assert lines[0] == "时间,Key,模型,状态,耗时(ms),tokens,会话,错误"
+    assert len(lines) == 3
+    assert "客户端甲" in lines[1]  # 正序：先写的那条在前
+    assert "glm-5.2" in lines[1]
+    assert "上游炸了" in lines[2]
+
+    filtered = client.get("/api/gateway/logs/export?keyId=k1")
+    filtered_lines = filtered.content.decode("utf-8").lstrip("\ufeff").splitlines()
+    assert len(filtered_lines) == 2
+    assert "客户端甲" in filtered_lines[1]
+
+
+def test_config_endpoint_updates_log_keep(client):
+    body = client.put("/api/gateway/config", json={"logKeep": LOG_KEEP_MIN}).json()
+    assert body["logKeep"] == LOG_KEEP_MIN
+    rejected = client.put("/api/gateway/config", json={"logKeep": LOG_KEEP_MIN - 1})
+    assert rejected.status_code == 400

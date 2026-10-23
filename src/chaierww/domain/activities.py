@@ -54,7 +54,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -130,6 +130,8 @@ RESULT_FAILED = "failed"
 
 CACHE_TTL_SECONDS = 120.0
 ACCOUNT_GAP_SECONDS = 0.8
+#: 失败重试前的退避（秒）。上游 5xx / 网络抖动往往几秒内就恢复，但立刻重打只会再失败一次。
+RETRY_BACKOFF_SECONDS = 3.0
 #: 并发检测的账号数上限。上游对单账号有风控，但对不同账号并发是安全的。
 DETECT_WORKERS = 4
 
@@ -328,6 +330,11 @@ class RunResult:
     status: str
     message: str
     reward: float | None = None
+    #: 失败是否值得再试一次：网络异常（状态码 0）/ 上游 5xx / Trae 9074 才算；
+    #: 401/403/400 与业务拒绝重试也只会再失败一次。
+    retryable: bool = False
+    #: 这是第几次尝试的结果（1 = 首轮，2 = 失败重试轮）。
+    attempt: int = 1
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -339,6 +346,8 @@ class RunResult:
             "status": self.status,
             "message": self.message,
             "reward": self.reward,
+            "retryable": self.retryable,
+            "attempt": self.attempt,
         }
 
 
@@ -410,6 +419,14 @@ def _unauthorized(status_code: int, message: str) -> bool:
         return True
     lowered = message.lower()
     return any(token in lowered for token in ("unauthorized", "token", "登录", "失效", "过期"))
+
+
+def _retryable_status(status_code: int) -> bool:
+    """值得再试一次的错误：网络层失败（0）与上游 5xx。
+
+    4xx 是「请求本身不被接受」，业务拒绝是「上游明确说不」，两类重试都只会再失败一次。
+    """
+    return status_code == 0 or status_code >= 500
 
 
 def _call(
@@ -1038,30 +1055,64 @@ class ActivitiesService:
 
     # ----- 执行 -----
 
-    def run(self, accounts: list[Account], *, include_growth: bool = True) -> dict[str, Any]:
+    def run(
+        self,
+        accounts: list[Account],
+        *,
+        include_growth: bool = True,
+        retry_failed: bool = False,
+    ) -> dict[str, Any]:
         """对每个账号执行**可自动且未完成**的活动；已完成的跳过并说明原因。
 
         ``include_growth=False`` 时只跑每日签到，不跑成长任务 —— 计划任务的
         「签到」与「全部活动」两个档位据此区分。
+
+        ``retry_failed=True`` 时，首轮结束后只把**可重试的失败账号**再跑一遍
+        （网络异常 / 5xx / Trae 9074），401/403/400 与业务拒绝不重试。
+        重试轮的结论会顶替首轮同账号同活动的行，`results` 仍是「每个活动一行」。
         """
         if not self._run_lock.acquire(blocking=False):
             raise ActivityBusyError("上一次一键执行还没结束，请稍等")
-        results: list[RunResult] = []
+        retried = 0
+        retry_ok = 0
         try:
-            for index, account in enumerate(accounts):
-                if index:
-                    # 连续打上游容易被风控；账号之间留一点间隔。
-                    time.sleep(ACCOUNT_GAP_SECONDS)
-                results.extend(self._run_one(account, include_growth=include_growth))
+            results = self._run_accounts(accounts, include_growth=include_growth)
+            if retry_failed:
+                retry_targets = _retry_targets(accounts, results)
+                if retry_targets:
+                    time.sleep(RETRY_BACKOFF_SECONDS)
+                    retried = len(retry_targets)
+                    second = [
+                        replace(item, attempt=2)
+                        for item in self._run_accounts(
+                            retry_targets, include_growth=include_growth
+                        )
+                    ]
+                    retry_ok = sum(1 for item in second if item.status == RESULT_OK)
+                    results = _merge_attempt(results, second)
         finally:
             self._run_lock.release()
             # 状态已变，缓存必须失效，否则前端刷新看到的还是旧结论。
             self.invalidate()
 
+        summary = _summarize_results(results)
+        summary["retried"] = retried
+        summary["retryOk"] = retry_ok
         return {
             "results": [item.payload() for item in results],
-            "summary": _summarize_results(results),
+            "summary": summary,
         }
+
+    def _run_accounts(
+        self, accounts: list[Account], *, include_growth: bool = True
+    ) -> list[RunResult]:
+        results: list[RunResult] = []
+        for index, account in enumerate(accounts):
+            if index:
+                # 连续打上游容易被风控；账号之间留一点间隔。
+                time.sleep(ACCOUNT_GAP_SECONDS)
+            results.extend(self._run_one(account, include_growth=include_growth))
+        return results
 
     def run_travel_stage(self, accounts: list[Account], *, stage: str) -> dict[str, Any]:
         """只跑派猫猫旅行的一个阶段（depart / claim），给计划任务用。
@@ -1174,7 +1225,12 @@ class ActivitiesService:
             message = _message_of(body) or error or f"HTTP {status_code}"
             results.append(
                 self._result(
-                    account, key, title, RESULT_FAILED, self._explain(status_code, message)
+                    account,
+                    key,
+                    title,
+                    RESULT_FAILED,
+                    self._explain(status_code, message),
+                    retryable=_retryable_status(status_code),
                 )
             )
         else:
@@ -1302,7 +1358,12 @@ class ActivitiesService:
             # 上游说今天已经签过了 —— 这不是失败，是「无事可做」。
             return self._result(account, key, title, RESULT_SKIPPED, message or "今日已签到")
         return self._result(
-            account, key, title, RESULT_FAILED, self._explain(status_code, message)
+            account,
+            key,
+            title,
+            RESULT_FAILED,
+            self._explain(status_code, message),
+            retryable=_retryable_status(status_code),
         )
 
     def _run_trae(self, account: Account, credential: dict[str, Any]) -> list[RunResult]:
@@ -1322,7 +1383,12 @@ class ActivitiesService:
             message = _message_of(body) or error or f"HTTP {status_code}"
             return [
                 self._result(
-                    account, key, title, RESULT_FAILED, self._explain(status_code, message)
+                    account,
+                    key,
+                    title,
+                    RESULT_FAILED,
+                    self._explain(status_code, message),
+                    retryable=_retryable_status(status_code),
                 )
             ]
 
@@ -1363,9 +1429,15 @@ class ActivitiesService:
                 )
             ]
         if code == TRAE_CODE_BUSY:
+            # 9074 是上游的冷却式限流 —— 退避后仍可能恢复，值得再试一次。
             return [
                 self._result(
-                    account, key, title, RESULT_FAILED, "签到失败：上游限流（退避重试仍未通过）"
+                    account,
+                    key,
+                    title,
+                    RESULT_FAILED,
+                    "签到失败：上游限流（退避重试仍未通过）",
+                    retryable=True,
                 )
             ]
         if code == TRAE_CODE_PARAM_INVALID:
@@ -1380,7 +1452,12 @@ class ActivitiesService:
             ]
         return [
             self._result(
-                account, key, title, RESULT_FAILED, self._explain(status_code, message)
+                account,
+                key,
+                title,
+                RESULT_FAILED,
+                self._explain(status_code, message),
+                retryable=_retryable_status(status_code),
             )
         ]
 
@@ -1392,6 +1469,8 @@ class ActivitiesService:
         status: str,
         message: str,
         reward: float | None = None,
+        *,
+        retryable: bool = False,
     ) -> RunResult:
         return RunResult(
             account_id=account.id,
@@ -1402,6 +1481,7 @@ class ActivitiesService:
             status=status,
             message=message,
             reward=reward,
+            retryable=retryable,
         )
 
     def close(self) -> None:
@@ -1417,6 +1497,30 @@ def _summarize_results(results: list[RunResult]) -> dict[str, int]:
         "skipped": sum(1 for item in results if item.status == RESULT_SKIPPED),
         "failed": sum(1 for item in results if item.status == RESULT_FAILED),
     }
+
+
+def _retry_targets(accounts: list[Account], results: list[RunResult]) -> list[Account]:
+    """首轮里出现「可重试失败」的账号，保持原顺序。
+
+    只有 ``retryable`` 的失败才算：401/403/400 与业务拒绝重试也只会再失败一次。
+    """
+    failed = {
+        item.account_id
+        for item in results
+        if item.status == RESULT_FAILED and item.retryable
+    }
+    return [account for account in accounts if account.id in failed]
+
+
+def _merge_attempt(first: list[RunResult], second: list[RunResult]) -> list[RunResult]:
+    """重试轮结果顶替首轮同账号同活动的行，保证「每个活动只留一行」。
+
+    重试轮没返回的项（例如账号中途没凭据了）保留首轮那一行 —— 失败原因不该被吞掉。
+    """
+    latest = {(item.account_id, item.key): item for item in second}
+    merged = [latest.pop((item.account_id, item.key), item) for item in first]
+    merged.extend(latest.values())
+    return merged
 
 
 def summarize(accounts: list[AccountActivities]) -> dict[str, int]:

@@ -29,6 +29,7 @@ from chaierww.domain.activities import ActivitiesService
 from chaierww.domain.auto_backup import AutoBackupRunner
 from chaierww.domain.backup import BackupService
 from chaierww.domain.client_settings import ClientSettingsService, default_settings_file
+from chaierww.domain.credential_lifecycle import MODE_DUE, CredentialLifecycleService
 from chaierww.domain.credits import CreditsService
 from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewayStore
 from chaierww.domain.gateway_relay import GatewayRelay
@@ -78,6 +79,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     preferences = PreferencesStore(resolved.home)
     activities = ActivitiesService(repository, growth_runner=GrowthTaskRunner())
+    # 凭据生命周期：过期判断 / 续期 / 验活。路由与计划任务共用同一实例，
+    # 这样手动点的「验活」结果与定时巡检的结论不会各说各话（缓存也才生效）。
+    lifecycle = CredentialLifecycleService(repository)
 
     def scheduled_accounts(account_ids: tuple[str, ...]) -> list[Any]:
         implemented = [scope.key for scope in all_scopes() if scope.implemented]
@@ -92,13 +96,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         targets = scheduled_accounts(account_ids)
         if not targets:
             return "号池里没有可用账号，本轮跳过"
+        if key == "credential_refresh":
+            # 只续「有效期已知且到期前 30 分钟」的号；其余轮次是空跑，
+            # 所以默认开启也不会给上游增加日常压力。
+            results = lifecycle.sweep(targets, mode=MODE_DUE)
+            return lifecycle.describe(results, MODE_DUE)
         if key == "keepalive":
             # 保活 = 逐账号发一次已鉴权探测（顺带刷新活动缓存），确认登录态仍有效。
             detected = activities.detect(targets, force=True)
             healthy = sum(1 for item in detected if item.detectable)
             return f"保活探测 {len(targets)} 个账号，{healthy} 个正常"
         if key == "checkin":
-            report = activities.run(targets, include_growth=False)
+            # 签到是纯读 + 一次幂等写；失败只重试「网络异常 / 5xx / 9074」的号，
+            # 401/403 与业务拒绝不会重试。「全部活动」有更多写动作，保持不重试。
+            report = activities.run(targets, include_growth=False, retry_failed=True)
         elif key in ("travel_depart", "travel_claim"):
             # 派猫猫旅行拆成两个独立动作：早上派、下午领。两者互不挤占，
             # 同一天能各成功一次 —— 以前挤在一个函数里，一次执行只能做其中一件。
@@ -112,6 +123,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"账号 {len(targets)} 个：成功 {summary.get('ok', 0)}，"
             f"跳过 {summary.get('skipped', 0)}，失败 {summary.get('failed', 0)}"
         )
+        retried = summary.get("retried", 0)
+        if retried:
+            line += f"，重试 {retried} 个账号（其中 {summary.get('retryOk', 0)} 项转为成功）"
         # 只报数字等于没报 —— 把失败原因按出现次数归并进来，日志才能自己解释自己。
         reasons: dict[str, int] = {}
         for item in report.get("results", []):
@@ -292,6 +306,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.trae_oauth = build_trae_oauth()
     app.state.credits = credits
     app.state.activities = activities
+    app.state.credential_lifecycle = lifecycle
     app.state.scheduler = scheduler
     app.state.rotation = rotation
     app.state.purger = purger

@@ -28,6 +28,14 @@ from chaierww.domain.backup import (
     SnapshotNotFound,
 )
 from chaierww.domain.client_settings import ClientSettingsError
+from chaierww.domain.credential_lifecycle import (
+    MODE_DUE,
+    MODES,
+    CredentialLifecycleService,
+    expiry_text,
+    parse_expiry,
+    refreshable,
+)
 from chaierww.domain.preferences import clean_global_parts
 from chaierww.domain.rotation import RotationError
 from chaierww.domain.scheduler import SchedulerError
@@ -69,8 +77,17 @@ def _engine(request: Request) -> SwitchEngine:
     return request.app.state.engine
 
 
-def _account_payload(account: Account) -> dict[str, Any]:
-    """对外只暴露界面需要的字段，凭据永远不出现在响应里。"""
+def _account_payload(
+    account: Account,
+    *,
+    credential_expires_at: str | None = None,
+    credential_refreshable: bool = False,
+) -> dict[str, Any]:
+    """对外只暴露界面需要的字段，凭据永远不出现在响应里。
+
+    `credentialExpiresAt` / `credentialRefreshable` 由列表接口批量注入
+    （见 `_credential_meta`），单号接口保持默认值也不会误报「可续期」。
+    """
     return {
         "id": account.id,
         "scope": account.scope,
@@ -81,11 +98,49 @@ def _account_payload(account: Account) -> dict[str, Any]:
         "avatarPath": account.avatar_path,
         "source": account.source,
         "credentialState": account.credential_state.value,
+        "credentialExpiresAt": credential_expires_at,
+        "credentialRefreshable": credential_refreshable,
         "lastUsedAt": account.last_used_at,
         "createdAt": account.created_at,
         "updatedAt": account.updated_at,
         "deletedAt": account.deleted_at,
     }
+
+
+def _credential_meta(
+    request: Request, accounts: list[Account]
+) -> tuple[dict[str, str | None], dict[str, bool]]:
+    """批量取「有效期 + 可否自动续期」，一次解密、一次查库即可。"""
+    repository = request.app.state.repository
+    try:
+        records = repository.current_credentials([item.id for item in accounts])
+    except Exception:  # noqa: BLE001 - 读凭据失败不该让整个列表 500
+        logger.warning("批量读取凭据摘要失败", exc_info=True)
+        return {}, {}
+    expiries: dict[str, str | None] = {}
+    refreshable_map: dict[str, bool] = {}
+    for account in accounts:
+        item = records.get(account.id)
+        if item is None:
+            expiries[account.id] = None
+            refreshable_map[account.id] = False
+            continue
+        kind, credential, expires_at = item
+        expiries[account.id] = expires_at
+        refreshable_map[account.id] = refreshable(kind, credential)
+    return expiries, refreshable_map
+
+
+def _accounts_payload(request: Request, accounts: list[Account]) -> list[dict[str, Any]]:
+    expiries, refreshable_map = _credential_meta(request, accounts)
+    return [
+        _account_payload(
+            account,
+            credential_expires_at=expiries.get(account.id),
+            credential_refreshable=refreshable_map.get(account.id, False),
+        )
+        for account in accounts
+    ]
 
 
 def _platform_of(scope: str) -> str:
@@ -212,6 +267,13 @@ class ScheduleUpdateRequest(BaseModel):
     enabled: bool | None = None
     times: list[str] | None = None
     jitterMinutes: int | None = None
+    accountIds: list[str] | None = None
+
+
+class CredentialRefreshRequest(BaseModel):
+    """凭据巡检 / 续期。`accountIds` 空 = 合并号池里全部账号。"""
+
+    mode: str = MODE_DUE
     accountIds: list[str] | None = None
 
 
@@ -385,13 +447,16 @@ def oauth_status(request: Request, loginId: str) -> dict[str, Any]:
             or account_data.get("email")
             or f"用户 {uid[-8:]}"
         )
+        credential = encode_token_payload(account_data)
         upserted = request.app.state.repository.upsert(
             scope="workbuddy-cn",
             external_id=uid,
             display_name=display_name,
-            credential=encode_token_payload(account_data),
+            credential=credential,
             credential_kind="oauth_token",
             source="oauth_login",
+            # 落库有效期：没有它，自动续期永远不知道该不该动手。
+            expires_at=expiry_text("oauth_token", credential),
         )
         return {
             "done": True,
@@ -435,13 +500,16 @@ def trae_oauth_status(request: Request, loginId: str) -> dict[str, Any]:
         if not uid:
             return {"done": True, "error": "扫码结果缺少账号标识"}
         display_name = str(account_data.get("displayName") or f"账号{uid[-6:]}")
+        credential = encode_token_payload(account_data)
         upserted = request.app.state.repository.upsert(
             scope="trae-cn",
             external_id=uid,
             display_name=display_name,
-            credential=encode_token_payload(account_data),
+            credential=credential,
             credential_kind="oauth_token",
             source="oauth_login",
+            # Trae 的过期时间从 JWT 的 `exp` 读；读不到留空（不猜）。
+            expires_at=expiry_text("oauth_token", credential),
         )
         return {
             "done": True,
@@ -473,7 +541,7 @@ def list_accounts(request: Request, scope: str, q: str | None = None) -> dict[st
         accounts = _service(request).list_active(scope, query=q)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
-    return {"accounts": [_account_payload(a) for a in accounts]}
+    return {"accounts": _accounts_payload(request, accounts)}
 
 
 @router.get("/accounts/merged", summary="合并号池：多个作用域的账号合成一张表", tags=["账号"])
@@ -483,7 +551,7 @@ def list_merged(request: Request, q: str | None = None) -> dict[str, Any]:
         accounts = _service(request).list_merged(implemented, query=q)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
-    return {"accounts": [_account_payload(a) for a in accounts]}
+    return {"accounts": _accounts_payload(request, accounts)}
 
 
 @router.post("/accounts/import", summary="导入客户端当前登录的账号", tags=["账号"])
@@ -621,11 +689,16 @@ def credential_health(request: Request) -> dict[str, Any]:
                     "scope": account.scope,
                     "credentialKind": "",
                     "gaps": ["credential"],
+                    "expiresAt": None,
+                    "refreshable": False,
+                    "expired": False,
                 }
             )
             continue
         gaps = _credential_gaps(credential)
         if gaps:
+            expires_at = repository.credential_expiries([account.id]).get(account.id)
+            moment = parse_expiry(expires_at)
             items.append(
                 {
                     "accountId": account.id,
@@ -633,6 +706,9 @@ def credential_health(request: Request) -> dict[str, Any]:
                     "scope": account.scope,
                     "credentialKind": kind,
                     "gaps": gaps,
+                    "expiresAt": expires_at,
+                    "refreshable": refreshable(kind, credential),
+                    "expired": bool(moment is not None and moment <= datetime.now(UTC)),
                 }
             )
 
@@ -640,6 +716,52 @@ def credential_health(request: Request) -> dict[str, Any]:
         "accounts": items,
         "total": len(accounts),
         "withGaps": len(items),
+    }
+
+
+@router.post(
+    "/credentials/refresh",
+    summary="凭据续期 / 验活：mode=due 只续快到期的，force 全部尝试，check 只验活",
+    tags=["账号"],
+)
+def credentials_refresh(
+    request: Request, body: CredentialRefreshRequest
+) -> dict[str, Any]:
+    """三种模式的唯一入口（号池批量按钮与计划任务共用）。
+
+    返回逐号结论，不含任何 token。部分账号失败不影响其余账号：服务内部逐号
+    串行处理，单号异常已被翻译成结果行。
+    """
+    mode = (body.mode or MODE_DUE).strip()
+    if mode not in MODES:
+        raise HTTPException(
+            status_code=400, detail=f"未知模式：{mode}（只支持 {'/'.join(MODES)}）"
+        )
+    implemented = [scope.key for scope in all_scopes() if scope.implemented]
+    try:
+        accounts = _service(request).list_merged(implemented)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    if body.accountIds:
+        wanted = list(dict.fromkeys(str(item) for item in body.accountIds if str(item)))
+        known = {account.id for account in accounts}
+        missing = [item for item in wanted if item not in known]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"号池里没有这些账号：{'、'.join(missing)}",
+            )
+        chosen = set(wanted)
+        accounts = [account for account in accounts if account.id in chosen]
+
+    lifecycle: CredentialLifecycleService = request.app.state.credential_lifecycle
+    results = lifecycle.sweep(accounts, mode=mode)
+    logger.info("凭据巡检（%s）：%s", mode, lifecycle.describe(results, mode))
+    return {
+        "mode": mode,
+        "results": [item.payload() for item in results],
+        "summary": lifecycle.summary(results),
     }
 
 
@@ -1524,6 +1646,13 @@ def list_schedules(request: Request) -> dict[str, Any]:
 @router.put("/schedules/{key}", summary="修改计划任务：时点 / 抖动 / 启用 / 范围", tags=["设置"])
 def update_schedule(request: Request, key: str, body: ScheduleUpdateRequest) -> dict[str, Any]:
     scheduler = request.app.state.scheduler
+    if body.accountIds is not None:
+        # 范围里的 id 必须真的在号池里：写进一个不存在的 id，任务会静默跑空，
+        # 用户却以为「范围设好了」—— 这里直接拒绝并列出坏 id。
+        known = {item.id for item in _activities_accounts(request, None)}
+        unknown = [item for item in body.accountIds if item not in known]
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"账号不存在：{'、'.join(unknown)}")
     try:
         scheduler.update(
             key,
@@ -1695,7 +1824,12 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 "title": title,
                 "detail": f"{account.display_name}（{_scope_label(account.scope)}）：{reason}",
                 "accountId": account.id,
-                "action": {"type": "navigate", "to": "/accounts"},
+                "action": {
+                    "type": "run",
+                    "endpoint": "/credentials/refresh",
+                    "mode": "due",
+                    "accountIds": [account.id],
+                },
             }
         )
 

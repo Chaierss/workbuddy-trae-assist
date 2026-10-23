@@ -19,6 +19,36 @@ import { t } from "../../lib/i18n";
  * 状态装在 `reactive` 里，`Object.assign` 挂上 computed —— reactive 的 getter
  * 会自动拆包 ref，所以模板里直接 `store.activeKeys` 就是值，不用写 `.value`。
  */
+
+/** 一把 Key 的三项额度草稿（0 = 不限）。 */
+export interface KeyLimits {
+  dailyTokenLimit: number;
+  dailyRequestLimit: number;
+  rpmLimit: number;
+}
+
+/** 从 Key 记录里拷出额度草稿（编辑弹窗用）。 */
+export function limitsOf(key: GatewayKey): KeyLimits {
+  return {
+    dailyTokenLimit: key.dailyTokenLimit,
+    dailyRequestLimit: key.dailyRequestLimit,
+    rpmLimit: key.rpmLimit,
+  };
+}
+
+/** 把输入框里可能出现的空串 / 小数收敛成非负整数（0 = 不限），避免后端 422。 */
+export function cleanLimits(limits: KeyLimits): KeyLimits {
+  const clean = (value: unknown): number => {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+  };
+  return {
+    dailyTokenLimit: clean(limits.dailyTokenLimit),
+    dailyRequestLimit: clean(limits.dailyRequestLimit),
+    rpmLimit: clean(limits.rpmLimit),
+  };
+}
+
 export interface GatewayStore {
   status: GatewayStatus | null;
   keys: GatewayKey[];
@@ -32,6 +62,7 @@ export interface GatewayStore {
     allowNonLoopback: boolean;
     maxHops: number;
     catalogRefreshMinutes: number;
+    logKeep: number;
   };
   newLabel: string;
   /** 正在改名的 Key id（null = 没有在改名）与其草稿值。 */
@@ -41,12 +72,15 @@ export interface GatewayStore {
   newScope: string;
   newCapabilities: string[];
   newModels: string[];
+  /** 签发新 Key 的额度草稿（0 = 不限）。 */
+  newLimits: KeyLimits;
   /** 正在编辑模型范围的 Key（null = 没开编辑框）。 */
   editing: {
     keyItem: GatewayKey;
     scope: string;
     capabilities: string[];
     models: string[];
+    limits: KeyLimits;
   } | null;
   issued: string | null;
   busyKey: string | null;
@@ -71,6 +105,8 @@ export interface GatewayStore {
   activeKeys: GatewayKey[];
   revokedKeys: GatewayKey[];
   dirty: boolean;
+  /** 当前筛选条件下的 CSV 导出地址（给 `<a download>` 用）。 */
+  logsExportUrl: string;
 
   load: () => Promise<void>;
   save: (patch: GatewayConfigPatch) => Promise<void>;
@@ -110,6 +146,7 @@ export function createGatewayStore(): GatewayStore {
       allowNonLoopback: false,
       maxHops: 3,
       catalogRefreshMinutes: 0,
+      logKeep: 200,
     },
     newLabel: "",
     renaming: null as string | null,
@@ -117,11 +154,13 @@ export function createGatewayStore(): GatewayStore {
     newScope: "all",
     newCapabilities: [] as string[],
     newModels: [] as string[],
+    newLimits: { dailyTokenLimit: 0, dailyRequestLimit: 0, rpmLimit: 0 } as KeyLimits,
     editing: null as {
       keyItem: GatewayKey;
       scope: string;
       capabilities: string[];
       models: string[];
+      limits: KeyLimits;
     } | null,
     issued: null as string | null,
     busyKey: null as string | null,
@@ -153,6 +192,7 @@ export function createGatewayStore(): GatewayStore {
       allowNonLoopback: next.allowNonLoopback,
       maxHops: next.maxHops,
       catalogRefreshMinutes: next.catalogRefreshMinutes,
+      logKeep: next.logKeep,
     };
     if (!state.probeModel && next.catalog.models.length) {
       state.probeModel = next.catalog.models[0].id;
@@ -218,12 +258,14 @@ export function createGatewayStore(): GatewayStore {
         scope: state.newScope,
         capabilities: state.newCapabilities,
         models: state.newModels,
+        ...cleanLimits(state.newLimits),
       });
       state.issued = result.key;
       state.newLabel = "";
       state.newScope = "all";
       state.newCapabilities = [];
       state.newModels = [];
+      state.newLimits = { dailyTokenLimit: 0, dailyRequestLimit: 0, rpmLimit: 0 };
       state.keys = (await api.gatewayKeys()).keys;
     } catch (cause) {
       state.error = (cause as Error).message;
@@ -272,6 +314,7 @@ export function createGatewayStore(): GatewayStore {
       scope: key.scope || "all",
       capabilities: [...key.capabilities],
       models: [...key.models],
+      limits: limitsOf(key),
     };
   }
 
@@ -286,6 +329,7 @@ export function createGatewayStore(): GatewayStore {
         scope: draft.scope,
         capabilities: draft.capabilities,
         models: draft.models,
+        ...cleanLimits(draft.limits),
       });
       state.editing = null;
       state.keys = (await api.gatewayKeys()).keys;
@@ -422,9 +466,11 @@ export function createGatewayStore(): GatewayStore {
         state.form.port !== current.port ||
         state.form.allowNonLoopback !== current.allowNonLoopback ||
         state.form.maxHops !== current.maxHops ||
-        state.form.catalogRefreshMinutes !== current.catalogRefreshMinutes
+        state.form.catalogRefreshMinutes !== current.catalogRefreshMinutes ||
+        state.form.logKeep !== current.logKeep
       );
     }),
+    logsExportUrl: computed(() => api.gatewayLogsExportUrl(logFilters())),
     load,
     save,
     issue,

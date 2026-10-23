@@ -660,7 +660,7 @@ def test_api_conversation_messages_returns_transcript(client, monkeypatch):
 
 
 def test_schedules_lists_all_tasks(client):
-    """五个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领。"""
+    """六个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期。"""
     tasks = client.get("/api/schedules").json()["tasks"]
     assert [item["key"] for item in tasks] == [
         "keepalive",
@@ -668,6 +668,7 @@ def test_schedules_lists_all_tasks(client):
         "activity_run",
         "travel_depart",
         "travel_claim",
+        "credential_refresh",
     ]
     assert {"enabled", "times", "jitterMinutes", "accountIds", "lastRunAt", "nextRunAt"} <= set(
         tasks[0]
@@ -680,17 +681,30 @@ def test_schedules_lists_all_tasks(client):
 
 
 def test_schedules_update_times_and_jitter(client):
+    account_id = _seed(client).account.id
     body = client.put(
         "/api/schedules/keepalive",
-        json={"times": ["07:30", "19:00"], "jitterMinutes": 5, "accountIds": ["a-1"]},
+        json={"times": ["07:30", "19:00"], "jitterMinutes": 5, "accountIds": [account_id]},
     ).json()["task"]
     assert body["times"] == ["07:30", "19:00"]
     assert body["jitterMinutes"] == 5
-    assert body["accountIds"] == ["a-1"]
+    assert body["accountIds"] == [account_id]
 
     # 前一次改动已落盘，再读一次一致。
     again = client.get("/api/schedules").json()["tasks"][0]
     assert again["times"] == ["07:30", "19:00"]
+
+
+def test_schedules_reject_unknown_account_ids(client):
+    """范围里写不存在的 id 会被静默跑空 —— 这里明确拒绝并列出坏 id。"""
+    _seed(client)
+    response = client.put("/api/schedules/keepalive", json={"accountIds": ["ghost-id"]})
+    assert response.status_code == 400
+    assert "ghost-id" in response.json()["detail"]
+
+    # 拒绝之后状态不能被写坏：范围仍是「全部账号」。
+    task = {item["key"]: item for item in client.get("/api/schedules").json()["tasks"]}
+    assert task["keepalive"]["accountIds"] == []
 
 
 def test_schedules_update_rejects_bad_times(client):
@@ -821,7 +835,12 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
 
     assert by_kind["credential"]["severity"] == "high"
     assert by_kind["credential"]["accountId"] == account_id
-    assert by_kind["credential"]["action"] == {"type": "navigate", "to": "/accounts"}
+    assert by_kind["credential"]["action"] == {
+        "type": "run",
+        "endpoint": "/credentials/refresh",
+        "mode": "due",
+        "accountIds": [account_id],
+    }
 
     assert by_kind["checkin"]["accountId"] == account_id
     assert by_kind["checkin"]["action"] == {
@@ -1274,3 +1293,99 @@ def test_purge_cleans_gateway_pool_references(client, isolated_snapshots):
     payload = gateway.pool_payload()
     assert account_id not in payload["excluded"]
     assert payload["preferred"] is None
+
+
+# ---------- 凭据有效期与续期 ----------
+
+
+def _seed_oauth(client: TestClient, external_id="u-oauth", name="扫码号", expires_at=None):
+    return client.app.state.repository.upsert(
+        scope=SCOPE,
+        external_id=external_id,
+        display_name=name,
+        credential={
+            "format": "oauth-token",
+            "uid": external_id,
+            "accessToken": "tok-oauth-secret",
+            "refreshToken": "refresh-oauth-secret",
+            "domain": "www.workbuddy.cn",
+        },
+        credential_kind="oauth_token",
+        expires_at=expires_at,
+    )
+
+
+def test_account_payload_exposes_expiry_and_refreshability(client):
+    expires = "2030-01-01T00:00:00+00:00"
+    _seed_oauth(client, expires_at=expires)
+    _seed(client, external_id="u-raw", name="信封号")
+
+    accounts = client.get("/api/accounts", params={"scope": SCOPE}).json()["accounts"]
+    by_name = {item["displayName"]: item for item in accounts}
+    assert by_name["扫码号"]["credentialExpiresAt"] == expires
+    assert by_name["扫码号"]["credentialRefreshable"] is True
+    # 客户端导入的信封（session）无法在线续期，也不该显示可续期。
+    assert by_name["信封号"]["credentialExpiresAt"] is None
+    assert by_name["信封号"]["credentialRefreshable"] is False
+    # 有效期是元数据，凭据本体依旧不能出现在响应里。
+    raw = client.get("/api/accounts", params={"scope": SCOPE}).text
+    assert "tok-oauth-secret" not in raw
+    assert "refresh-oauth-secret" not in raw
+
+
+def test_merged_pool_carries_same_credential_meta(client):
+    expires = "2031-02-03T04:05:06+00:00"
+    _seed_oauth(client, expires_at=expires)
+
+    merged = client.get("/api/accounts/merged").json()["accounts"]
+    assert merged[0]["credentialExpiresAt"] == expires
+    assert merged[0]["credentialRefreshable"] is True
+
+
+def test_credentials_refresh_due_skips_far_expiry(client):
+    """due 只处理窗口内的号：远期到期的号结果应是 noop，而不是白打一次上游。"""
+    _seed_oauth(
+        client,
+        expires_at="2030-01-01T00:00:00+00:00",
+    )
+
+    body = client.post("/api/credentials/refresh", json={"mode": "due"}).json()
+    assert body["mode"] == "due"
+    assert body["summary"]["total"] == 1
+    assert body["summary"]["noop"] == 1
+    assert body["results"][0]["status"] == "noop"
+
+
+def test_credentials_refresh_unknown_account_ids_is_400(client):
+    _seed_oauth(client)
+
+    response = client.post(
+        "/api/credentials/refresh",
+        json={"mode": "force", "accountIds": ["no-such-id"]},
+    )
+    assert response.status_code == 400
+    assert "no-such-id" in response.json()["detail"]
+
+
+def test_credentials_refresh_rejects_unknown_mode(client):
+    response = client.post("/api/credentials/refresh", json={"mode": "later"})
+    assert response.status_code == 400
+    assert "later" in response.json()["detail"]
+
+
+def test_credentials_refresh_empty_pool_is_harmless(client):
+    body = client.post("/api/credentials/refresh", json={"mode": "force"}).json()
+    assert body["results"] == []
+    assert body["summary"]["total"] == 0
+
+
+def test_credentials_refresh_check_marks_client_envelope_unsupported(client):
+    """信封凭据无法在线验活：如实报不支持，且不能把账号误标成需要重新登录。"""
+    _seed(client, external_id="u-raw", name="信封号")
+
+    body = client.post("/api/credentials/refresh", json={"mode": "check"}).json()
+    assert body["results"][0]["status"] == "unsupported"
+    state = client.app.state.repository.get(
+        body["results"][0]["accountId"]
+    ).credential_state.value
+    assert state == "unverified"

@@ -91,6 +91,8 @@ export const gatewayZh = {
   "gateway.byKey.lastUsed": "最近使用 {time}",
   "gateway.byKey.neverUsed": "从未使用",
   "gateway.byKey.avgPerRequest": "均 {tokens}",
+  "gateway.byKey.today": "今日 {requests} 次 · {tokens}",
+  "gateway.byKey.todayNone": "今日无请求",
   "gateway.byKey.viewUsage": "看用量",
 
   "gateway.keys.title": "API Key",
@@ -102,6 +104,18 @@ export const gatewayZh = {
   "gateway.keys.labelRequired": "备注不能为空",
   "gateway.keys.issue": "签发",
   "gateway.keys.limitModels": "模型范围",
+  "gateway.keys.limits": "额度上限",
+  "gateway.keys.dailyTokens": "每日 tokens",
+  "gateway.keys.dailyRequests": "每日请求数",
+  "gateway.keys.rpm": "每分钟请求（RPM）",
+  "gateway.keys.unlimited": "不限",
+  "gateway.keys.limitsHint":
+    "0 或留空 = 不限。日额度按本地时区自然日归零；RPM 按最近 60 秒滑动窗口计算，放行即计数。",
+  "gateway.keys.limitedToday": "已限流",
+  "gateway.keys.limitedTodayHint":
+    "今日额度已用尽，再调用会返回 429（带 Retry-After），次日零点自动恢复。",
+  "gateway.keys.todayUsage": "今日 {requests} 次 · {tokens} tokens",
+  "gateway.keys.limitLine": "上限：{tokens} tokens / {requests} 次 / {rpm} RPM",
   "gateway.keys.clear": "清空",
   "gateway.keys.noCatalog": "还没拿到模型目录。先去「模型目录」重新获取。",
   "gateway.keys.issuedTitle": "新 Key 已签发，请立即复制保存",
@@ -118,9 +132,9 @@ export const gatewayZh = {
   "gateway.keys.summaryList": "指定 {count} 个模型",
   "gateway.keys.summaryNone": "未选任何模型",
   "gateway.keys.editScope": "改范围",
-  "gateway.keys.editScopeTitle": "编辑模型范围",
+  "gateway.keys.editScopeTitle": "编辑范围与额度",
   "gateway.keys.editScopeDesc":
-    "改「{label}」的可用模型范围。Key 本身不变，客户端无需重新配置。",
+    "改「{label}」的可用模型范围与调用额度。Key 本身不变，客户端无需重新配置。",
   "gateway.keys.usageRow": "{requests} 次 · {tokens} tokens",
   "gateway.keys.lastUsed": "最近使用：{time}",
   "gateway.keys.viewUsage": "用量",
@@ -187,6 +201,8 @@ export const gatewayZh = {
   "gateway.service.port": "端口",
   "gateway.service.maxHops": "换号次数",
   "gateway.service.maxHopsHint": "上游失败时最多试几个账号",
+  "gateway.service.logKeep": "日志保留",
+  "gateway.service.logKeepHint": "条（50–5000），超出后裁掉最旧的",
   "gateway.service.nonLoopback": "非回环地址",
   "gateway.service.nonLoopbackHintPrefix": "打开后监听地址才能写",
   "gateway.service.nonLoopbackHintSuffix":
@@ -248,7 +264,8 @@ export const gatewayZh = {
   "gateway.storeNotProvided": "网关状态未注入：请在 GatewayView 里 provideGateway",
 
   "gateway.logs.title": "最近请求",
-  "gateway.logs.subtitle": "新的在前，最多保留 200 条",
+  "gateway.logs.subtitle": "新的在前；保留条数在「服务」里配置（默认 200 条）",
+  "gateway.logs.export": "导出 CSV",
   "gateway.logs.clear": "清空",
   "gateway.logs.empty": "还没有请求。客户端接上以后，这里能看到每次调用走了哪个账号。",
   "gateway.logs.statusFailed": "失败 {status}",
@@ -369,6 +386,8 @@ export const gatewayEn = {
   "gateway.byKey.lastUsed": "Last used {time}",
   "gateway.byKey.neverUsed": "Never used",
   "gateway.byKey.avgPerRequest": "avg {tokens}",
+  "gateway.byKey.today": "{requests} requests · {tokens} today",
+  "gateway.byKey.todayNone": "No requests today",
   "gateway.byKey.viewUsage": "Usage",
 
   "gateway.keys.title": "API Key",
@@ -380,6 +399,18 @@ export const gatewayEn = {
   "gateway.keys.labelRequired": "The note cannot be empty",
   "gateway.keys.issue": "Issue",
   "gateway.keys.limitModels": "Model scope",
+  "gateway.keys.limits": "Usage limits",
+  "gateway.keys.dailyTokens": "Tokens per day",
+  "gateway.keys.dailyRequests": "Requests per day",
+  "gateway.keys.rpm": "Requests per minute (RPM)",
+  "gateway.keys.unlimited": "Unlimited",
+  "gateway.keys.limitsHint":
+    "0 or blank means unlimited. Daily limits reset at local midnight; RPM counts admitted requests in a sliding 60-second window.",
+  "gateway.keys.limitedToday": "Rate-limited",
+  "gateway.keys.limitedTodayHint":
+    "Today's quota is used up; further calls get a 429 with Retry-After until the next local midnight.",
+  "gateway.keys.todayUsage": "{requests} requests · {tokens} tokens today",
+  "gateway.keys.limitLine": "Limits: {tokens} tokens / {requests} requests / {rpm} RPM",
   "gateway.keys.clear": "Clear",
   "gateway.keys.noCatalog": "No model catalog yet. Refresh it on the Models tab first.",
   "gateway.keys.issuedTitle": "New key issued — copy it now",
@@ -397,9 +428,9 @@ export const gatewayEn = {
   "gateway.keys.summaryList": "{count} selected models",
   "gateway.keys.summaryNone": "No model selected",
   "gateway.keys.editScope": "Edit scope",
-  "gateway.keys.editScopeTitle": "Edit model scope",
+  "gateway.keys.editScopeTitle": "Edit scope and limits",
   "gateway.keys.editScopeDesc":
-    "Change which models \"{label}\" may call. The key itself is unchanged, so clients need no reconfiguration.",
+    'Change the models and usage limits for "{label}". The key itself is unchanged, so clients need no reconfiguration.',
   "gateway.keys.usageRow": "{requests} requests · {tokens} tokens",
   "gateway.keys.lastUsed": "Last used: {time}",
   "gateway.keys.viewUsage": "Usage",
@@ -466,6 +497,8 @@ export const gatewayEn = {
   "gateway.service.port": "Port",
   "gateway.service.maxHops": "Account switches",
   "gateway.service.maxHopsHint": "How many accounts to try when upstream fails",
+  "gateway.service.logKeep": "Log retention",
+  "gateway.service.logKeepHint": "entries (50–5000); older ones are trimmed",
   "gateway.service.nonLoopback": "Non-loopback address",
   "gateway.service.nonLoopbackHintPrefix": "Turn this on to allow a non-loopback address such as",
   "gateway.service.nonLoopbackHintSuffix":
@@ -528,7 +561,8 @@ export const gatewayEn = {
   "gateway.storeNotProvided": "Gateway store not provided: call provideGateway in GatewayView",
 
   "gateway.logs.title": "Recent requests",
-  "gateway.logs.subtitle": "Newest first, up to 200 entries kept",
+  "gateway.logs.subtitle": "Newest first; retention is configured on the Service tab (200 entries by default)",
+  "gateway.logs.export": "Export CSV",
   "gateway.logs.clear": "Clear",
   "gateway.logs.empty":
     "No requests yet. Once a client connects, you'll see which account each call went through here.",

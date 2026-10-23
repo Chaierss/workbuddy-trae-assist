@@ -28,11 +28,13 @@ import logging
 import threading
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from hmac import compare_digest
+from math import ceil
 from pathlib import Path
 from secrets import token_hex
 from typing import Any
@@ -55,6 +57,13 @@ KEY_PREFIX = "sk-"
 MIN_PORT = 1024
 MAX_PORT = 65535
 LOG_KEEP = 200
+#: 日志保留条数的可配范围；默认沿用 `LOG_KEEP`，旧存档照旧 200。
+LOG_KEEP_MIN = 50
+LOG_KEEP_MAX = 5000
+#: Key 限额（日 token / 日请求 / 每分钟请求）的合法上限，防止误填天文数字。
+LIMIT_MAX = 10_000_000
+RPM_LIMIT_MAX = 600_000
+RPM_WINDOW_SECONDS = 60.0
 START_TIMEOUT_SECONDS = 6.0
 #: 模型范围三段式：`all`（全部，含目录新增）/ `capability`（按能力，随目录自动重算）
 #: / `list`（静态白名单）。
@@ -113,6 +122,19 @@ def _clean_capabilities(values: Any) -> tuple[str, ...]:
     return tuple(dict.fromkeys(raw))
 
 
+def _clean_limit(value: Any, label: str, maximum: int) -> int:
+    """额度取值：0 = 不限；负数、非整数、超上限一律报错，绝不静默改数。"""
+    if value is None:
+        return 0
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise GatewayError(f"{label}需为整数") from None
+    if number < 0 or number > maximum:
+        raise GatewayError(f"{label}需在 0-{maximum} 之间（0 = 不限）")
+    return number
+
+
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -143,6 +165,8 @@ class GatewayConfig:
     #: 默认 30：目录属于「配好就不用管」的数据，默认让它自己保鲜，
     #: 否则新建 Key 时选模型会看到空目录。
     catalog_refresh_minutes: int = 30
+    #: 请求日志保留条数（50..5000）。调小后立即裁剪内存与落盘。
+    log_keep: int = LOG_KEEP
 
     def validate(self) -> None:
         if not self.host or self.host.strip() != self.host:
@@ -151,6 +175,8 @@ class GatewayConfig:
             raise GatewayError(f"端口需在 {MIN_PORT}-{MAX_PORT} 之间")
         if not (1 <= self.max_hops <= 8):
             raise GatewayError("换号次数需在 1-8 之间")
+        if not (LOG_KEEP_MIN <= self.log_keep <= LOG_KEEP_MAX):
+            raise GatewayError(f"日志保留条数需在 {LOG_KEEP_MIN}-{LOG_KEEP_MAX} 之间")
         if self.catalog_refresh_minutes != 0 and not (
             CATALOG_REFRESH_MIN_MINUTES
             <= self.catalog_refresh_minutes
@@ -180,6 +206,7 @@ class GatewayConfig:
             "allowNonLoopback": self.allow_non_loopback,
             "maxHops": self.max_hops,
             "catalogRefreshMinutes": self.catalog_refresh_minutes,
+            "logKeep": self.log_keep,
             "baseUrl": self.base_url,
             "chatUrl": f"{self.base_url}/v1/chat/completions",
             "modelsUrl": f"{self.base_url}/v1/models",
@@ -197,6 +224,7 @@ class GatewayConfig:
             catalog_refresh_minutes=int(
                 data.get("catalogRefreshMinutes", DEFAULT_CATALOG_REFRESH_MINUTES)
             ),
+            log_keep=int(data.get("logKeep", LOG_KEEP)),
         )
 
 
@@ -231,10 +259,26 @@ class ApiKeyRecord:
     models: tuple[str, ...] = ()
     scope: str = SCOPE_ALL
     capabilities: tuple[str, ...] = ()
+    #: 限额：0 = 不限。日额度按**本地时区自然日**滚动，RPM 按 60 秒滑动窗口。
+    daily_token_limit: int = 0
+    daily_request_limit: int = 0
+    rpm_limit: int = 0
+    #: 当日计数器：`usage_day` 是本地日期 `YYYY-MM-DD`，跨日读到时清零。
+    usage_day: str = ""
+    day_tokens: int = 0
+    day_requests: int = 0
 
     @property
     def active(self) -> bool:
         return self.revoked_at is None
+
+    @property
+    def limited_today(self) -> bool:
+        """今日额度是否已经用满（只看日额度；RPM 是瞬时值，不进这个药丸）。"""
+        return (
+            (self.daily_token_limit > 0 and self.day_tokens >= self.daily_token_limit)
+            or (self.daily_request_limit > 0 and self.day_requests >= self.daily_request_limit)
+        )
 
     def allows(self, model: str, catalog: list[Any] | None = None) -> bool:
         """该 Key 是否允许调用某模型。
@@ -271,6 +315,13 @@ class ApiKeyRecord:
             "models": list(self.models),
             "scope": self.scope,
             "capabilities": list(self.capabilities),
+            "dailyTokenLimit": self.daily_token_limit,
+            "dailyRequestLimit": self.daily_request_limit,
+            "rpmLimit": self.rpm_limit,
+            "usageDay": self.usage_day,
+            "dayTokens": self.day_tokens,
+            "dayRequests": self.day_requests,
+            "limitedToday": self.limited_today,
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -288,6 +339,12 @@ class ApiKeyRecord:
             "models": list(self.models),
             "modelScope": self.scope,
             "capabilities": list(self.capabilities),
+            "dailyTokenLimit": self.daily_token_limit,
+            "dailyRequestLimit": self.daily_request_limit,
+            "rpmLimit": self.rpm_limit,
+            "usageDay": self.usage_day,
+            "dayTokens": self.day_tokens,
+            "dayRequests": self.day_requests,
         }
 
     @classmethod
@@ -327,10 +384,31 @@ class ApiKeyRecord:
             models=models,
             scope=scope,
             capabilities=capabilities,
+            daily_token_limit=max(0, int(data.get("dailyTokenLimit") or 0)),
+            daily_request_limit=max(0, int(data.get("dailyRequestLimit") or 0)),
+            rpm_limit=max(0, int(data.get("rpmLimit") or 0)),
+            usage_day=str(data.get("usageDay") or ""),
+            day_tokens=max(0, int(data.get("dayTokens") or 0)),
+            day_requests=max(0, int(data.get("dayRequests") or 0)),
         )
 
 
 # ---------- 状态存储 ----------
+
+
+@dataclass(frozen=True, slots=True)
+class AdmitDecision:
+    """一次准入判定的结果。`allowed=False` 时带拒绝原因与建议重试秒数。
+
+    `reason`：`quota`（当日 token 额度）/ `requests`（当日请求数）/ `rpm`（每分钟请求数）。
+    `limit` / `remaining` 只对「被拒绝的那一项」有意义，直接映射成 `X-RateLimit-*` 响应头。
+    """
+
+    allowed: bool
+    reason: str = ""
+    retry_after: int = 0
+    limit: int = 0
+    remaining: int = 0
 
 
 class GatewayStore:
@@ -339,13 +417,24 @@ class GatewayStore:
     主服务与网关线程都会读它，所以所有操作都在一把可重入锁里。
     """
 
-    def __init__(self, home: Path) -> None:
+    def __init__(
+        self,
+        home: Path,
+        *,
+        now: Callable[[], datetime] | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self._config_file = home / CONFIG_FILENAME
         self._keys_file = home / KEYS_FILENAME
         self._logs_file = home / LOGS_FILENAME
         self._stats_file = home / STATS_FILENAME
         self._pool_file = home / POOL_FILENAME
         self._lock = threading.RLock()
+        #: 可注入的时钟：跨日滚动与 RPM 窗口都靠它，单测不必真等一天 / 一分钟。
+        self._now = now or (lambda: datetime.now().astimezone())
+        self._clock = clock or time.monotonic
+        #: RPM 滑动窗口：key_id → 最近 60 秒内的准入时刻（monotonic 秒）。
+        self._rpm: dict[str, deque[float]] = {}
         self._config = self._load_config()
         self._keys = self._load_keys()
         self._logs = self._load_logs()
@@ -369,11 +458,20 @@ class GatewayStore:
         with self._lock:
             return self._config
 
+    def log_keep(self) -> int:
+        """当前生效的日志保留条数（配置可改，所以不要再用模块常量）。"""
+        with self._lock:
+            return int(self._config.log_keep)
+
     def save_config(self, config: GatewayConfig) -> GatewayConfig:
         config.validate()
         with self._lock:
             self._config = config
             _write_json(self._config_file, config.payload())
+            # 调小保留条数要立即生效：内存先裁，落盘再重写一次。
+            if len(self._logs) > config.log_keep:
+                self._logs = self._logs[-config.log_keep :]
+                self._rewrite_logs_locked()
             return config
 
     # ----- Key -----
@@ -389,8 +487,29 @@ class GatewayStore:
     def _save_keys_locked(self) -> None:
         _write_json(self._keys_file, [record.to_dict() for record in self._keys])
 
+    def _today(self) -> str:
+        """本地时区自然日（`YYYY-MM-DD`）—— 与调度器「用户自己的一天」口径一致。"""
+        return self._now().astimezone().date().isoformat()
+
+    @staticmethod
+    def _roll_day(record: ApiKeyRecord, today: str) -> bool:
+        """把当日计数器滚动到 `today`；跨日清零。返回是否真的改过。"""
+        if record.usage_day == today:
+            return False
+        record.usage_day = today
+        record.day_tokens = 0
+        record.day_requests = 0
+        return True
+
     def keys(self) -> list[ApiKeyRecord]:
         with self._lock:
+            today = self._today()
+            changed = False
+            for record in self._keys:
+                # 不能写 any(...)：生成器短路会让后面的 Key 漏滚动。
+                changed = self._roll_day(record, today) or changed
+            if changed:
+                self._save_keys_locked()
             return list(self._keys)
 
     def active_key_count(self) -> int:
@@ -404,12 +523,16 @@ class GatewayStore:
         *,
         scope: str | None = None,
         capabilities: list[str] | None = None,
+        daily_token_limit: int = 0,
+        daily_request_limit: int = 0,
+        rpm_limit: int = 0,
     ) -> tuple[str, ApiKeyRecord]:
         """签发一把新 Key。返回 `(明文, 记录)` —— 明文只有这一次机会拿到。
 
         `scope` 决定模型范围：`all`（全部）/ `capability`（按能力）/ `list`（指定
         `models` 白名单）。不传时按老语义推断：给了 `models` 当 `list`，否则当 `all`。
         `models` 无论哪种模式都存着，方便之后切换模式。
+        三个额度参数 0 = 不限。
         """
         name = (label or "").strip() or "未命名"
         if len(name) > 60:
@@ -419,6 +542,9 @@ class GatewayStore:
         if resolved not in KEY_SCOPES:
             raise GatewayError("模型范围取值不合法")
         caps = _clean_capabilities(capabilities)
+        token_limit = _clean_limit(daily_token_limit, "每日 token 上限", LIMIT_MAX)
+        request_limit = _clean_limit(daily_request_limit, "每日请求上限", LIMIT_MAX)
+        rpm = _clean_limit(rpm_limit, "每分钟请求上限", RPM_LIMIT_MAX)
         body = token_hex(24)
         token = f"{KEY_PREFIX}{body}"
         record = ApiKeyRecord(
@@ -431,6 +557,10 @@ class GatewayStore:
             models=whitelist,
             scope=resolved,
             capabilities=caps,
+            daily_token_limit=token_limit,
+            daily_request_limit=request_limit,
+            rpm_limit=rpm,
+            usage_day=self._today(),
         )
         with self._lock:
             self._keys.insert(0, record)
@@ -445,11 +575,30 @@ class GatewayStore:
         scope: str | None = None,
         capabilities: list[str] | None = None,
         models: list[str] | None = None,
+        daily_token_limit: int | None = None,
+        daily_request_limit: int | None = None,
+        rpm_limit: int | None = None,
     ) -> ApiKeyRecord:
-        """改一把 Key 的备注 / 模型范围。**C 位与明文都不变**，所以不必重签。
+        """改一把 Key 的备注 / 模型范围 / 额度。**C 位与明文都不变**，所以不必重签。
 
         只改传进来的字段（`None` = 保持原样）。改完立即生效。
         """
+        # 先把新值全部验完再落笔：非法额度不能留下「改了一半」的 Key。
+        token_limit = (
+            None
+            if daily_token_limit is None
+            else _clean_limit(daily_token_limit, "每日 token 上限", LIMIT_MAX)
+        )
+        request_limit = (
+            None
+            if daily_request_limit is None
+            else _clean_limit(daily_request_limit, "每日请求上限", LIMIT_MAX)
+        )
+        rpm = (
+            None
+            if rpm_limit is None
+            else _clean_limit(rpm_limit, "每分钟请求上限", RPM_LIMIT_MAX)
+        )
         with self._lock:
             for record in self._keys:
                 if record.id != key_id:
@@ -470,6 +619,12 @@ class GatewayStore:
                     record.models = tuple(
                         dict.fromkeys(m.strip() for m in models if m.strip())
                     )
+                if token_limit is not None:
+                    record.daily_token_limit = token_limit
+                if request_limit is not None:
+                    record.daily_request_limit = request_limit
+                if rpm is not None:
+                    record.rpm_limit = rpm
                 self._save_keys_locked()
                 return record
         raise GatewayKeyNotFound("Key 不存在")
@@ -526,13 +681,65 @@ class GatewayStore:
                     return record
         return None
 
+    def admit(self, key_id: str) -> AdmitDecision:
+        """请求准入判定：日 token / 日请求 / 每分钟请求三道闸。
+
+        - 先按**本地时区自然日**滚动计数器（跨日清零）；
+        - 日额度看「已经用掉多少」：达到上限即拒绝，回复次日 0 点重试；
+        - RPM 用 60 秒滑动窗口（per-key，内存），超限回复窗口内最早那次滑出的秒数；
+        - 放行时**立刻记一次**窗口打点：失败请求也占 RPM（与 `record_use` 口径一致）。
+
+        注意：token 额度只能拦住「下一次」请求 —— 一次请求要花多少 token
+        在发出去之前无法预知（见方案 D7）。
+        """
+        with self._lock:
+            record = next((item for item in self._keys if item.id == key_id), None)
+            if record is None:
+                raise GatewayKeyNotFound(f"找不到网关 Key：{key_id}")
+            if self._roll_day(record, self._today()):
+                self._save_keys_locked()
+
+            if record.daily_token_limit > 0 and record.day_tokens >= record.daily_token_limit:
+                return AdmitDecision(
+                    False, "quota", self._seconds_to_tomorrow(), record.daily_token_limit, 0
+                )
+            if (
+                record.daily_request_limit > 0
+                and record.day_requests >= record.daily_request_limit
+            ):
+                return AdmitDecision(
+                    False, "requests", self._seconds_to_tomorrow(), record.daily_request_limit, 0
+                )
+            if record.rpm_limit > 0:
+                moment = self._clock()
+                window = self._rpm.setdefault(record.id, deque())
+                while window and moment - window[0] >= RPM_WINDOW_SECONDS:
+                    window.popleft()
+                if len(window) >= record.rpm_limit:
+                    wait = RPM_WINDOW_SECONDS - (moment - window[0])
+                    return AdmitDecision(
+                        False, "rpm", max(1, ceil(wait)), record.rpm_limit, 0
+                    )
+                window.append(moment)
+            return AdmitDecision(True)
+
+    def _seconds_to_tomorrow(self) -> int:
+        """距本地时区次日 0 点的秒数（日额度重置点）；至少 1 秒。"""
+        now = self._now()
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        return max(1, ceil((start - now).total_seconds()))
+
     def record_use(self, key_id: str, *, tokens: int = 0) -> None:
         with self._lock:
+            today = self._today()
             for record in self._keys:
                 if record.id == key_id:
+                    self._roll_day(record, today)
                     record.last_used_at = _now_iso()
                     record.requests += 1
                     record.tokens += max(0, tokens)
+                    record.day_requests += 1
+                    record.day_tokens += max(0, tokens)
                     self._save_keys_locked()
                     return
 
@@ -640,7 +847,7 @@ class GatewayStore:
                         entries.append(item)
         except OSError:
             return []
-        return entries[-LOG_KEEP:]
+        return entries[-self.log_keep() :]
 
     def log(self, entry: dict[str, Any]) -> dict[str, Any]:
         """记一笔网关请求。返回写入后的条目（含 id 与时间）。"""
@@ -657,8 +864,9 @@ class GatewayStore:
             except OSError:
                 logger.warning("网关日志写入失败", exc_info=True)
             self._logs.append(record)
-            if len(self._logs) > LOG_KEEP:
-                self._logs = self._logs[-LOG_KEEP:]
+            keep = self._config.log_keep
+            if len(self._logs) > keep:
+                self._logs = self._logs[-keep:]
                 self._rewrite_logs_locked()
             self._bump_stats_locked(record)
         return record
@@ -681,7 +889,7 @@ class GatewayStore:
         """最近的请求日志（新的在前）。
 
         `key_id` / `session_id` 是**内存里的等值过滤**（不读盘、不改落盘格式）：
-        日志保留上限只有 200 条，扫一遍内存比先读文件再筛更省事。
+        日志保留条数可配（默认 200），扫一遍内存比先读文件再筛更省事。
         先过滤再截取，所以拿到的是「最近的 N 条**命中项**」，不是「最近 N 条里命中的」。
         """
         with self._lock:
@@ -748,7 +956,7 @@ class GatewayStore:
         return {
             "key": record.payload(),
             "sample": {
-                "scope": LOG_KEEP,
+                "scope": self.log_keep(),
                 "requests": total,
                 "ok": ok_count,
                 "failed": total - ok_count,
@@ -807,10 +1015,10 @@ class GatewayStore:
             }
 
     def breakdown(self) -> dict[str, Any]:
-        """从**最近保留的日志**（最多 200 条）派生看板数据。
+        """从**最近保留的日志**派生看板数据。
 
-        口径必须与日志保留上限一致：这里给的是「最近 200 条请求」的分解，
-        不是全量统计 —— 界面要如实标注，别谎报成累计值。
+        口径必须与日志保留上限一致：这里给的是「最近 N 条请求」（N = `log_keep`）
+        的分解，不是全量统计 —— 界面要如实标注，别谎报成累计值。
         账号探测（`kind=probe`）是运维动作，进日志但不进看板，免得污染成功率。
 
         `byKey` 是「每把下发的 Key 在这批采样里用了多少」，与 Key 记录上的
@@ -896,7 +1104,7 @@ class GatewayStore:
                     item["errors"] += 1
 
         return {
-            "scope": LOG_KEEP,
+            "scope": self.log_keep(),
             "sampledAt": _now_iso(),
             "total": total,
             "byModel": sorted(by_model.values(), key=lambda x: -x["requests"]),

@@ -461,6 +461,16 @@ function bucketLabel(bucket: string): string {
           <div class="w-[92px] shrink-0 text-right text-[11px] text-muted">
             {{ t("gateway.byKey.avgPerRequest", { tokens: compact(item.avgTokens) }) }}
           </div>
+          <div class="w-[118px] shrink-0 text-right text-[11px] text-muted">
+            {{
+              item.key.dayRequests || item.key.dayTokens
+                ? t("gateway.byKey.today", {
+                    requests: item.key.dayRequests,
+                    tokens: compact(item.key.dayTokens),
+                  })
+                : t("gateway.byKey.todayNone")
+            }}
+          </div>
           <button
             type="button"
             class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"

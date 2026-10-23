@@ -18,6 +18,10 @@ export interface Account {
   avatarPath: string | null;
   source: string;
   credentialState: "usable" | "unverified" | "relogin_required" | "unknown";
+  /** 凭据到期时间（ISO）。客户端信封凭据拿不到过期时间时为 null。 */
+  credentialExpiresAt: string | null;
+  /** 是否可自动续期：只有扫码来的 oauth_token 且带 refreshToken 才是 true。 */
+  credentialRefreshable: boolean;
   lastUsedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -217,6 +221,10 @@ export interface ActivityRunResult {
   status: "ok" | "skipped" | "failed";
   message: string;
   reward: number | null;
+  /** 值得再试一次（网络失败 / 上游 5xx / Trae 9074）；4xx 与业务拒绝为 false。 */
+  retryable: boolean;
+  /** 第几次尝试：1 = 首轮，2 = 自动重试。 */
+  attempt: number;
 }
 
 export interface ActivityRunReport {
@@ -707,7 +715,39 @@ export interface ActionableItem {
   accountId: string | null;
   action:
     | { type: "navigate"; to: string }
-    | { type: "run"; endpoint: string; accountIds: string[] };
+    | { type: "run"; endpoint: string; accountIds: string[]; mode?: string };
+}
+
+/** 凭据巡检的单号结论：`status` 是后端定值，前端只负责翻译。 */
+export interface CredentialRefreshResult {
+  accountId: string;
+  displayName: string;
+  scope: string;
+  status:
+    | "refreshed"
+    | "relogin_required"
+    | "unsupported"
+    | "failed"
+    | "noop"
+    | "ok";
+  detail: string;
+  expiresAt: string | null;
+}
+
+export interface CredentialRefreshSummary {
+  total: number;
+  refreshed: number;
+  ok: number;
+  noop: number;
+  reloginRequired: number;
+  unsupported: number;
+  failed: number;
+}
+
+export interface CredentialRefreshReport {
+  mode: "due" | "force" | "check";
+  results: CredentialRefreshResult[];
+  summary: CredentialRefreshSummary;
 }
 
 /** 概览「今日速览」：全部取自已缓存的检测结果 + 网关本地计数，不额外打上游。 */
@@ -760,6 +800,16 @@ export interface GatewayKey {
   scope: string;
   /** `scope="capability"` 时选中的能力键：`free` / `image` / `long_context`。 */
   capabilities: string[];
+  /** 额度上限：0 = 不限。日额度按本地时区自然日滚动，RPM 按 60 秒窗口。 */
+  dailyTokenLimit: number;
+  dailyRequestLimit: number;
+  rpmLimit: number;
+  /** 当日计数器所属的本地自然日（`YYYY-MM-DD`）。 */
+  usageDay: string;
+  dayTokens: number;
+  dayRequests: number;
+  /** true = 今日日额度已用满（新请求会被拒 429）。 */
+  limitedToday: boolean;
 }
 
 export interface GatewayKeyModelUsage {
@@ -860,6 +910,8 @@ export interface GatewayStatus {
   maxHops: number;
   /** 模型目录自动刷新间隔（分钟）；0 = 关闭。 */
   catalogRefreshMinutes: number;
+  /** 请求日志保留条数（50..5000）。 */
+  logKeep: number;
   baseUrl: string;
   chatUrl: string;
   modelsUrl: string;
@@ -883,6 +935,7 @@ export interface GatewayConfigPatch {
   allowNonLoopback?: boolean;
   maxHops?: number;
   catalogRefreshMinutes?: number;
+  logKeep?: number;
 }
 
 export interface GatewayPoolAccount {
@@ -1129,6 +1182,13 @@ export const api = {
       body: JSON.stringify({ accountIds: accountIds ?? null }),
     }),
 
+  /** 凭据巡检：due 只续快到期的，force 全部尝试续期，check 只验活。 */
+  refreshCredentials: (mode: "due" | "force" | "check", accountIds?: string[]) =>
+    request<CredentialRefreshReport>("/api/credentials/refresh", {
+      method: "POST",
+      body: JSON.stringify({ mode, accountIds: accountIds ?? null }),
+    }),
+
   /** 各账号请求与积分消耗的合并视图。refresh=true 绕过缓存。 */
   usage: (refresh = false, accountIds?: string[]) => {
     const params = new URLSearchParams();
@@ -1303,16 +1363,27 @@ export const api = {
     scope?: string;
     capabilities?: string[];
     models?: string[];
+    dailyTokenLimit?: number;
+    dailyRequestLimit?: number;
+    rpmLimit?: number;
   }) =>
     request<{ key: string; record: GatewayKey }>("/api/gateway/keys", {
       method: "POST",
       body: JSON.stringify(options),
     }),
 
-  /** 改 Key 的备注 / 模型范围：Key 与明文不变，所以不必重签、客户端不用改配置。 */
+  /** 改 Key 的备注 / 模型范围 / 额度：Key 与明文不变，所以不必重签、客户端不用改配置。 */
   updateGatewayKey: (
     keyId: string,
-    patch: { label?: string; scope?: string; capabilities?: string[]; models?: string[] },
+    patch: {
+      label?: string;
+      scope?: string;
+      capabilities?: string[];
+      models?: string[];
+      dailyTokenLimit?: number;
+      dailyRequestLimit?: number;
+      rpmLimit?: number;
+    },
   ) =>
     request<{ record: GatewayKey }>(`/api/gateway/keys/${keyId}`, {
       method: "PUT",
@@ -1343,6 +1414,15 @@ export const api = {
     if (filters.keyId) params.set("keyId", filters.keyId);
     if (filters.sessionId) params.set("sessionId", filters.sessionId);
     return request<{ logs: GatewayLogEntry[] }>(`/api/gateway/logs?${params.toString()}`);
+  },
+
+  /** 导出当前保留的日志为 CSV；浏览器直接打开这个地址就会下载。 */
+  gatewayLogsExportUrl: (filters: { keyId?: string; sessionId?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.keyId) params.set("keyId", filters.keyId);
+    if (filters.sessionId) params.set("sessionId", filters.sessionId);
+    const query = params.toString();
+    return `/api/gateway/logs/export${query ? `?${query}` : ""}`;
   },
 
   clearGatewayLogs: () =>

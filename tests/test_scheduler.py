@@ -46,6 +46,7 @@ def test_same_time_point_runs_only_once(tmp_path):
     # 只留 keepalive 一个任务在跑：签到与保活默认都开着，别的任务会干扰调用计数。
     scheduler.update("checkin", enabled=False)
     scheduler.update("activity_run", enabled=False)
+    scheduler.update("credential_refresh", enabled=False)
 
     scheduler.run_due(_at(9, 5))
     assert len(recorder.calls) == 1
@@ -65,6 +66,7 @@ def test_not_yet_due_does_not_run(tmp_path):
     scheduler = _build(tmp_path, recorder)
     scheduler.update("checkin", enabled=True, times=["09:00"], jitter_minutes=0)
     scheduler.update("keepalive", enabled=False)
+    scheduler.update("credential_refresh", enabled=False)
 
     scheduler.run_due(_at(8, 59))
     assert recorder.calls == []
@@ -75,6 +77,7 @@ def test_disabled_task_never_runs(tmp_path):
     scheduler = _build(tmp_path, recorder)
     scheduler.update("keepalive", enabled=False)
     scheduler.update("checkin", enabled=False, times=["09:00"], jitter_minutes=0)
+    scheduler.update("credential_refresh", enabled=False)
 
     scheduler.run_due(_at(12, 0))
     assert recorder.calls == []
@@ -87,6 +90,7 @@ def test_multi_times_backfills_only_the_latest_missed(tmp_path):
     scheduler = _build(tmp_path, recorder)
     scheduler.update("keepalive", enabled=True, times=["06:00", "12:00", "18:00"], jitter_minutes=0)
     scheduler.update("checkin", enabled=False)
+    scheduler.update("credential_refresh", enabled=False)
 
     # 18:05 才启动：应该只跑 18:00 这一档。
     scheduler.run_due(_at(18, 5))
@@ -278,6 +282,7 @@ def test_travel_tasks_run_independently_at_their_own_times(tmp_path):
     scheduler = _build(tmp_path, recorder, now=_at(9, 30))
     scheduler.update("keepalive", enabled=False)
     scheduler.update("checkin", enabled=False)
+    scheduler.update("credential_refresh", enabled=False)
     scheduler.update("travel_depart", enabled=True, jitter_minutes=0)
     scheduler.update("travel_claim", enabled=True, jitter_minutes=0)
 

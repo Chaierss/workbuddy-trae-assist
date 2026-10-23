@@ -162,6 +162,92 @@ class AccountRepository:
         return self.get(account_id)
 
     @_serialized
+    def replace_credential(
+        self,
+        account_id: str,
+        *,
+        credential: dict[str, object],
+        kind: str,
+        expires_at: str | None,
+    ) -> None:
+        """用一份续期后的凭据替换当前凭据（旧行保留，`is_current=0`）。
+
+        只动 `credentials` 与 `accounts.updated_at`：显示名、备注、删除状态、
+        凭据状态一律不在这里改 —— 状态由生命周期服务按结论单独写。
+        """
+        sealed = self._box.seal(json.dumps(credential, ensure_ascii=False).encode("utf-8"))
+        now = now_iso()
+        with transaction(self._conn):
+            row = self._conn.execute(
+                "SELECT 1 FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+            if row is None:
+                raise AccountNotFound(account_id)
+            self._conn.execute(
+                "UPDATE credentials SET is_current = 0 WHERE account_id = ?", (account_id,)
+            )
+            self._conn.execute(
+                """
+                INSERT INTO credentials (
+                    id, account_id, kind, sealed, created_at, expires_at, is_current
+                ) VALUES (?, ?, ?, ?, ?, ?, 1)
+                """,
+                (uuid.uuid4().hex, account_id, kind, sealed, now, expires_at),
+            )
+            self._conn.execute(
+                "UPDATE accounts SET updated_at = ? WHERE id = ?", (now, account_id)
+            )
+
+    @_serialized
+    def credential_expiries(
+        self, account_ids: list[str] | tuple[str, ...]
+    ) -> dict[str, str | None]:
+        """批量读当前凭据的有效期，供列表一次取全（避免逐号查库）。"""
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"""
+            SELECT account_id, expires_at
+              FROM credentials
+             WHERE account_id IN ({placeholders}) AND is_current = 1
+            """,
+            wanted,
+        ).fetchall()
+        return {str(row["account_id"]): row["expires_at"] for row in rows}
+
+    @_serialized
+    def current_credentials(
+        self, account_ids: list[str] | tuple[str, ...]
+    ) -> dict[str, tuple[str, dict[str, object], str | None]]:
+        """批量取当前凭据：`id -> (kind, 明文载荷, expires_at)`。
+
+        **只给内部判定用**（可续期性 / 过期时间），返回值绝不能进接口响应或日志。
+        """
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"""
+            SELECT account_id, kind, sealed, expires_at
+              FROM credentials
+             WHERE account_id IN ({placeholders}) AND is_current = 1
+            """,
+            wanted,
+        ).fetchall()
+        found: dict[str, tuple[str, dict[str, object], str | None]] = {}
+        for row in rows:
+            try:
+                data = json.loads(self._box.open(row["sealed"]).decode("utf-8"))
+            except (ValueError, OSError):
+                continue
+            if isinstance(data, dict):
+                found[str(row["account_id"])] = (str(row["kind"]), data, row["expires_at"])
+        return found
+
+    @_serialized
     def set_credential_state(self, account_id: str, state: CredentialState) -> None:
         with transaction(self._conn):
             cursor = self._conn.execute(

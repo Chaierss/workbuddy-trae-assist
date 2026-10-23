@@ -788,3 +788,74 @@ def test_run_travel_stage_invalidates_cache(monkeypatch):
     service.run_travel_stage([_FakeAccount()], stage="depart")
     assert service._cache == {}
     service.close()
+
+
+# ---------- 失败重试（只重试值得重试的号） ----------
+
+
+def _sequence_calls(monkeypatch, statuses: list[tuple]) -> list[str]:
+    """按顺序吐出 status 响应；claim 一律成功。返回被访问的 URL 列表。"""
+    urls: list[str] = []
+    queue = list(statuses)
+
+    def fake(client, method, url, headers, body=None):  # noqa: ANN001, ARG001
+        urls.append(url)
+        if url.endswith(mod.WB_CHECKIN_STATUS_PATH):
+            return queue.pop(0)
+        if url.endswith(mod.WB_CHECKIN_PATH):
+            return 200, {"code": 0, "data": {"today_credit": 5}}, ""
+        raise AssertionError(f"未预期的请求：{url}")
+
+    monkeypatch.setattr(mod, "_call", fake)
+    monkeypatch.setattr(mod.time, "sleep", lambda _seconds: None)
+    return urls
+
+
+def test_run_retries_only_retryable_failures_and_merges_rows(monkeypatch):
+    """首轮 5xx → 退避后只重试这个号；重试轮的结论顶替首轮，仍是一行。"""
+    urls = _sequence_calls(
+        monkeypatch,
+        [
+            (503, None, "HTTP 503"),
+            (200, {"code": 0, "data": _wb_checkin(done=False, active=True)}, ""),
+        ],
+    )
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    body = service.run([_FakeAccount()], include_growth=False, retry_failed=True)
+
+    assert body["summary"]["retried"] == 1
+    assert body["summary"]["retryOk"] == 1
+    assert body["summary"]["failed"] == 0
+    assert len(body["results"]) == 1
+    result = body["results"][0]
+    assert result["status"] == RESULT_OK
+    assert result["attempt"] == 2
+    assert sum(1 for url in urls if url.endswith(mod.WB_CHECKIN_STATUS_PATH)) == 2
+    service.close()
+
+
+def test_run_does_not_retry_auth_failures(monkeypatch):
+    """401 是「登录失效」，重试只会再失败一次 —— 首轮就该停。"""
+    urls = _sequence_calls(monkeypatch, [(401, {"code": 401, "msg": "unauthorized"}, "")])
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    body = service.run([_FakeAccount()], include_growth=False, retry_failed=True)
+
+    assert body["summary"]["retried"] == 0
+    assert body["summary"]["retryOk"] == 0
+    assert body["summary"]["failed"] == 1
+    assert body["results"][0]["retryable"] is False
+    assert body["results"][0]["attempt"] == 1
+    assert len(urls) == 1
+    service.close()
+
+
+def test_run_retry_flag_off_keeps_single_attempt(monkeypatch):
+    """默认不重试：同一份 5xx 响应只发一次请求。"""
+    urls = _sequence_calls(monkeypatch, [(503, None, "HTTP 503")])
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    body = service.run([_FakeAccount()], include_growth=False)
+
+    assert body["summary"]["retried"] == 0
+    assert body["results"][0]["retryable"] is True
+    assert len(urls) == 1
+    service.close()

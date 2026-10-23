@@ -9,11 +9,14 @@ import {
   Send,
   Sparkles,
   PackageCheck,
+  ShieldCheck,
   Timer,
+  Users,
 } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import SelectMenu from "../../components/SelectMenu.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
+import AccountScopePicker, { type ScopeAccount } from "./AccountScopePicker.vue";
 import { localeTag, t, type MessageKey } from "../../lib/i18n";
 import { api, type RotationPolicy, type RotationState, type ScheduleSpec } from "../../api";
 
@@ -21,8 +24,8 @@ import { api, type RotationPolicy, type RotationState, type ScheduleSpec } from 
  * 设置 → 计划任务：把「保活 / 自动签到」从布尔开关变成**真的会跑**的调度。
  *
  * 每个任务可配：启用、一天多个时点（HH:MM）、抖动半径（0/5/15/30 分钟）、
- * 账号范围（v1 只做了「全部账号」，界面上如实说明）。抖动在同一天内是稳定的，
- * 所以不会出现「同一档时点来回跑」。错过的时点启动后只补跑最近一个。
+ * 账号范围（每个任务单独限定；不选任何账号 = 号池全部账号）。抖动在同一天内
+ * 是稳定的，所以不会出现「同一档时点来回跑」。错过的时点启动后只补跑最近一个。
  */
 /** 任务文案存 key；模块级常量里不能直接 `t()`，否则切语言不会更新。 */
 interface TaskMeta {
@@ -56,6 +59,11 @@ const META: Record<string, TaskMeta> = {
     titleKey: "schedule.travelClaimTitle",
     descKey: "schedule.travelClaimDesc",
     icon: PackageCheck,
+  },
+  credential_refresh: {
+    titleKey: "schedule.credentialTitle",
+    descKey: "schedule.credentialDesc",
+    icon: ShieldCheck,
   },
 };
 
@@ -136,6 +144,7 @@ function ruleLabel(rule: string): string {
 }
 
 const tasks = ref<ScheduleSpec[]>([]);
+const accounts = ref<ScopeAccount[]>([]);
 const loading = ref(true);
 const error = ref("");
 const busy = ref<string | null>(null);
@@ -192,7 +201,7 @@ function replaceTask(updated: ScheduleSpec): void {
 
 async function update(
   task: ScheduleSpec,
-  patch: Partial<Pick<ScheduleSpec, "enabled" | "times" | "jitterMinutes">>,
+  patch: Partial<Pick<ScheduleSpec, "enabled" | "times" | "jitterMinutes" | "accountIds">>,
 ): Promise<void> {
   busy.value = task.key;
   flash.value = null;
@@ -238,6 +247,21 @@ function removeTime(task: ScheduleSpec, index: number): void {
 
 function setJitter(task: ScheduleSpec, value: number): void {
   void update(task, { jitterMinutes: value });
+}
+
+/** 账号范围即时保存；空数组 = 全部账号（后端同语义）。 */
+function setScope(task: ScheduleSpec, accountIds: string[]): void {
+  void update(task, { accountIds });
+}
+
+async function loadAccounts(): Promise<void> {
+  try {
+    const body = await api.mergedAccounts();
+    accounts.value = body.accounts;
+  } catch {
+    // 号池读不到时选择器留空即可，任务本身的读写不受影响。
+    accounts.value = [];
+  }
 }
 
 async function runNow(task: ScheduleSpec): Promise<void> {
@@ -335,6 +359,7 @@ async function evaluateRotation(dryRun: boolean): Promise<void> {
 
 onMounted(() => {
   void load();
+  void loadAccounts();
   void loadRotation();
 });
 </script>
@@ -425,6 +450,20 @@ onMounted(() => {
                   <Play :size="12" :stroke-width="2" />{{ t("schedule.runNow") }}
                 </button>
               </span>
+            </div>
+
+            <!-- 账号范围：不选任何账号 = 号池全部账号（与后端语义一致） -->
+            <div class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-2">
+              <span class="inline-flex items-center gap-1 text-[12px] text-muted">
+                <Users :size="13" :stroke-width="1.9" />{{ t("schedule.scopeLabel") }}
+              </span>
+              <AccountScopePicker
+                :model-value="task.accountIds"
+                :accounts="accounts"
+                :disabled="busy === task.key"
+                class="w-[176px]"
+                @update:model-value="setScope(task, $event)"
+              />
             </div>
 
             <div class="space-y-1 border-t border-line-soft pt-2 text-[12px] text-muted">

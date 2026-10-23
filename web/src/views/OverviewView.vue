@@ -240,6 +240,9 @@ async function runGroup(group: ActionGroup): Promise<void> {
   try {
     if (action.endpoint === "/activities/run") {
       await api.runActivities(action.accountIds);
+    } else if (action.endpoint === "/credentials/refresh") {
+      const mode = (action.mode as "due" | "force" | "check" | undefined) ?? "due";
+      await api.refreshCredentials(mode, action.accountIds);
     }
     await load();
   } catch (cause) {

@@ -9,6 +9,7 @@ import {
   Coins,
   Loader2,
   Pencil,
+  RefreshCw,
   Repeat2,
   Sparkles,
   Trash2,
@@ -53,6 +54,8 @@ const emit = defineEmits<{
   editNote: [account: Account];
   filter: [risk: RiskKey];
   preview: [account: Account];
+  /** 手动触发这个号的凭据续期 / 验活。 */
+  refreshCredential: [account: Account];
 }>();
 
 const PALETTE = [
@@ -243,6 +246,22 @@ const previewText = computed(() => {
   return parts.length ? parts.join(" · ") : t("accounts.preview.none");
 });
 
+/** 凭据到期时间：客户端信封凭据没有这个值，整行不显示。 */
+const credentialExpiryLabel = computed(() => {
+  const iso = props.account.credentialExpiresAt;
+  if (!iso) return "";
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  return t("accounts.credential.expiry", { time: formatTime(iso) });
+});
+
+const credentialExpired = computed(() => {
+  const iso = props.account.credentialExpiresAt;
+  if (!iso) return false;
+  const at = new Date(iso);
+  return !Number.isNaN(at.getTime()) && at.getTime() <= Date.now();
+});
+
 /** 悬浮卡片时才拉预检，避免进页面就把所有账号的库都打开。 */
 function requestPreview(): void {
   if (props.isCurrent) return;
@@ -353,6 +372,20 @@ function formatCredits(value: number | null): string {
         <Clock :size="9" :stroke-width="2" />{{ formatTime(account.lastUsedAt) }}
       </span>
     </button>
+
+    <!-- 凭据：到期时间 + 可否自动续期；信封凭据没有过期时间，整行不显示 -->
+    <div
+      v-if="credentialExpiryLabel || account.credentialRefreshable"
+      class="mt-1 flex items-center gap-1 text-[9.5px] leading-none text-muted"
+    >
+      <Clock :size="9" :stroke-width="2" class="shrink-0" />
+      <span :class="credentialExpired ? 'text-danger' : ''">
+        {{ credentialExpiryLabel || t("accounts.credential.noExpiry") }}
+      </span>
+      <span v-if="account.credentialRefreshable" class="shrink-0 text-brand-dark">
+        · {{ t("accounts.credential.auto") }}
+      </span>
+    </div>
 
     <!-- 积分：一行数字 + 一行细条。原先把「剩余积分」标签、余量/已用百分比各占一行，
          四行说的其实是同一件事，压掉两行不影响读数。 -->
@@ -546,6 +579,16 @@ function formatCredits(value: number | null): string {
         @click="emit('switch', account)"
       >
         <Repeat2 :size="11" :stroke-width="2" /> {{ t("accounts.switch") }}
+      </button>
+      <button
+        v-if="account.credentialRefreshable"
+        type="button"
+        class="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
+        :disabled="busy"
+        :title="t('accounts.credential.refreshNow')"
+        @click="emit('refreshCredential', account)"
+      >
+        <RefreshCw :size="12" :stroke-width="1.9" />
       </button>
       <button
         type="button"

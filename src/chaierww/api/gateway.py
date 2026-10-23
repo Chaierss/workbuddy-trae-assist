@@ -17,10 +17,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -33,6 +36,7 @@ from chaierww.domain.gateway import (
     SCOPE_ALL,
     SCOPE_CAPABILITY,
     SCOPE_LIST,
+    AdmitDecision,
     ApiKeyRecord,
     GatewayConfig,
     GatewayError,
@@ -82,6 +86,8 @@ class GatewayConfigRequest(BaseModel):
     maxHops: int | None = None
     #: 模型目录自动刷新间隔（分钟）；0 = 关闭。
     catalogRefreshMinutes: int | None = None
+    #: 请求日志保留条数（50..5000）。
+    logKeep: int | None = None
 
 
 class GatewayKeyRequest(BaseModel):
@@ -93,15 +99,22 @@ class GatewayKeyRequest(BaseModel):
     capabilities: list[str] | None = None
     #: `list` 模式下的静态白名单；None / 空列表 = 空名单。
     models: list[str] | None = None
+    #: 额度：0 / 不传 = 不限。日额度按本地时区自然日，RPM 按 60 秒窗口。
+    dailyTokenLimit: int | None = None
+    dailyRequestLimit: int | None = None
+    rpmLimit: int | None = None
 
 
 class GatewayKeyUpdateRequest(BaseModel):
-    """改一把已有 Key 的模型范围 / 备注；`None` = 保持原样。"""
+    """改一把已有 Key 的模型范围 / 备注 / 额度；`None` = 保持原样。"""
 
     label: str | None = None
     scope: str | None = None
     capabilities: list[str] | None = None
     models: list[str] | None = None
+    dailyTokenLimit: int | None = None
+    dailyRequestLimit: int | None = None
+    rpmLimit: int | None = None
 
 
 # ---------- 访问器 ----------
@@ -125,10 +138,17 @@ def _timeout() -> httpx.Timeout:
     )
 
 
-def _openai_error(status: int, message: str, *, code: str = "gateway_error") -> JSONResponse:
+def _openai_error(
+    status: int,
+    message: str,
+    *,
+    code: str = "gateway_error",
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     """OpenAI 风格的错误体：客户端（SDK）按这个结构报错，不能给 FastAPI 的 `detail`。"""
     return JSONResponse(
         status_code=status,
+        headers=headers,
         content={
             "error": {
                 "message": message,
@@ -147,11 +167,19 @@ def _authenticate(request: Request) -> ApiKeyRecord | None:
     return _store(request).authenticate(token)
 
 
-def _protocol_error(protocol: str, status: int, message: str, *, code: str = "") -> JSONResponse:
+def _protocol_error(
+    protocol: str,
+    status: int,
+    message: str,
+    *,
+    code: str = "",
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     """错误体按入站协议各自的形状给：Anthropic 客户端只认它自己那套结构。"""
     if protocol == PROTOCOL_MESSAGES:
         return JSONResponse(
             status_code=status,
+            headers=headers,
             content={
                 "type": "error",
                 "error": {
@@ -160,7 +188,34 @@ def _protocol_error(protocol: str, status: int, message: str, *, code: str = "")
                 },
             },
         )
-    return _openai_error(status, message, code=code or "gateway_error")
+    return _openai_error(status, message, code=code or "gateway_error", headers=headers)
+
+
+#: 三种超限各自的用户文案（按入站协议共用一个错误体，只有文字不同）。
+_RATE_LIMIT_TEXT = {
+    "quota": "该 API Key 今日 token 额度已用完（上限 {limit}），将在次日 00:00 重置",
+    "requests": "该 API Key 今日请求数已达上限（{limit} 次），将在次日 00:00 重置",
+    "rpm": "请求过于频繁（每分钟上限 {limit} 次），请 {wait} 秒后重试",
+}
+
+
+def _rate_limited(protocol: str, decision: AdmitDecision) -> JSONResponse:
+    """按准入判定的结果回 429：OpenAI / Anthropic 各自的错误体 + 标准限流响应头。"""
+    template = _RATE_LIMIT_TEXT.get(decision.reason, "请求被限流，请稍后重试")
+    message = template.format(limit=decision.limit, wait=decision.retry_after)
+    headers = {
+        "Retry-After": str(decision.retry_after),
+        "X-RateLimit-Remaining": "0",
+    }
+    if decision.reason == "quota":
+        headers["X-RateLimit-Limit-Tokens"] = str(decision.limit)
+        headers["X-RateLimit-Remaining-Tokens"] = "0"
+    else:
+        headers["X-RateLimit-Limit-Requests"] = str(decision.limit)
+        headers["X-RateLimit-Remaining-Requests"] = "0"
+    return _protocol_error(
+        protocol, 429, message, code="rate_limit_exceeded", headers=headers
+    )
 
 
 async def _json_body(request: Request) -> tuple[dict[str, Any] | None, str]:
@@ -217,6 +272,7 @@ def update_config(request: Request, body: GatewayConfigRequest) -> dict[str, Any
         catalog_refresh_minutes=int(
             pick(body.catalogRefreshMinutes, current.catalog_refresh_minutes)
         ),
+        log_keep=int(pick(body.logKeep, current.log_keep)),
     )
     try:
         store.save_config(updated)
@@ -246,6 +302,9 @@ def create_key(request: Request, body: GatewayKeyRequest) -> dict[str, Any]:
             body.models,
             scope=scope,
             capabilities=body.capabilities,
+            daily_token_limit=body.dailyTokenLimit or 0,
+            daily_request_limit=body.dailyRequestLimit or 0,
+            rpm_limit=body.rpmLimit or 0,
         )
     except GatewayError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -264,6 +323,9 @@ def update_key(request: Request, key_id: str, body: GatewayKeyUpdateRequest) -> 
             scope=body.scope,
             capabilities=body.capabilities,
             models=body.models,
+            daily_token_limit=body.dailyTokenLimit,
+            daily_request_limit=body.dailyRequestLimit,
+            rpm_limit=body.rpmLimit,
         )
     except GatewayKeyNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -343,6 +405,55 @@ def list_logs(
 @api_router.delete("/logs", summary="清空网关请求日志")
 def clear_logs(request: Request) -> dict[str, Any]:
     return {"removed": _store(request).clear_logs()}
+
+
+#: CSV 列：与界面日志行一一对应，够用且不塞多余内部字段。
+CSV_COLUMNS = ("时间", "Key", "模型", "状态", "耗时(ms)", "tokens", "会话", "错误")
+
+
+@api_router.get(
+    "/logs/export",
+    summary="导出网关请求日志为 CSV（沿用 keyId / sessionId 筛选，按时间正序）",
+)
+def export_logs(
+    request: Request,
+    keyId: str = Query(default="", description="只看这把 Key 的请求"),
+    sessionId: str = Query(default="", description="只看这个客户端会话标识的请求"),
+) -> Response:
+    """把当前保留的日志导成 CSV（带 UTF-8 BOM，Excel 直接打开中文不乱码）。
+
+    只导出**当前保留**的日志（上限 = 配置里的 `logKeep`），不是全量历史；
+    顺序按时间正序（旧的在上），与界面「新的在前」相反 —— 表格从上往下读更自然。
+    """
+    store = _store(request)
+    entries = store.logs(
+        store.log_keep(),
+        key_id=(keyId or "").strip() or None,
+        session_id=(sessionId or "").strip() or None,
+    )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\r\n")
+    writer.writerow(CSV_COLUMNS)
+    for entry in reversed(entries):
+        writer.writerow(
+            [
+                str(entry.get("at") or ""),
+                str(entry.get("keyLabel") or "—"),
+                str(entry.get("model") or ""),
+                int(entry.get("status") or 0),
+                int(entry.get("durationMs") or 0),
+                int(entry.get("totalTokens") or 0),
+                str(entry.get("sessionId") or ""),
+                str(entry.get("error") or ""),
+            ]
+        )
+    stamp = datetime.now().strftime("%Y%m%d")
+    filename = f"chaierww-gateway-logs-{stamp}.csv"
+    return Response(
+        content="\ufeff" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @api_router.post("/models/refresh", summary="强制刷新上游模型目录")
@@ -593,6 +704,12 @@ async def _relay_request(request: Request, protocol: str) -> Response:
         return _protocol_error(
             protocol, 404, f"该 API Key 无权调用模型 {model}", code="model_not_found"
         )
+
+    # 准入：日额度 / RPM。被限流时直接回 429，**不进入选号**、不消耗换号次数，
+    # 也不占账号池的冷却——限流是 Key 的问题，不是账号的问题。
+    decision = store.admit(key.id)
+    if not decision.allowed:
+        return _rate_limited(protocol, decision)
 
     stream = bool(body.get("stream"))
     hops = store.config().max_hops
