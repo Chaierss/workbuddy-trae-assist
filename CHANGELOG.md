@@ -6,6 +6,67 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.4.0] - 2026-10-25
+
+这一版跟着 WorkBuddy 客户端 5.9.2 走。客户端把登录态从一个 `info` 文件拆成了
+「文件 + 登出标记 + 观测账本」，凭据也从明文换成了信封加密——切号链路上最容易踩的
+几个坑都在这一版收口，顺带把扫码登录搬进了应用内。
+
+### 新增
+
+- **内嵌登录窗口。** 扫码登录不再跳出应用：WorkBuddy 的授权页放进我们自己的窗口
+  （460×720），只接受 `codebuddy.cn` / `workbuddy.cn` 的 https 地址，不挂 preload、
+  不开 nodeIntegration；登录结果仍由后端 OAuth 轮询领取，渲染层拿不到任何凭据。
+  每次打开都用全新的内存分区，上一次登录的 Cookie 不会影响换号；UA 去掉 `Electron/*`
+  标识，避免登录页把内置窗口当成不支持的浏览器。浏览器端仍新开标签页。
+- **网页版会话授权随切号迁移。** `security/{uid}/cipher/session-authorizations.jsonl`
+  按行并集、`detect-rules.toml` 缺则复制，切过去网页版不用重新授权。
+  `entries.json.enc`（账号本位的加密口令库）与运行期锁文件仍刻意不迁移，
+  报告里照实写明原因。
+
+### 修复
+
+- **切号成功、客户端却还停在登录页。** 5.9.2 起 `<info>.logged-out` 存在就等于
+  「用户显式登出」，客户端**完全不读** `info`——写进去的登录态再正确也没用。
+  现在写回后主动删掉这个标记；删不掉直接报错而不是静默放过（标记还在，这次切号就是假的）；
+  体检与导入也会明说「客户端已退出登录」，`verify_switch` 同样把标记在场判为失败。
+- **切过去被客户端当成「身份异常」强制重登。** 新版的
+  `<info>.<sha256(origin)[:16]>.observation.json` 观测账本里记着当前 uid，
+  与 `info` 对不上就按 `unexpected` 处理。切号后按目标 uid 重建账本：uid 对不上的删掉，
+  解析不了的一律不动——破坏一份看不懂的文件，比少对齐一次更糟。
+- **切回来的号变成 401。** 客户端自己会刷新 token，刷新后旧的 refresh token 即作废，
+  号池里那份还是导入时的。现在切走前顺手把客户端里的最新登录态收回号池
+  （只动 raw-file 形态；续期走另一套链路的 token 账号不受影响），失败不阻断切号。
+- **密钥换代后切号必然失败，界面上却不提示。** 5.9.2 的 token 全是 `$wbEncrypted` 信封，
+  能不能解只取决于信封里的 keyId 是否还在本机 `~/.workbuddy/keyblob` 里。
+  预演阶段先体检：keyId 不认识就直接警告「切过去大概率还在登录页，建议先在客户端登录
+  再重新导入」；读不到 keyblob 时（没装新版客户端 / 权限不足）不做判断，避免误报吓人。
+- **账号已失效还让它「切成功」。** 活动或巡检返回 401 后账号已被标成「需重新登录」，
+  但切号照旧写入——客户端启动即 401，用户看到的就是「切了号但用不了」。
+  现在这类 token 账号在动文件之前就拦下，并说明该号需要重新登录
+  （文件凭据不依赖 token，不受影响）。
+- **装在自定义盘符的用户被当成「未安装」。** 客户端装到 `C:\CBRoad\WorkBuddy` 这类位置时，
+  固定路径一个都猜不中。现在先从卸载项的 `DisplayIcon` / `InstallLocation` 找，
+  找不到再回落固定路径。
+- **更新页的「重试」按钮永远点不到。** 它写在一个不含 `error` 的 `v-if` 里，
+  出错时整块都不渲染。现在出错也走同一条状态条，给「这次没检查成功 / 多半是网络或代理
+  抖了一下」和重试入口。
+- **更新说明一长就把卡片撑开。** 说明默认收在六行，真的被裁掉才出现「展开全部说明」
+  和渐隐遮罩；短说明不再摆一个没用的按钮。
+- **开发模式起不来、一闪就没。** 直接跑源码时用的 `python` 往往没装本项目依赖，
+  `python -m chaierww.main` 立刻 `ModuleNotFoundError`，主进程只留下一个空白窗口。
+  现在优先用仓库自己的 `.venv`，`CHAIERWW_PYTHON` 可显式覆盖。
+- **从 `node_modules` 里的 electron 跑源码时，前端产物被找错。** 这种情况下 `isPackaged`
+  也可能为 true，但 `resources/webui` 并不存在，结果只起了 API、界面是空的；
+  现在找不到就回落仓库里的构建产物。
+
+### 变更
+
+- 号池页把「扫码 / 导入 / 回收站」统一收到页头，工具栏只负责筛选与批量；
+  「客户端已登录但未入池」的提示仍保留，按钮改为描边，不再和主操作抢视觉。
+- 概览、活动、号池三页页头统一：副标题限制行宽、按钮区允许换行、主按钮统一品牌色。
+- 扫码等待提示从「已打开授权页」改为「已打开登录窗口」——现在它确实是一个窗口。
+
 ## [0.3.0] - 2026-10-25
 
 这一版重点修「号为什么会悄悄掉」，顺带补上设置页的规则 / 组件模块与专注模式。
@@ -371,7 +432,10 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.1.8...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.0
+[0.3.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.3.0
+[0.2.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.2.0
 [0.1.8]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.8
 [0.1.7]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.7
 [0.1.6]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.1.6
