@@ -1367,7 +1367,7 @@ const confirmText = computed(() => {
         <div class="mt-0.5 flex items-baseline gap-1">
           <AnimatedNumber
             :value="stat.value"
-            :delay="index * 45"
+            :delay="index * 20"
             class="text-metric font-semibold leading-none"
             :class="TONE_TEXT[stat.tone]"
           />

@@ -10,13 +10,16 @@
  * - 取整输出：这些计数没有小数，滚出 3.7 个账号只会让人出戏；
  * - `prefers-reduced-motion` 下直接落到目标值，不做位移和缩放；
  * - 用 `Math.round` + `tabular-nums`，滚动过程中宽度不抖。
+ *
+ * 时长压在 180ms：规则页那条「优雅设计」写的是动效不超过 200ms，620ms 的滚动
+ * 会让进页时整块数字在眼前「爬」很久，比它想提示的信息更抢眼。
  */
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const props = withDefaults(
   defineProps<{ value: number; duration?: number; delay?: number }>(),
   {
-    duration: 620,
+    duration: 180,
     delay: 0,
   },
 );
@@ -62,9 +65,10 @@ watch(
     if (to === from) return;
     bumped.value = true;
     window.clearTimeout(bumpTimer);
+    // 与 `.stat-bump` 的 200ms 对齐：多留一点余量，避免动画没播完就被摘掉。
     bumpTimer = window.setTimeout(() => {
       bumped.value = false;
-    }, 700);
+    }, 220);
   },
 );
 

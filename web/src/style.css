@@ -652,17 +652,18 @@ body {
   }
 }
 
-/* 数字变化时的一次性脉冲：只放大不改色，避免和红/黄/绿的语义色打架 */
+/* 数字变化时的一次性脉冲：只放大不改色，避免和红/黄/绿的语义色打架。
+   幅度收到 1.06 —— 1.14 在 60 张卡片一排时会显得「弹」，而这里只想提示「变了」。 */
 .stat-bump {
   animation: stat-bump 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes stat-bump {
   0% {
-    transform: translateY(2px) scale(0.94);
+    transform: scale(0.97);
   }
   45% {
-    transform: translateY(-1px) scale(1.14);
+    transform: scale(1.06);
   }
   100% {
     transform: none;
