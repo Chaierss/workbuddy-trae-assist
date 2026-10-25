@@ -98,6 +98,13 @@ export const PROJECT_RULES: ProjectRule[] = [
     detailKey: "settings.rules.items.scopeSingleToggle.detail",
   },
   {
+    id: "scope-web-only-pages",
+    category: "scope",
+    level: "mandatory",
+    titleKey: "settings.rules.items.scopeWebOnlyPages.title",
+    detailKey: "settings.rules.items.scopeWebOnlyPages.detail",
+  },
+  {
     id: "elegant-design",
     category: "design",
     level: "mandatory",

@@ -43,9 +43,9 @@ export interface SettingsTab {
   /** 页面自己管滚动（iframe / 双栏文档），容器不再套一层滚动与内边距。 */
   selfScroll?: boolean;
   /**
-   * 桌面端隐藏。接口文档与 Wiki 都是「同源 iframe 套一层文档」，
-   * 在桌面壳里既没有地址栏也没有多标签页，体验明显不如浏览器，
-   * 所以桌面端不展示这两项，需要时到浏览器打开。
+   * 桌面端隐藏。接口文档 / Wiki / 规则 / 组件都属于「开发与浏览场景」页面：
+   * 前两个是同源 iframe 套一层文档，在桌面壳里既没有地址栏也没有多标签页；
+   * 后两个面向开发维护，普通使用者不需要。桌面端一律不展示，需要时到浏览器打开。
    */
   hideOnDesktop?: boolean;
 }
@@ -95,6 +95,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
     hintKey: "settings.rules.hint",
     icon: ListChecks,
     component: RulesTab,
+    hideOnDesktop: true,
   },
   {
     key: "components",
@@ -102,6 +103,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
     hintKey: "settings.components.hint",
     icon: Boxes,
     component: ComponentsTab,
+    hideOnDesktop: true,
   },
   {
     key: "api",

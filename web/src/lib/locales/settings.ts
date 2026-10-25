@@ -138,6 +138,9 @@ export const settingsZh = {
   "settings.rules.items.scopeSingleToggle.title": "同一功能只留一个开关",
   "settings.rules.items.scopeSingleToggle.detail":
     "禁止前后端双重开关重复控制同一功能；相同功能只保留唯一的控制入口。",
+  "settings.rules.items.scopeWebOnlyPages.title": "开发类页面只在 Web 端可见",
+  "settings.rules.items.scopeWebOnlyPages.detail":
+    "接口文档、Wiki、规则、组件属于开发与浏览场景，只在浏览器打开时可见；桌面端由 tabs.ts 的 hideOnDesktop 统一过滤。判断「是不是桌面端」只认 window.chaierwwDesktop 一条，不得改用 UA、地址栏参数或环境变量替代——0.1.2 就因此把桌面端误判成浏览器。",
   "settings.rules.items.elegantDesign.title": "所有页面遵循优雅设计",
   "settings.rules.items.elegantDesign.detail":
     "新建或改版的任何页面都必须遵循同一套优雅设计：只用现有语义令牌（颜色、字号、圆角、阴影），层级靠留白、字重与尺寸表达，而不是堆阴影和边框；一屏只允许一个主操作；动效只服务于状态变化且不超过 200ms；禁止无意义渐变、装饰性图标与重复入口。新页面评审逐项对照本规则。",
@@ -392,6 +395,9 @@ export const settingsEn = {
   "settings.rules.items.scopeSingleToggle.title": "One switch per feature",
   "settings.rules.items.scopeSingleToggle.detail":
     "No duplicate frontend/backend switches controlling the same feature; keep a single control point.",
+  "settings.rules.items.scopeWebOnlyPages.title": "Developer pages are web-only",
+  "settings.rules.items.scopeWebOnlyPages.detail":
+    "API docs, Wiki, rules and components belong to development and browsing scenarios and are visible only in a browser; the desktop shell filters them through hideOnDesktop in tabs.ts. The only signal for “am I in the desktop shell” is window.chaierwwDesktop — never UA, URL params or env vars (that misjudgement shipped in 0.1.2).",
   "settings.rules.items.elegantDesign.title": "Every page follows elegant design",
   "settings.rules.items.elegantDesign.detail":
     "Any new or redesigned page must follow one elegant design language: use only the existing semantic tokens (color, type scale, radius, shadow); express hierarchy with whitespace, weight and size rather than stacked shadows and borders; allow one primary action per screen; motion only serves state change and stays under 200ms; no meaningless gradients, decorative icons or duplicate entry points. Review new pages against this rule item by item.",
