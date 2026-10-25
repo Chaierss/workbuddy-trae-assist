@@ -362,9 +362,18 @@ def _mount_webui(app: FastAPI) -> None:
     # （`GET /..%2F..%2FCHANGELOG.md`），不校验就能把安装目录外的文件读出来。
     webui_root = webui.resolve()
 
+    # 首页必须每次回源。桌面端升级后 resources/webui 里的文件换了，但 Chromium
+    # 会把没有缓存头的 `index.html` 留在磁盘缓存里，于是它继续引用**上一版**的
+    # 资源 —— 表现是「版本号已经是 0.4.2，界面还是 0.4.0」。带内容哈希的
+    # `/assets/*` 可以放心缓存，唯独入口页不能。
+    no_store = {"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"}
+
+    def index_response() -> FileResponse:
+        return FileResponse(webui / "index.html", headers=no_store)
+
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(webui / "index.html")
+        return index_response()
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa_fallback(full_path: str) -> FileResponse:
@@ -375,8 +384,11 @@ def _mount_webui(app: FastAPI) -> None:
         if full_path:
             target = (webui / full_path).resolve()
             if target.is_file() and target.is_relative_to(webui_root):
+                # 入口页同样不许缓存；图标等小文件按默认策略即可。
+                if target.name == "index.html":
+                    return index_response()
                 return FileResponse(target)
-        return FileResponse(webui / "index.html")
+        return index_response()
 
 
 def run() -> None:

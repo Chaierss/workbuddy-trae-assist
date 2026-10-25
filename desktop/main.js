@@ -12,7 +12,7 @@
  *  - 托盘图标（Windows 多尺寸 ico / macOS 模板图 / Linux png）
  *  - macOS 关窗不退出、Dock 点击唤起
  */
-const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, nativeImage, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, nativeImage, nativeTheme, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
@@ -372,6 +372,41 @@ function showWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+// ---------------------------------------------------------------------------
+// 升级后清一次 HTTP 缓存
+// ---------------------------------------------------------------------------
+/**
+ * 首页曾经不带任何缓存头，Chromium 就把 `index.html` 和它引用的
+ * `assets/index-*.js` 一起留在磁盘缓存里：装完新版，左上角版本号变了，
+ * 界面却还是上一版（真踩过，0.4.2 的客户端画的是 0.4.0 的号池页）。
+ *
+ * 后端已经给入口页加了 `no-store`，这里再兜一层：版本号变化时清掉整份 HTTP
+ * 缓存，让**已经存在**的旧缓存也一起失效。只清缓存，不动 localStorage、
+ * 登录态与账号数据。
+ */
+async function clearCacheOnUpgrade() {
+  const marker = path.join(app.getPath('userData'), 'last-run-version.txt');
+  const current = app.getVersion();
+  let previous = '';
+  try {
+    previous = fs.readFileSync(marker, 'utf8').trim();
+  } catch {
+    previous = '';
+  }
+  if (previous === current) return;
+
+  try {
+    await session.defaultSession.clearCache();
+  } catch {
+    // 清不掉也不该挡住启动：下次版本变化会再清一次
+  }
+  try {
+    fs.writeFileSync(marker, current);
+  } catch {
+    /* 同上，写不进去不影响运行 */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -892,11 +927,14 @@ app.whenReady().then(async () => {
     );
   }
 
+  // 先清掉上一次版本的 HTTP 缓存再建窗口：否则加载到的仍是旧 index.html
+  // 与旧 assets，界面会和安装包里的产物对不上。
+  await clearCacheOnUpgrade();
+
   createWindow();
   createTray();
   loadUpdatePrefs(); // 必须在 setupAutoUpdater 之前：那里要读 autoCheck 决定是否定时检查
   setupAutoUpdater();
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
     else showWindow();

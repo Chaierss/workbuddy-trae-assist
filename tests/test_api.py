@@ -474,6 +474,24 @@ def test_spa_fallback_rejects_path_traversal(tmp_path, monkeypatch):
         assert "INDEX" in web.get("/accounts").text
 
 
+def test_entry_page_is_not_cacheable(tmp_path, monkeypatch):
+    """入口页必须回源。
+
+    缓存住的 `index.html` 会让升级后的客户端继续引用上一版的 `assets`，
+    表现是「版本号已经是新的，界面还是旧的」——0.4.2 的桌面端就踩过。
+    """
+    webui = tmp_path / "webui"
+    webui.mkdir()
+    (webui / "index.html").write_text("INDEX", encoding="utf-8")
+    monkeypatch.setenv("CHAIERWW_WEBUI", str(webui))
+
+    with TestClient(create_app(Settings(home=tmp_path / "home"))) as web:
+        for path in ("/", "/accounts"):
+            resp = web.get(path)
+            assert "INDEX" in resp.text
+            assert "no-store" in resp.headers.get("cache-control", "")
+
+
 def test_trae_oauth_start_missing_storage(client, monkeypatch):
     adapter = client.app.state.adapters["trae-cn"]
     from chaierww.adapters.base import NotLoggedIn
