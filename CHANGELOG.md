@@ -6,6 +6,18 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.4.2] - 2026-10-25
+
+把号池健康度那组数字的动效收回到规则预算内。
+
+### 变更
+
+- **数字滚动从 620ms 压到 180ms。** 进号池页时六张卡片会从 0 滚到真实值，原来是
+  620ms 加每张错开 45ms（最后一张总时长约 845ms），比它想提示的信息更抢眼，
+  也超出了规则页那条「动效不超过 200ms」。现在 180ms 滚完、错开 20ms。
+- **数字跳动幅度从 1.14 收到 1.06。** 一排六张卡同时「弹」一下过重，收到只够看出
+  「变了」的程度；概览页的统计卡同源，一并变轻。
+
 ## [0.4.1] - 2026-10-25
 
 补一个从 0.3.0 就存在的可见性问题：桌面端能看到本该只在 Web 端出现的开发类页面。
@@ -450,7 +462,8 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.1...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.2
 [0.4.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.3.0
