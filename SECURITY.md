@@ -42,6 +42,8 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | **导出含凭据，必须显式确认** | `/api/accounts/export` 导出的是**解密后的明文凭据**，拿到文件即可登录这些账号。前端落盘前强制弹确认（说明明文后果 + 禁止发到群/网盘），确认一次后不再逐次打扰 |
 | **凭据只在本机闭环** | 导出包与含凭据备份都属于「等价登录态」的产物：不上传、不外发，界面一律提示只留本机 |
 | **网页版登录态也只在本机** | `domain/webview_state.py` 按账号搬客户端的 Chromium 分区，快照落在 `~/.chaierww/webview/`。cookie 由 `Local State` 里的 DPAPI 密钥加密，密钥绑当前 Windows 用户，**换台机器解不开** —— 所以它不进凭据表、不进导出包，跨机也不会跟着账号走 |
+| **内嵌登录窗口只认官方域名** | `desktop/main.js` 的 `WEB_LOGIN_HOSTS`：只接受 `https:`，主机必须精确等于或为 `codebuddy.cn` / `workbuddy.cn` 的子域，其它地址一律拒绝并回落 `window.open`。窗口不挂 preload、`nodeIntegration: false`、`sandbox: true`，每次打开用全新的内存分区；登录结果仍由后端 OAuth 轮询领取，**渲染层拿不到任何凭据** |
+| **IPC 只暴露语义化方法** | `preload.js` 的 `webLogin` 只有 `open` / `close` / `openApp` 三个方法，不透传 `ipcRenderer`。主进程每个 handler 先校验 `event.sender` 是主窗口，再校验 URL 白名单；`web-login:open-app` 只加载固定的 `WEB_APP_URL`，不接受渲染层传地址 |
 
 ## 这些不算漏洞
 
