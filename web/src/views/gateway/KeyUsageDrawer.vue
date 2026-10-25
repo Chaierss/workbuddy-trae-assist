@@ -50,7 +50,7 @@ function barHeight(requests: number): number {
   <Teleport to="body">
     <div
       v-if="usage"
-      class="fixed inset-0 z-[400] flex justify-end bg-black/25"
+      class="fixed inset-0 z-[var(--z-modal)] flex justify-end bg-black/25"
       @click.self="store.closeKeyUsage"
     >
       <aside
@@ -58,16 +58,16 @@ function barHeight(requests: number): number {
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <h3 class="truncate text-[15px] font-semibold text-ink">
+            <h3 class="truncate text-title font-semibold text-ink">
               {{ t("gateway.keyUsage.title", { label: usage.key.label }) }}
             </h3>
-            <p class="mt-1 text-[11.5px] leading-relaxed text-muted">
+            <p class="mt-1 text-caption leading-relaxed text-muted">
               {{ t("gateway.keyUsage.subtitle", { scope: usage.sample.scope }) }}
             </p>
           </div>
           <button
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
             @click="store.closeKeyUsage"
           >
             {{ t("gateway.keyUsage.close") }}
@@ -78,21 +78,21 @@ function barHeight(requests: number): number {
           <div
             v-for="stat in stats"
             :key="stat.label"
-            class="rounded-[10px] border border-line-soft px-3 py-2"
+            class="rounded-control border border-line-soft px-3 py-2"
           >
-            <div class="text-[11px] text-muted">{{ stat.label }}</div>
-            <div class="mt-0.5 text-[14px] font-semibold text-ink">{{ stat.value }}</div>
+            <div class="text-caption text-muted">{{ stat.label }}</div>
+            <div class="mt-0.5 text-title font-semibold text-ink">{{ stat.value }}</div>
           </div>
         </div>
 
-        <div v-if="!usage.sample.requests" class="mt-5 text-[12.5px] text-muted">
+        <div v-if="!usage.sample.requests" class="mt-5 text-body-sm text-muted">
           {{ t("gateway.keyUsage.emptyModel") }}
         </div>
 
         <template v-else>
           <div class="mt-5">
-            <div class="text-[12px] font-medium text-ink">{{ t("gateway.keyUsage.byModel") }}</div>
-            <table class="mt-2 w-full text-[11.5px]">
+            <div class="text-body-sm font-medium text-ink">{{ t("gateway.keyUsage.byModel") }}</div>
+            <table class="mt-2 w-full text-caption">
               <thead class="text-muted">
                 <tr class="border-b border-line-soft">
                   <th class="py-1.5 text-left font-normal">{{ t("gateway.keyUsage.colModel") }}</th>
@@ -123,7 +123,7 @@ function barHeight(requests: number): number {
           </div>
 
           <div class="mt-5">
-            <div class="text-[12px] font-medium text-ink">{{ t("gateway.keyUsage.byHour") }}</div>
+            <div class="text-body-sm font-medium text-ink">{{ t("gateway.keyUsage.byHour") }}</div>
             <div class="mt-2 flex h-16 items-end gap-1">
               <div
                 v-for="point in usage.series"
@@ -137,12 +137,12 @@ function barHeight(requests: number): number {
           </div>
 
           <div class="mt-5">
-            <div class="text-[12px] font-medium text-ink">{{ t("gateway.keyUsage.recent") }}</div>
+            <div class="text-body-sm font-medium text-ink">{{ t("gateway.keyUsage.recent") }}</div>
             <ul class="mt-2 divide-y divide-line-soft">
               <li
                 v-for="entry in usage.recent"
                 :key="entry.id"
-                class="flex items-center gap-2 py-1.5 text-[11.5px]"
+                class="flex items-center gap-2 py-1.5 text-caption"
               >
                 <span
                   class="h-1.5 w-1.5 shrink-0 rounded-full"

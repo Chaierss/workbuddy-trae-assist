@@ -1,23 +1,23 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import CommandPalette from "./CommandPalette.vue";
 import SidebarRail from "./SidebarRail.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { initUpdateStore } from "../stores/update";
-import SettingsRail from "../views/settings/SettingsRail.vue";
-import GatewayRail from "../views/gateway/GatewayRail.vue";
+import { resolveFocusModule } from "../lib/focusMode";
 import { NAV_DESTINATIONS } from "../lib/nav";
 import { changeScope, isImplementedScope, scope, scopedPath } from "../stores/app";
 
 /**
- * 唯一的壳层，承载三种布局形态（route.meta.immersive）：
+ * 唯一的壳层，承载三种布局形态：
  *
- *   undefined  普通页    全局侧栏 + 内容列常规滚动
- *   'shell'    壳层让出 240px 左栏，改渲染模块专属左栏（设置中枢）
- *   'inline'   页面全屏自持（画布、看板编辑），无偏移、无内边距
+ *   normal   普通页    全局侧栏 + 内容列常规滚动
+ *   focus    专注模式  模块左栏替换全局侧栏；由 `meta.focus` 声明模块，
+ *                     子页 ≥ 2 时自动启用（见 `lib/focusMode.ts`）
+ *   inline   页面全屏自持（画布、看板编辑），无偏移、无内边距
  *
- * 布局差异只允许出现在下面两个 computed 里。**不要再建第二个 Layout**：
+ * 布局差异只允许出现在下面三个 computed 里。**不要再建第二个 Layout**：
  * 那会让全局副作用挂载点翻倍，路由切换时整层卸载重建、过渡断帧。
  */
 const route = useRoute();
@@ -25,14 +25,14 @@ const router = useRouter();
 const navCollapsed = ref(false);
 const paletteOpen = ref(false);
 
-const immersive = computed(() => route.meta.immersive as "shell" | "inline" | undefined);
+const focusModule = computed(() => resolveFocusModule(route.meta.focus));
+const focusRail = computed(() => focusModule.value?.rail ?? null);
+const inlinePage = computed(() => route.meta.immersive === "inline");
 
-/** shell 态的左栏由壳层渲染，模块只提供组件：这里登记「路由名 → 左栏」。 */
-const MODULE_RAILS: Record<string, Component> = {
-  settings: SettingsRail,
-  gateway: GatewayRail,
-};
-const moduleRail = computed(() => MODULE_RAILS[String(route.name ?? "")] ?? null);
+const layoutMode = computed<"normal" | "focus" | "inline">(() => {
+  if (inlinePage.value) return "inline";
+  return focusModule.value ? "focus" : "normal";
+});
 
 /** 收展动画的唯一正确写法：改这一个变量，侧栏宽度与内容偏移同时消费它。 */
 const navRailVars = computed(() => ({
@@ -42,17 +42,17 @@ const navRailVars = computed(() => ({
 }));
 
 const contentOffsetClass = computed(() => {
-  if (immersive.value === "inline") return "";
-  return immersive.value === "shell"
+  if (layoutMode.value === "inline") return "";
+  return layoutMode.value === "focus"
     ? "ml-[var(--sider-width)]"
     : "ml-[var(--nav-rail-current)]";
 });
 
 const mainClasses = computed(() => {
-  if (immersive.value === "inline") return "min-h-0 flex-1 overflow-hidden p-0";
-  // 沉浸页的 main 必须 overflow-hidden，滚动交给页面自持，
+  if (layoutMode.value === "inline") return "min-h-0 flex-1 overflow-hidden p-0";
+  // 专注模式的 main 必须 overflow-hidden，滚动交给页面自持，
   // 否则页面里固定在底部的输入框会被滚走。
-  if (immersive.value === "shell") return "min-h-0 flex-1 overflow-hidden px-6 py-6";
+  if (layoutMode.value === "focus") return "min-h-0 flex-1 overflow-hidden px-6 py-6";
   return "min-h-0 flex-1 overflow-y-auto px-8 py-7";
 });
 
@@ -118,8 +118,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
 
 <template>
   <div class="app-canvas relative h-screen overflow-hidden" :style="navRailVars">
-    <SidebarRail v-if="!immersive" v-model:collapsed="navCollapsed" />
-    <component :is="moduleRail" v-else-if="immersive === 'shell' && moduleRail" />
+    <SidebarRail v-if="layoutMode === 'normal'" v-model:collapsed="navCollapsed" />
+    <component :is="focusRail" v-else-if="layoutMode === 'focus' && focusRail" />
 
     <div
       class="flex h-full min-h-0 min-w-0 flex-col transition-[margin] duration-200 ease-out"
@@ -127,7 +127,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
     >
       <main :class="mainClasses">
         <!-- 宽屏上限：内容列不跟着显示器无限拉宽，卡片和表格保持可读的行长。 -->
-        <div class="mx-auto w-full" :class="immersive ? 'h-full' : 'max-w-[1560px]'">
+        <div class="mx-auto w-full" :class="layoutMode === 'normal' ? 'max-w-[1560px]' : 'h-full'">
           <RouterView v-slot="{ Component }">
             <Transition name="page" mode="out-in">
               <component :is="Component" />

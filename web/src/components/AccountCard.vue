@@ -59,14 +59,14 @@ const emit = defineEmits<{
 }>();
 
 const PALETTE = [
-  "#16a34a",
-  "#0f6e56",
-  "#1f6fb2",
-  "#7c3aed",
-  "#b45309",
-  "#be185d",
-  "#0e7490",
-  "#4d7c0f",
+  "var(--color-avatar-1)",
+  "var(--color-avatar-2)",
+  "var(--color-avatar-3)",
+  "var(--color-avatar-4)",
+  "var(--color-avatar-5)",
+  "var(--color-avatar-6)",
+  "var(--color-avatar-7)",
+  "var(--color-avatar-8)",
 ];
 
 const avatarColor = computed(() => {
@@ -276,18 +276,18 @@ function formatCredits(value: number | null): string {
 
 <template>
   <article
-    class="card-halo group relative flex flex-col overflow-hidden rounded-[var(--radius-card)] border bg-surface p-2 transition-all duration-300"
+    class="card-halo group relative flex flex-col overflow-hidden rounded-card border bg-surface p-2 transition-all duration-200"
     :class="
       isCurrent
-        ? `card-current aurora-ring border-brand/50 ${selected ? 'bg-[#f8fcf9]' : ''}`
+        ? 'card-current border-brand/50'
         : selected
-          ? 'card-halo--selected border-brand/35 bg-[#f8fcf9]'
-          : 'border-line hover:-translate-y-0.5 hover:border-[#d7dad5]'
+          ? 'card-halo--selected border-brand/35'
+          : 'border-line hover:-translate-y-0.5 hover:border-line-strong'
     "
     @mouseenter="requestPreview"
     @focusin="requestPreview"
   >
-    <!-- 当前登录：内沿光圈由 .aurora-ring::before 提供，这里只留左侧竖条做定位锚点 -->
+    <!-- 当前登录：左侧 3px 品牌竖条做定位锚点，配合 .card-current 的 1px 品牌内沿。 -->
     <div
       v-if="isCurrent"
       class="absolute -left-px top-0 h-full w-[3px] bg-brand"
@@ -298,11 +298,11 @@ function formatCredits(value: number | null): string {
     <div class="flex items-start gap-1.5">
       <button
         type="button"
-        class="mt-0.5 grid size-[14px] shrink-0 place-items-center rounded-[4px] border transition-colors"
+        class="mt-0.5 grid size-[14px] shrink-0 place-items-center rounded-badge border transition-colors"
         :class="
           selected
             ? 'border-brand bg-brand text-white'
-            : 'border-[#cfd4ce] bg-surface text-transparent hover:border-brand'
+            : 'border-line-strong bg-surface text-transparent hover:border-brand'
         "
         :aria-label="selected ? t('accounts.clearSelection') : t('accounts.selectAccount')"
         @click="emit('toggle', account)"
@@ -311,7 +311,7 @@ function formatCredits(value: number | null): string {
       </button>
 
       <div
-        class="grid size-6 shrink-0 place-items-center rounded-full text-[10px] font-semibold text-white"
+        class="grid size-6 shrink-0 place-items-center rounded-full text-micro font-semibold text-white"
         :style="{ backgroundColor: avatarColor }"
       >
         {{ initial }}
@@ -319,7 +319,7 @@ function formatCredits(value: number | null): string {
 
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1">
-          <span class="truncate text-[12.5px] font-semibold leading-tight text-ink">
+          <span class="truncate text-body-sm font-semibold leading-tight text-ink">
             {{ account.displayName }}
           </span>
           <template v-if="isCurrent">
@@ -329,20 +329,20 @@ function formatCredits(value: number | null): string {
               class="shrink-0 text-brand"
               :aria-label="t('accounts.currentLogin')"
             />
-            <span class="shrink-0 text-[10px] font-medium leading-none text-brand-dark">
+            <span class="shrink-0 text-micro font-medium leading-none text-brand-dark">
               {{ t("accounts.currentLogin") }}
             </span>
           </template>
         </div>
         <div class="mt-[1px] flex items-center gap-1">
           <span
-            class="shrink-0 rounded-full bg-line-soft px-1.5 py-[1px] text-[10px] font-medium leading-none text-ink-soft"
+            class="shrink-0 rounded-full bg-line-soft px-1.5 py-[1px] text-micro font-medium leading-none text-ink-soft"
           >
             {{ platformLabel }}
           </span>
           <span
             v-if="subscriptionLabel"
-            class="shrink-0 truncate rounded-full bg-brand-soft px-1.5 py-[1px] text-[10px] font-medium leading-none text-brand-dark"
+            class="shrink-0 truncate rounded-full bg-brand-soft px-1.5 py-[1px] text-micro font-medium leading-none text-brand-dark"
             :title="subscriptionLabel"
           >
             {{ subscriptionLabel }}
@@ -354,7 +354,7 @@ function formatCredits(value: number | null): string {
     <!-- 备注 + 上次使用压成一行：两块信息都很轻，各占一行太浪费高度 -->
     <button
       type="button"
-      class="group/note mt-1 flex min-w-0 items-center gap-1 self-start text-left text-[10.5px] leading-none text-muted transition-colors hover:text-ink"
+      class="group/note mt-1 flex min-w-0 items-center gap-1 self-start text-left text-micro leading-none text-muted transition-colors hover:text-ink"
       :title="t('accounts.editNote')"
       @click="emit('editNote', account)"
     >
@@ -376,7 +376,7 @@ function formatCredits(value: number | null): string {
     <!-- 凭据：到期时间 + 可否自动续期；信封凭据没有过期时间，整行不显示 -->
     <div
       v-if="credentialExpiryLabel || account.credentialRefreshable"
-      class="mt-1 flex items-center gap-1 text-[9.5px] leading-none text-muted"
+      class="mt-1 flex items-center gap-1 text-micro leading-none text-muted"
     >
       <Clock :size="9" :stroke-width="2" class="shrink-0" />
       <span :class="credentialExpired ? 'text-danger' : ''">
@@ -389,11 +389,11 @@ function formatCredits(value: number | null): string {
 
     <!-- 积分：一行数字 + 一行细条。原先把「剩余积分」标签、余量/已用百分比各占一行，
          四行说的其实是同一件事，压掉两行不影响读数。 -->
-    <div class="mt-1.5 rounded-[8px] bg-line-soft/45 px-2 py-1" :title="creditTooltip">
+    <div class="mt-1.5 rounded-control bg-line-soft/45 px-2 py-1" :title="creditTooltip">
       <div class="flex items-baseline gap-1">
         <Coins :size="10.5" :stroke-width="1.9" class="shrink-0 self-center text-muted" />
         <span
-          class="text-[15px] font-semibold leading-none tabular-nums transition-colors"
+          class="text-title font-semibold leading-none tabular-nums transition-colors"
           :class="
             creditState === 'ok'
               ? 'text-ink'
@@ -404,13 +404,13 @@ function formatCredits(value: number | null): string {
         >
           {{ creditText }}
         </span>
-        <span v-if="creditState === 'ok'" class="text-[10px] leading-none text-muted">
+        <span v-if="creditState === 'ok'" class="text-micro leading-none text-muted">
           {{ t("accounts.credits") }}
         </span>
-        <span v-if="creditState === 'ok' && totalText" class="text-[10px] leading-none text-muted">
+        <span v-if="creditState === 'ok' && totalText" class="text-micro leading-none text-muted">
           {{ t("accounts.totalShort", { total: totalText }) }}
         </span>
-        <span v-if="expiryLabel" class="ml-auto shrink-0 text-[10px] leading-none" :class="expiryClasses">
+        <span v-if="expiryLabel" class="ml-auto shrink-0 text-micro leading-none" :class="expiryClasses">
           {{ expiryLabel }}
         </span>
         <CircleAlert
@@ -433,7 +433,7 @@ function formatCredits(value: number | null): string {
             :style="{ width: `${Math.round(creditRatio * 100)}%` }"
           />
         </div>
-        <span class="shrink-0 text-[9.5px] leading-none tabular-nums text-muted">
+        <span class="shrink-0 text-micro leading-none tabular-nums text-muted">
           {{ Math.round(creditRatio * 100) }}%
         </span>
       </div>
@@ -441,7 +441,7 @@ function formatCredits(value: number | null): string {
 
     <!-- 今日活动：一行「活动 + 分段条 + 完成数」；只有真的还能做点什么时才多一行说明 -->
     <div v-if="activity" class="mt-1">
-      <div class="flex items-center gap-1.5 text-[10.5px] leading-none">
+      <div class="flex items-center gap-1.5 text-micro leading-none">
         <span class="flex shrink-0 items-center gap-1 text-muted">
           <Sparkles
             :size="10.5"
@@ -460,13 +460,13 @@ function formatCredits(value: number | null): string {
             :class="[
               state === 'done' ? 'bg-brand' : '',
               state === 'auto' ? (activityRunning ? 'activity-seg--running' : 'bg-brand/30') : '',
-              state === 'manual' || state === 'unknown' ? 'bg-[#d8dcd6]' : '',
+              state === 'manual' || state === 'unknown' ? 'bg-line-strong' : '',
             ]"
           />
         </span>
         <span
           v-if="activityReward"
-          class="reward-pop shrink-0 rounded-full bg-brand-soft px-1.5 py-[1px] text-[9.5px] font-medium leading-none text-brand-dark"
+          class="reward-pop shrink-0 rounded-full bg-brand-soft px-1.5 py-[1px] text-micro font-medium leading-none text-brand-dark"
         >
           +{{ activityReward }}
         </span>
@@ -481,7 +481,7 @@ function formatCredits(value: number | null): string {
       <!-- 未完成 / 有手动项才占第二行：全绿时 1/1 已经说明问题，不再重复「今日已完成」 -->
       <div
         v-if="activityRunning || activity.automated || activity.manual"
-        class="mt-0.5 flex items-center gap-2 text-[9.5px] leading-none text-muted"
+        class="mt-0.5 flex items-center gap-2 text-micro leading-none text-muted"
       >
         <span v-if="activityRunning" class="text-brand">{{ t("accounts.activity.running") }}</span>
         <span v-else-if="activity.automated">
@@ -495,7 +495,7 @@ function formatCredits(value: number | null): string {
     <div v-if="hasPackages" class="mt-0.5">
       <button
         type="button"
-        class="flex w-full items-center justify-between rounded-[7px] px-0.5 py-0 text-[10.5px] leading-relaxed text-muted transition-colors hover:text-ink-soft"
+        class="flex w-full items-center justify-between rounded-control px-0.5 py-0 text-micro leading-relaxed text-muted transition-colors hover:text-ink-soft"
         @click="packagesOpen = !packagesOpen"
       >
         <span>{{ t("accounts.packages", { count: packageRows.length }) }}</span>
@@ -511,7 +511,7 @@ function formatCredits(value: number | null): string {
         <div
           v-for="row in packageRows"
           :key="row.name"
-          class="text-[11.5px]"
+          class="text-caption"
         >
           <div class="flex items-center justify-between gap-2">
             <span class="min-w-0 truncate text-ink-soft" :title="row.name">
@@ -529,7 +529,7 @@ function formatCredits(value: number | null): string {
                 :style="{ width: `${Math.round((row.ratio ?? 0) * 100)}%` }"
               />
             </div>
-            <span v-if="row.expires" class="shrink-0 text-[10.5px] text-muted">
+            <span v-if="row.expires" class="shrink-0 text-micro text-muted">
               {{ row.expires }}
             </span>
           </div>
@@ -543,7 +543,7 @@ function formatCredits(value: number | null): string {
         v-for="risk in risks"
         :key="risk.key"
         type="button"
-        class="rounded-full border px-1.5 py-[1px] text-[9.5px] font-medium leading-none transition-opacity hover:opacity-80"
+        class="rounded-full border px-1.5 py-[1px] text-micro font-medium leading-none transition-opacity hover:opacity-80"
         :class="risk.tone"
         @click="emit('filter', risk.key)"
       >
@@ -557,7 +557,7 @@ function formatCredits(value: number | null): string {
     <!-- 切换预检：悬停卡片时按需拉取，直接显示会迁移多少 -->
     <div
       v-if="previewText"
-      class="mt-1 flex items-center gap-1 truncate text-[9.5px] leading-none text-muted"
+      class="mt-1 flex items-center gap-1 truncate text-micro leading-none text-muted"
       :title="previewText"
     >
       <Loader2 v-if="preview === 'loading'" :size="10" class="shrink-0 animate-spin" />
@@ -568,7 +568,7 @@ function formatCredits(value: number | null): string {
     <div class="mt-auto flex items-center gap-1 border-t border-line-soft pt-1">
       <button
         type="button"
-        class="inline-flex flex-1 items-center justify-center gap-1 rounded-[7px] px-2 py-[3px] text-[11px] transition-colors disabled:opacity-50"
+        class="inline-flex flex-1 items-center justify-center gap-1 rounded-control px-2 py-[3px] text-caption transition-colors disabled:opacity-50"
         :class="
           switchBlockedReason
             ? 'cursor-not-allowed border border-line text-muted'
@@ -583,7 +583,7 @@ function formatCredits(value: number | null): string {
       <button
         v-if="account.credentialRefreshable"
         type="button"
-        class="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
+        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
         :disabled="busy"
         :title="t('accounts.credential.refreshNow')"
         @click="emit('refreshCredential', account)"
@@ -592,7 +592,7 @@ function formatCredits(value: number | null): string {
       </button>
       <button
         type="button"
-        class="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
+        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
         :disabled="busy"
         :title="t('common.delete')"
         @click="emit('remove', account)"

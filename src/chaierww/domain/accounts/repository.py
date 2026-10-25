@@ -146,6 +146,11 @@ class AccountRepository:
                 """,
                 (uuid.uuid4().hex, account_id, credential_kind, sealed, now, expires_at),
             )
+            # 新凭据 = 新起点：清掉旧的续期探测记录，否则熔断计数会让
+            # 刚重新登录的号继续被当成「连续认证失败」跳过。
+            self._conn.execute(
+                "DELETE FROM credential_probes WHERE account_id = ?", (account_id,)
+            )
 
         fresh = self.get(account_id)
         return UpsertResult(created=created, restored=restored, account=fresh)
@@ -197,6 +202,116 @@ class AccountRepository:
             self._conn.execute(
                 "UPDATE accounts SET updated_at = ? WHERE id = ?", (now, account_id)
             )
+
+    @_serialized
+    def probe_times(self, account_ids: list[str] | tuple[str, ...]) -> dict[str, str]:
+        """批量读「上次凭据探测时间」，供盲续期节流判定。"""
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"SELECT account_id, probed_at FROM credential_probes "
+            f"WHERE account_id IN ({placeholders})",
+            wanted,
+        ).fetchall()
+        return {str(row["account_id"]): str(row["probed_at"]) for row in rows}
+
+    @_serialized
+    def probe_failures(
+        self, account_ids: list[str] | tuple[str, ...]
+    ) -> dict[str, int]:
+        """批量读「连续认证失败次数」，用于续期熔断。"""
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"SELECT account_id, failures FROM credential_probes "
+            f"WHERE account_id IN ({placeholders})",
+            wanted,
+        ).fetchall()
+        return {str(row["account_id"]): int(row["failures"]) for row in rows}
+
+    @_serialized
+    def record_probe(self, account_id: str, status: str, *, failed: bool = False) -> None:
+        """记一次续期探测（无论成败）。过期时间未知的号靠它做 12 小时节流。
+
+        ``failed=True`` 时把连续认证失败次数 +1，成功则清零 —— 连续 3 次后
+        调度停止自动续期（见 ``credential_lifecycle.AUTH_FAILURE_LIMIT``）。
+        """
+        increment = 1 if failed else 0
+        with transaction(self._conn):
+            self._conn.execute(
+                """
+                INSERT INTO credential_probes (account_id, probed_at, status, failures)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (account_id) DO UPDATE SET
+                    probed_at = excluded.probed_at,
+                    status = excluded.status,
+                    failures = CASE
+                        WHEN ? = 1 THEN credential_probes.failures + 1
+                        ELSE 0
+                    END
+                """,
+                (account_id, now_iso(), status, increment, increment),
+            )
+
+    @_serialized
+    def record_activity_runs(self, rows: list[dict[str, object]]) -> None:
+        """追加活动执行流水；调用方负责只传已存在的 account_id。"""
+        if not rows:
+            return
+        now = now_iso()
+        with transaction(self._conn):
+            self._conn.executemany(
+                """
+                INSERT INTO activity_runs (
+                    id, account_id, activity_key, day, attempt, status, message, reward, at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        uuid.uuid4().hex,
+                        str(row.get("accountId") or ""),
+                        str(row.get("key") or ""),
+                        str(row.get("day") or ""),
+                        int(row.get("attempt") or 1),
+                        str(row.get("status") or ""),
+                        str(row.get("message") or ""),
+                        row.get("reward"),
+                        now,
+                    )
+                    for row in rows
+                ],
+            )
+
+    @_serialized
+    def activity_runs(self, since_day: str, limit: int = 500) -> list[dict[str, object]]:
+        """按天读取活动执行流水（新的在前），供「最近执行」回看。"""
+        rows = self._conn.execute(
+            """
+            SELECT account_id, activity_key, day, attempt, status, message, reward, at
+              FROM activity_runs
+             WHERE day >= ?
+             ORDER BY at DESC
+             LIMIT ?
+            """,
+            (since_day, max(1, int(limit))),
+        ).fetchall()
+        return [
+            {
+                "accountId": str(row["account_id"]),
+                "key": str(row["activity_key"]),
+                "day": str(row["day"]),
+                "attempt": int(row["attempt"]),
+                "status": str(row["status"]),
+                "message": str(row["message"]),
+                "reward": row["reward"],
+                "at": str(row["at"]),
+            }
+            for row in rows
+        ]
 
     @_serialized
     def credential_expiries(

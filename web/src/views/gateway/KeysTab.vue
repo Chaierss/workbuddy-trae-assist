@@ -110,11 +110,11 @@ const confirmMessage = computed(() => {
           v-model="store.newLabel"
           type="text"
           :placeholder="t('gateway.keys.labelPlaceholder')"
-          class="h-8 w-40 rounded-[9px] border border-line bg-surface px-3 text-[12.5px] text-ink placeholder:text-muted focus:border-[#d5d8d3] focus:outline-none"
+          class="h-8 w-40 rounded-control border border-line bg-surface px-3 text-body-sm text-ink placeholder:text-muted focus:border-line-strong focus:outline-none"
         />
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[9px] bg-brand px-3 py-2 text-[12.5px] font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+          class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
           :disabled="store.busyKey === 'new'"
           @click="store.issue"
         >
@@ -127,7 +127,7 @@ const confirmMessage = computed(() => {
       <div class="mb-3">
         <div class="mb-1.5 flex items-center gap-2">
           <SlidersHorizontal :size="14" :stroke-width="1.9" class="text-muted" />
-          <span class="text-[12px] font-medium text-ink">{{ t("gateway.keys.limitModels") }}</span>
+          <span class="text-body-sm font-medium text-ink">{{ t("gateway.keys.limitModels") }}</span>
         </div>
         <ModelScopePicker
           v-model:scope="store.newScope"
@@ -142,18 +142,18 @@ const confirmMessage = computed(() => {
       <div class="mb-3">
         <div class="mb-1.5 flex items-center gap-2">
           <Gauge :size="14" :stroke-width="1.9" class="text-muted" />
-          <span class="text-[12px] font-medium text-ink">{{ t("gateway.keys.limits") }}</span>
+          <span class="text-body-sm font-medium text-ink">{{ t("gateway.keys.limits") }}</span>
         </div>
         <KeyLimitFields v-model="store.newLimits" />
       </div>
 
-      <div v-if="store.issued" class="mb-3 rounded-[10px] border border-brand/30 bg-brand-soft px-3.5 py-3">
+      <div v-if="store.issued" class="mb-3 rounded-control border border-brand/30 bg-brand-soft px-3.5 py-3">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[12px] font-medium text-brand-dark">{{ t("gateway.keys.issuedTitle") }}</span>
+          <span class="text-body-sm font-medium text-brand-dark">{{ t("gateway.keys.issuedTitle") }}</span>
           <div class="flex items-center gap-1">
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark transition-colors hover:bg-white/70 dark:hover:bg-white/10"
+              class="inline-flex items-center gap-1 rounded-control px-2 py-1 text-caption text-brand-dark transition-colors hover:bg-white/70 dark:hover:bg-white/10"
               @click="store.copy(store.issued, 'issued')"
             >
               <component :is="store.copied === 'issued' ? Check : Copy" :size="13" :stroke-width="1.9" />
@@ -161,18 +161,18 @@ const confirmMessage = computed(() => {
             </button>
             <button
               type="button"
-              class="rounded-[7px] px-2 py-1 text-[11.5px] text-muted transition-colors hover:text-ink"
+              class="rounded-control px-2 py-1 text-caption text-muted transition-colors hover:text-ink"
               @click="store.issued = null"
             >
               {{ t("common.close") }}
             </button>
           </div>
         </div>
-        <div class="mt-1.5 break-all font-mono text-[12px] text-brand-dark">{{ store.issued }}</div>
-        <div class="mt-1 text-[11px] text-muted">{{ t("gateway.keys.issuedFootnote") }}</div>
+        <div class="mt-1.5 break-all font-mono text-body-sm text-brand-dark">{{ store.issued }}</div>
+        <div class="mt-1 text-caption text-muted">{{ t("gateway.keys.issuedFootnote") }}</div>
       </div>
 
-      <div v-if="!store.keys.length" class="py-6 text-center text-[12.5px] text-muted">
+      <div v-if="!store.keys.length" class="py-6 text-center text-body-sm text-muted">
         {{ t("gateway.keys.empty") }}
       </div>
 
@@ -180,7 +180,7 @@ const confirmMessage = computed(() => {
         <li
           v-for="key in store.keys"
           :key="key.id"
-          class="group/row flex flex-wrap items-center gap-3 py-3 text-[12.5px]"
+          class="group/row flex flex-wrap items-center gap-3 py-3 text-body-sm"
         >
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -192,13 +192,13 @@ const confirmMessage = computed(() => {
                   type="text"
                   maxlength="60"
                   :aria-label="t('gateway.keys.rename')"
-                  class="h-7 w-44 rounded-[8px] border border-line bg-surface px-2 text-[12.5px] text-ink focus:border-[#d5d8d3] focus:outline-none"
+                  class="h-7 w-44 rounded-control border border-line bg-surface px-2 text-body-sm text-ink focus:border-line-strong focus:outline-none"
                   @keydown.enter.prevent="store.saveKeyLabel"
                   @keydown.esc="store.cancelRename"
                 />
                 <button
                   type="button"
-                  class="grid size-6 place-items-center rounded-[7px] text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
+                  class="grid size-6 place-items-center rounded-control text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
                   :disabled="store.busyKey === key.id"
                   :title="t('common.save')"
                   @click="store.saveKeyLabel"
@@ -207,7 +207,7 @@ const confirmMessage = computed(() => {
                 </button>
                 <button
                   type="button"
-                  class="grid size-6 place-items-center rounded-[7px] text-muted transition-colors hover:bg-line-soft hover:text-ink"
+                  class="grid size-6 place-items-center rounded-control text-muted transition-colors hover:bg-line-soft hover:text-ink"
                   :title="t('common.cancel')"
                   @click="store.cancelRename"
                 >
@@ -225,7 +225,7 @@ const confirmMessage = computed(() => {
                 </span>
                 <button
                   type="button"
-                  class="grid size-6 shrink-0 place-items-center rounded-[7px] text-muted opacity-0 transition-opacity group-hover/row:opacity-100 hover:text-ink focus-visible:opacity-100"
+                  class="grid size-6 shrink-0 place-items-center rounded-control text-muted opacity-0 transition-opacity group-hover/row:opacity-100 hover:text-ink focus-visible:opacity-100"
                   :title="t('gateway.keys.rename')"
                   :aria-label="t('gateway.keys.rename')"
                   @click="store.beginRename(key)"
@@ -247,15 +247,15 @@ const confirmMessage = computed(() => {
                 {{ t("gateway.keys.limitedToday") }}
               </StatusPill>
             </div>
-            <div class="mt-0.5 truncate font-mono text-[11.5px] text-muted">{{ key.mask }}</div>
-            <div class="mt-0.5 truncate text-[11px] text-muted" :title="scopeSummary(key)">
+            <div class="mt-0.5 truncate font-mono text-caption text-muted">{{ key.mask }}</div>
+            <div class="mt-0.5 truncate text-caption text-muted" :title="scopeSummary(key)">
               {{ t("gateway.keys.availableModels", { models: scopeSummary(key) }) }}
             </div>
-            <div v-if="hasLimits(key)" class="mt-0.5 truncate text-[11px] text-muted">
+            <div v-if="hasLimits(key)" class="mt-0.5 truncate text-caption text-muted">
               {{ limitSummary(key) }}
             </div>
           </div>
-          <div class="shrink-0 text-right text-[11.5px] text-muted">
+          <div class="shrink-0 text-right text-caption text-muted">
             <div>
               {{ t("gateway.keys.usageRow", { requests: key.requests, tokens: compact(key.tokens) }) }}
             </div>
@@ -266,7 +266,7 @@ const confirmMessage = computed(() => {
           </div>
           <button
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
             :disabled="store.keyUsageBusy === key.id"
             @click="store.openKeyUsage(key)"
           >
@@ -274,7 +274,7 @@ const confirmMessage = computed(() => {
           </button>
           <button
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
             :disabled="store.busyKey === key.id"
             @click="store.beginEditScope(key)"
           >
@@ -283,7 +283,7 @@ const confirmMessage = computed(() => {
           <button
             v-if="key.active"
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-warn/50 hover:text-warn disabled:opacity-60"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-warn/50 hover:text-warn disabled:opacity-60"
             :disabled="store.busyKey === key.id"
             @click="store.pending = { keyItem: key, action: 'revoke' }"
           >
@@ -292,7 +292,7 @@ const confirmMessage = computed(() => {
           <template v-else>
             <button
               type="button"
-              class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
+              class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
               :disabled="store.busyKey === key.id"
               @click="store.pending = { keyItem: key, action: 'restore' }"
             >
@@ -300,7 +300,7 @@ const confirmMessage = computed(() => {
             </button>
             <button
               type="button"
-              class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-muted transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-60"
+              class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-muted transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-60"
               :disabled="store.busyKey === key.id"
               @click="store.pending = { keyItem: key, action: 'delete' }"
             >
@@ -326,12 +326,14 @@ const confirmMessage = computed(() => {
     <Teleport to="body">
       <div
         v-if="store.editing"
-        class="fixed inset-0 z-[400] grid place-items-center bg-black/25 p-4"
+        class="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/25 p-4"
         @click.self="store.editing = null"
       >
-        <div class="w-full max-w-[560px] rounded-[16px] border border-line bg-surface p-5">
-          <h3 class="text-[15px] font-semibold text-ink">{{ t("gateway.keys.editScopeTitle") }}</h3>
-          <p class="mt-1 text-[12px] text-muted">
+        <div
+          class="max-h-[calc(100vh-2rem)] w-full max-w-[min(560px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5"
+        >
+          <h3 class="text-title font-semibold text-ink">{{ t("gateway.keys.editScopeTitle") }}</h3>
+          <p class="mt-1 text-body-sm text-muted">
             {{ t("gateway.keys.editScopeDesc", { label: store.editing.keyItem.label }) }}
           </p>
           <div class="mt-3">
@@ -346,21 +348,21 @@ const confirmMessage = computed(() => {
           <div class="mt-4">
             <div class="mb-1.5 flex items-center gap-2">
               <Gauge :size="14" :stroke-width="1.9" class="text-muted" />
-              <span class="text-[12px] font-medium text-ink">{{ t("gateway.keys.limits") }}</span>
+              <span class="text-body-sm font-medium text-ink">{{ t("gateway.keys.limits") }}</span>
             </div>
             <KeyLimitFields v-model="store.editing.limits" />
           </div>
           <div class="mt-4 flex justify-end gap-2">
             <button
               type="button"
-              class="rounded-[9px] border border-line px-3.5 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+              class="rounded-control border border-line px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
               @click="store.editing = null"
             >
               {{ t("common.cancel") }}
             </button>
             <button
               type="button"
-              class="rounded-[9px] bg-brand px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+              class="rounded-control bg-brand px-3.5 py-2 text-body font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
               :disabled="store.busyKey === store.editing.keyItem.id"
               @click="store.saveKeyScope"
             >

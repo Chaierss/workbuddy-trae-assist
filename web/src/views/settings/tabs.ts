@@ -1,9 +1,11 @@
 import type { Component } from "vue";
 import {
   BookOpen,
+  Boxes,
   CalendarClock,
   Database,
   FileCog,
+  ListChecks,
   Plug,
   ScrollText,
   Settings2,
@@ -19,6 +21,8 @@ import BackupTab from "./BackupTab.vue";
 import ApiDocsTab from "./ApiDocsTab.vue";
 import WikiTab from "./WikiTab.vue";
 import LogsTab from "./LogsTab.vue";
+import RulesTab from "./RulesTab.vue";
+import ComponentsTab from "./ComponentsTab.vue";
 
 /**
  * 设置 tab 的唯一登记处。加一个 tab 只改这里。
@@ -84,6 +88,20 @@ export const SETTINGS_TABS: SettingsTab[] = [
     hintKey: "settings.backup.hint",
     icon: Database,
     component: BackupTab,
+  },
+  {
+    key: "rules",
+    labelKey: "settings.rules.label",
+    hintKey: "settings.rules.hint",
+    icon: ListChecks,
+    component: RulesTab,
+  },
+  {
+    key: "components",
+    labelKey: "settings.components.label",
+    hintKey: "settings.components.hint",
+    icon: Boxes,
+    component: ComponentsTab,
   },
   {
     key: "api",

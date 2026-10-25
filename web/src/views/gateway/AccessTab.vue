@@ -61,7 +61,7 @@ const endpoints = computed<EndpointRow[]>(() => {
 </script>
 
 <template>
-  <div v-if="!store.status" class="py-8 text-center text-[12.5px] text-muted">
+  <div v-if="!store.status" class="py-8 text-center text-body-sm text-muted">
     {{ t("gateway.loading") }}
   </div>
 
@@ -70,24 +70,24 @@ const endpoints = computed<EndpointRow[]>(() => {
       <div
         v-for="item in endpoints"
         :key="item.tag"
-        class="rounded-[10px] border border-line-soft px-3.5 py-2.5"
+        class="rounded-control border border-line-soft px-3.5 py-2.5"
       >
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[12px] font-medium text-ink">{{ t(item.labelKey) }}</span>
+          <span class="text-body-sm font-medium text-ink">{{ t(item.labelKey) }}</span>
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-muted transition-colors hover:bg-line-soft hover:text-ink"
+            class="inline-flex items-center gap-1 rounded-control px-2 py-1 text-caption text-muted transition-colors hover:bg-line-soft hover:text-ink"
             @click="store.copy(item.value, item.tag)"
           >
             <component :is="store.copied === item.tag ? Check : Copy" :size="13" :stroke-width="1.9" />
             {{ store.copied === item.tag ? t("common.copied") : t("common.copy") }}
           </button>
         </div>
-        <div class="mt-1 truncate font-mono text-[12px] text-ink-soft">{{ item.value }}</div>
-        <div class="mt-0.5 text-[11px] text-muted">{{ t(item.hintKey) }}</div>
+        <div class="mt-1 truncate font-mono text-body-sm text-ink-soft">{{ item.value }}</div>
+        <div class="mt-0.5 text-caption text-muted">{{ t(item.hintKey) }}</div>
       </div>
 
-      <p class="text-[11.5px] leading-relaxed text-muted">
+      <p class="text-caption leading-relaxed text-muted">
         {{ t("gateway.access.note1") }} <code>deepseek-v4.1-flash</code>{{ t("gateway.access.note2") }} <code>Authorization: Bearer sk-…</code>{{ t("gateway.access.note3") }}
         <span v-if="!store.status.loopbackOnly" class="text-warn">{{ t("gateway.access.nonLoopbackWarn") }}</span>
       </p>

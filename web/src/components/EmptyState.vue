@@ -18,7 +18,7 @@ defineProps<{ icon?: Component; title: string; hint?: string }>();
     >
       <component :is="icon ?? Inbox" :size="16" :stroke-width="1.7" />
     </span>
-    <p class="text-[12.5px] font-medium text-ink-soft">{{ title }}</p>
-    <p v-if="hint" class="max-w-[380px] text-[11.5px] leading-relaxed text-muted">{{ hint }}</p>
+    <p class="text-body-sm font-medium text-ink-soft">{{ title }}</p>
+    <p v-if="hint" class="max-w-[380px] text-caption leading-relaxed text-muted">{{ hint }}</p>
   </div>
 </template>

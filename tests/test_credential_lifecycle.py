@@ -217,17 +217,28 @@ def _service(repo: AccountRepository) -> CredentialLifecycleService:
     return CredentialLifecycleService(repo, gap_seconds=0.0)
 
 
-def test_due_mode_skips_when_expiry_is_unknown(repo, monkeypatch):
+def test_due_mode_blind_refreshes_when_expiry_is_unknown(repo, monkeypatch):
     account = _oauth_account(repo)
     stub = _StubRefresher(
-        RefreshOutcome(status=STATUS_REFRESHED, credential={}, expires_at=None)
+        RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential={"format": "oauth-token", "accessToken": "new", "refreshToken": "r2"},
+            expires_at=None,
+        )
     )
     monkeypatch.setattr(
         "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
     )
-    results = _service(repo).sweep([account], mode=MODE_DUE)
-    assert results[0].status == RESULT_NOOP
-    assert stub.calls == 0
+    service = _service(repo)
+    monkeypatch.setattr(service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效"))
+    results = service.sweep([account], mode=MODE_DUE)
+    # 过期时间未知不再永久跳过：第一个轮次会盲续期一次。
+    assert results[0].status == RESULT_REFRESHED
+    assert stub.calls == 1
+    # 12 小时节流内再巡检不再打上游。
+    second = service.sweep([account], mode=MODE_DUE)
+    assert second[0].status == RESULT_NOOP
+    assert stub.calls == 1
 
 
 def test_due_mode_skips_when_far_from_expiry(repo, monkeypatch):
@@ -264,6 +275,7 @@ def test_due_mode_refreshes_inside_window(repo, monkeypatch):
         "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
     )
     service = _service(repo)
+    monkeypatch.setattr(service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效"))
     results = service.sweep([account], mode=MODE_DUE)
     assert results[0].status == RESULT_REFRESHED
     assert stub.calls == 1
@@ -285,7 +297,9 @@ def test_force_mode_refreshes_even_without_expiry(repo, monkeypatch):
     monkeypatch.setattr(
         "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
     )
-    results = _service(repo).sweep([account], mode=MODE_FORCE)
+    service = _service(repo)
+    monkeypatch.setattr(service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效"))
+    results = service.sweep([account], mode=MODE_FORCE)
     assert results[0].status == RESULT_REFRESHED
     assert stub.calls == 1
 
@@ -388,11 +402,64 @@ def test_summary_counts_each_outcome(repo, monkeypatch):
         "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
     )
     service = _service(repo)
+    monkeypatch.setattr(service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效"))
     results = service.sweep([due, far], mode=MODE_DUE)
     summary = service.summary(results)
     assert summary["total"] == 2
     assert summary["refreshed"] == 1
     assert summary["noop"] == 1
+
+
+def test_consecutive_auth_failures_trip_the_breaker(repo, monkeypatch):
+    """连续 3 次认证失败后停止自动续期；手动 force 仍然可以再试。"""
+    account = _oauth_account(repo)
+    stub = _StubRefresher(RefreshOutcome(status=STATUS_RELOGIN_REQUIRED, detail="拒绝"))
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    service = _service(repo)
+    for _ in range(3):
+        assert service.sweep([account], mode=MODE_FORCE)[0].status == RESULT_RELOGIN_REQUIRED
+    assert repo.probe_failures([account.id])[account.id] == 3
+
+    stub.calls = 0
+    results = service.sweep([account], mode=MODE_DUE)
+    # 熔断生效：自动续期不再打上游。
+    assert results[0].status == RESULT_RELOGIN_REQUIRED
+    assert stub.calls == 0
+    assert "暂停自动续期" in results[0].detail
+
+    # 手动强制续期不受熔断限制。
+    service.sweep([account], mode=MODE_FORCE)
+    assert stub.calls == 1
+
+
+def test_new_login_resets_probe_failures(repo, monkeypatch):
+    account = _oauth_account(repo)
+    repo.record_probe(account.id, STATUS_RELOGIN_REQUIRED, failed=True)
+    repo.record_probe(account.id, STATUS_RELOGIN_REQUIRED, failed=True)
+    assert repo.probe_failures([account.id])[account.id] == 2
+    # 重新扫码 = 新凭据，失败计数清零。
+    _oauth_account(repo, external_id="u-1", name="账号甲")
+    assert repo.probe_failures([account.id]).get(account.id, 0) == 0
+
+
+def test_expiry_from_issued_at_and_expires_in():
+    issued = "2026-10-20T00:00:00+00:00"
+    moment = token_expiry(
+        "oauth_token", {"format": "oauth-token", "issuedAt": issued, "expiresIn": 3600}
+    )
+    assert moment is not None
+    assert moment.isoformat().startswith("2026-10-20T01:00:00")
+
+
+def test_expiry_from_nested_absolute_field():
+    credential = {
+        "format": "oauth-token",
+        "auth": {"token": {"expiresAt": "2030-01-01T00:00:00+00:00"}},
+    }
+    moment = token_expiry("oauth_token", credential)
+    assert moment is not None and moment.year == 2030
 
 
 # ---------- 调度 ----------

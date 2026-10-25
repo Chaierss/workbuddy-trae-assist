@@ -4,7 +4,7 @@ import contextlib
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -677,6 +677,7 @@ def credential_health(request: Request) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
+    failures = repository.probe_failures([account.id for account in accounts])
     for account in accounts:
         try:
             kind, credential = repository.credential_record(account.id)
@@ -687,36 +688,59 @@ def credential_health(request: Request) -> dict[str, Any]:
                     "accountId": account.id,
                     "displayName": account.display_name,
                     "scope": account.scope,
+                    "credentialState": account.credential_state.value,
                     "credentialKind": "",
                     "gaps": ["credential"],
                     "expiresAt": None,
                     "refreshable": False,
                     "expired": False,
+                    "probeFailures": 0,
+                    "reason": "凭据不可读取，需重新导入或登录",
                 }
             )
             continue
         gaps = _credential_gaps(credential)
-        if gaps:
-            expires_at = repository.credential_expiries([account.id]).get(account.id)
-            moment = parse_expiry(expires_at)
-            items.append(
-                {
-                    "accountId": account.id,
-                    "displayName": account.display_name,
-                    "scope": account.scope,
-                    "credentialKind": kind,
-                    "gaps": gaps,
-                    "expiresAt": expires_at,
-                    "refreshable": refreshable(kind, credential),
-                    "expired": bool(moment is not None and moment <= datetime.now(UTC)),
-                }
-            )
+        expires_at = repository.credential_expiries([account.id]).get(account.id)
+        moment = parse_expiry(expires_at)
+        expired = bool(moment is not None and moment <= datetime.now(UTC))
+        relogin = account.credential_state is CredentialState.RELOGIN_REQUIRED
+        if not gaps and not expired and not relogin:
+            continue
+        probe_failures = failures.get(account.id, 0)
+        items.append(
+            {
+                "accountId": account.id,
+                "displayName": account.display_name,
+                "scope": account.scope,
+                "credentialState": account.credential_state.value,
+                "credentialKind": kind,
+                "gaps": gaps,
+                "expiresAt": expires_at,
+                "refreshable": refreshable(kind, credential),
+                "expired": expired,
+                "probeFailures": probe_failures,
+                "reason": _health_reason(gaps, expired, relogin, probe_failures),
+            }
+        )
 
     return {
         "accounts": items,
         "total": len(accounts),
         "withGaps": len(items),
     }
+
+
+def _health_reason(
+    gaps: list[str], expired: bool, relogin: bool, probe_failures: int
+) -> str:
+    """给前端的「为什么这个号需要人工处理」一句话。"""
+    if relogin or probe_failures >= 3:
+        return "登录已失效，需要重新扫码登录"
+    if expired:
+        return "凭据已过期，且无法自动续期" if gaps else "凭据已过期，等待自动续期"
+    if "refreshToken" in gaps:
+        return "缺少 refreshToken，到期后需重新登录"
+    return "凭据不完整"
 
 
 @router.post(
@@ -1043,6 +1067,26 @@ def run_activities(
         summary.get("failed", 0),
     )
     return report
+
+
+@router.get(
+    "/activities/runs",
+    summary="最近的活动执行流水（按天，新的在前）",
+    tags=["活动"],
+)
+def list_activity_runs(request: Request, days: int = 7, limit: int = 500) -> dict[str, Any]:
+    """回看「今天到底做了什么 / 为什么失败」。
+
+    流水只记每轮最终结论（重试轮的结论顶替首轮），不存 token、不存响应原文。
+    """
+    repository = request.app.state.repository
+    span = max(1, min(int(days), 90))
+    since = (datetime.now(UTC) - timedelta(days=span - 1)).date().isoformat()
+    try:
+        rows = repository.activity_runs(since, limit=max(1, min(int(limit), 2000)))
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+    return {"since": since, "runs": rows}
 
 
 def _activities_accounts(request: Request, accountIds: str | None) -> list[Account]:

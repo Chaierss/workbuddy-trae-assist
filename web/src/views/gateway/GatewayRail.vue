@@ -35,8 +35,8 @@ function backToMain(): void {
       class="block w-full border-b border-line-soft px-4 pb-3 pt-5 text-left transition-colors hover:bg-line-soft"
       @click="backToMain"
     >
-      <h1 class="text-[13px] font-semibold tracking-tight text-ink">{{ t("gateway.shell.title") }}</h1>
-      <p class="mt-0.5 text-[11.5px] text-muted">{{ t("gateway.shell.subtitle") }}</p>
+      <h1 class="text-body font-semibold tracking-tight text-ink">{{ t("gateway.shell.title") }}</h1>
+      <p class="mt-0.5 text-caption text-muted">{{ t("gateway.shell.subtitle") }}</p>
     </button>
 
     <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3 pt-3">
@@ -44,7 +44,7 @@ function backToMain(): void {
         v-for="tab in GATEWAY_TABS"
         :key="tab.key"
         type="button"
-        class="flex w-full items-start gap-2.5 rounded-[9px] px-2.5 py-2 text-left transition-colors"
+        class="flex w-full items-start gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors"
         :class="
           activeKey === tab.key
             ? 'bg-brand-soft text-brand-dark'
@@ -54,10 +54,10 @@ function backToMain(): void {
       >
         <component :is="tab.icon" :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
         <span class="min-w-0 flex-1">
-          <span class="block truncate text-[12.5px]" :class="activeKey === tab.key ? 'font-medium' : ''">
+          <span class="block truncate text-body-sm" :class="activeKey === tab.key ? 'font-medium' : ''">
             {{ t(tab.labelKey) }}
           </span>
-          <span class="mt-0.5 block text-[11px] leading-snug text-muted">{{ t(tab.hintKey) }}</span>
+          <span class="mt-0.5 block text-caption leading-snug text-muted">{{ t(tab.hintKey) }}</span>
         </span>
       </button>
     </nav>

@@ -115,7 +115,7 @@ function bucketLabel(bucket: string): string {
 </script>
 
 <template>
-  <div v-if="!store.status" class="py-8 text-center text-[12.5px] text-muted">
+  <div v-if="!store.status" class="py-8 text-center text-body-sm text-muted">
     {{ t("gateway.loading") }}
   </div>
 
@@ -170,14 +170,14 @@ function bucketLabel(bucket: string): string {
         </StatusPill>
       </template>
 
-      <div v-if="!pool?.accounts.length" class="py-6 text-center text-[12.5px] text-muted">
+      <div v-if="!pool?.accounts.length" class="py-6 text-center text-body-sm text-muted">
         {{ t("gateway.pool.empty") }}
       </div>
       <ul v-else class="divide-y divide-line-soft">
         <li
           v-for="item in pool.accounts"
           :key="item.id"
-          class="flex flex-wrap items-center gap-3 py-3 text-[12.5px]"
+          class="flex flex-wrap items-center gap-3 py-3 text-body-sm"
         >
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -185,12 +185,12 @@ function bucketLabel(bucket: string): string {
               <StatusPill :tone="stateTone(item.state)">{{ stateText(item.state) }}</StatusPill>
               <StatusPill v-if="item.preferred" tone="info">{{ t("gateway.pool.preferredBadge") }}</StatusPill>
             </div>
-            <div class="mt-0.5 truncate text-[11px] text-muted">{{ accountHint(item) }}</div>
+            <div class="mt-0.5 truncate text-caption text-muted">{{ accountHint(item) }}</div>
           </div>
 
           <button
             type="button"
-            class="shrink-0 inline-flex items-center gap-1 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
+            class="shrink-0 inline-flex items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
             :disabled="store.busyAccount === item.id || !store.probeModel"
             @click="store.probeAccount(item)"
           >
@@ -199,7 +199,7 @@ function bucketLabel(bucket: string): string {
           </button>
           <button
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] transition-colors disabled:opacity-60"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption transition-colors disabled:opacity-60"
             :class="
               item.preferred
                 ? 'text-brand-dark hover:border-brand/50'
@@ -217,7 +217,7 @@ function bucketLabel(bucket: string): string {
           </button>
           <button
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] transition-colors disabled:opacity-60"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption transition-colors disabled:opacity-60"
             :class="
               item.excluded
                 ? 'text-ink-soft hover:border-brand/50 hover:text-brand-dark'
@@ -233,7 +233,7 @@ function bucketLabel(bucket: string): string {
 
       <div
         v-if="store.probeResult"
-        class="mt-3 rounded-[10px] border px-3.5 py-3 text-[12px]"
+        class="mt-3 rounded-control border px-3.5 py-3 text-body-sm"
         :class="
           store.probeResult.ok
             ? 'border-brand/30 bg-brand-soft text-brand-dark'
@@ -256,7 +256,7 @@ function bucketLabel(bucket: string): string {
         </template>
       </div>
 
-      <div class="mt-3 border-t border-line-soft pt-3 text-[11px] leading-relaxed text-muted">
+      <div class="mt-3 border-t border-line-soft pt-3 text-caption leading-relaxed text-muted">
         <p>{{ t("gateway.pool.note.prefer") }}</p>
         <p class="mt-1">
           {{ t("gateway.pool.note.excludePrefix") }}<span class="text-ink-soft">{{
@@ -281,10 +281,10 @@ function bucketLabel(bucket: string): string {
       </template>
 
       <div class="grid gap-4 lg:grid-cols-3">
-        <div class="rounded-[10px] border border-line-soft px-3.5 py-3">
-          <div class="text-[12px] font-medium text-ink">{{ t("gateway.board.successRate") }}</div>
-          <div class="mt-1 text-[20px] font-semibold text-ink">{{ successText }}</div>
-          <div class="mt-0.5 text-[11.5px] text-muted">
+        <div class="rounded-control border border-line-soft px-3.5 py-3">
+          <div class="text-body-sm font-medium text-ink">{{ t("gateway.board.successRate") }}</div>
+          <div class="mt-1 text-metric font-semibold text-ink">{{ successText }}</div>
+          <div class="mt-0.5 text-caption text-muted">
             {{
               t("gateway.board.hops", {
                 hops: board?.totalHops ?? 0,
@@ -292,19 +292,19 @@ function bucketLabel(bucket: string): string {
               })
             }}
           </div>
-          <div class="mt-2 text-[11px] text-muted">
+          <div class="mt-2 text-caption text-muted">
             {{ t("gateway.board.sampledAt", { time: formatTime(board?.sampledAt ?? null) }) }}
           </div>
         </div>
 
-        <div class="rounded-[10px] border border-line-soft px-3.5 py-3 lg:col-span-2">
-          <div class="mb-2 text-[12px] font-medium text-ink">{{ t("gateway.board.byModel") }}</div>
-          <div v-if="!board?.byModel.length" class="py-3 text-[11.5px] text-muted">
+        <div class="rounded-control border border-line-soft px-3.5 py-3 lg:col-span-2">
+          <div class="mb-2 text-body-sm font-medium text-ink">{{ t("gateway.board.byModel") }}</div>
+          <div v-if="!board?.byModel.length" class="py-3 text-caption text-muted">
             {{ t("gateway.board.noData") }}
           </div>
           <div v-else class="space-y-2">
             <div v-for="item in board.byModel" :key="item.model" class="flex items-center gap-2">
-              <span class="w-[150px] shrink-0 truncate font-mono text-[11.5px] text-ink-soft" :title="item.model">
+              <span class="w-[150px] shrink-0 truncate font-mono text-caption text-ink-soft" :title="item.model">
                 {{ item.model }}
               </span>
               <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft">
@@ -314,7 +314,7 @@ function bucketLabel(bucket: string): string {
                   :style="{ width: percent(item.requests, maxModelRequests) }"
                 ></span>
               </span>
-              <span class="w-[110px] shrink-0 text-right text-[11px] text-muted">
+              <span class="w-[110px] shrink-0 text-right text-caption text-muted">
                 {{
                   t("gateway.board.modelRow", {
                     requests: item.requests,
@@ -331,9 +331,9 @@ function bucketLabel(bucket: string): string {
       </div>
 
       <div class="mt-4 grid gap-4 lg:grid-cols-2">
-        <div class="rounded-[10px] border border-line-soft px-3.5 py-3">
-          <div class="mb-2 text-[12px] font-medium text-ink">{{ t("gateway.board.byAccount") }}</div>
-          <div v-if="!board?.byAccount.length" class="py-3 text-[11.5px] text-muted">
+        <div class="rounded-control border border-line-soft px-3.5 py-3">
+          <div class="mb-2 text-body-sm font-medium text-ink">{{ t("gateway.board.byAccount") }}</div>
+          <div v-if="!board?.byAccount.length" class="py-3 text-caption text-muted">
             {{ t("gateway.board.noData") }}
           </div>
           <div v-else class="space-y-2">
@@ -342,7 +342,7 @@ function bucketLabel(bucket: string): string {
               :key="item.accountId || item.accountName"
               class="flex items-center gap-2"
             >
-              <span class="w-[96px] shrink-0 truncate text-[11.5px] text-ink-soft" :title="item.accountName">
+              <span class="w-[96px] shrink-0 truncate text-caption text-ink-soft" :title="item.accountName">
                 {{ item.accountName }}
               </span>
               <span class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft">
@@ -352,7 +352,7 @@ function bucketLabel(bucket: string): string {
                   :style="{ width: percent(item.requests, maxAccountRequests) }"
                 ></span>
               </span>
-              <span class="w-[120px] shrink-0 text-right text-[11px] text-muted">
+              <span class="w-[120px] shrink-0 text-right text-caption text-muted">
                 {{
                   t("gateway.board.accountRow", {
                     requests: item.requests,
@@ -367,9 +367,9 @@ function bucketLabel(bucket: string): string {
           </div>
         </div>
 
-        <div class="rounded-[10px] border border-line-soft px-3.5 py-3">
-          <div class="mb-2 text-[12px] font-medium text-ink">{{ t("gateway.board.series") }}</div>
-          <div v-if="!board?.series.length" class="py-3 text-[11.5px] text-muted">
+        <div class="rounded-control border border-line-soft px-3.5 py-3">
+          <div class="mb-2 text-body-sm font-medium text-ink">{{ t("gateway.board.series") }}</div>
+          <div v-if="!board?.series.length" class="py-3 text-caption text-muted">
             {{ t("gateway.board.noData") }}
           </div>
           <div v-else class="flex h-[84px] items-end gap-1.5">
@@ -390,21 +390,21 @@ function bucketLabel(bucket: string): string {
                 :class="item.errors ? 'bg-warn' : 'bg-brand'"
                 :style="{ height: barHeight(item.requests, maxBucketRequests) }"
               ></span>
-              <span class="truncate text-[9.5px] text-muted">{{ bucketLabel(item.bucket) }}</span>
+              <span class="truncate text-micro text-muted">{{ bucketLabel(item.bucket) }}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="mt-4 rounded-[10px] border border-line-soft px-3.5 py-3">
-        <div class="mb-2 text-[12px] font-medium text-ink">{{ t("gateway.board.byKey") }}</div>
-        <div v-if="!board?.byKey.length" class="py-3 text-[11.5px] text-muted">
+      <div class="mt-4 rounded-control border border-line-soft px-3.5 py-3">
+        <div class="mb-2 text-body-sm font-medium text-ink">{{ t("gateway.board.byKey") }}</div>
+        <div v-if="!board?.byKey.length" class="py-3 text-caption text-muted">
           {{ t("gateway.board.noData") }}
         </div>
         <div v-else class="space-y-2">
           <div v-for="item in board.byKey" :key="item.keyId || item.keyLabel" class="flex items-center gap-2">
             <span
-              class="w-[150px] shrink-0 truncate text-[11.5px] text-ink-soft"
+              class="w-[150px] shrink-0 truncate text-caption text-ink-soft"
               :title="item.keyLabel"
             >
               {{ item.keyLabel }}
@@ -416,7 +416,7 @@ function bucketLabel(bucket: string): string {
                 :style="{ width: percent(item.requests, maxKeyRequests) }"
               ></span>
             </span>
-            <span class="w-[120px] shrink-0 text-right text-[11px] text-muted">
+            <span class="w-[120px] shrink-0 text-right text-caption text-muted">
               {{ t("gateway.board.keyRow", { requests: item.requests, ok: item.ok }) }}
               <span v-if="item.failed" class="text-danger">{{
                 t("gateway.board.accountFailed", { count: item.failed })
@@ -432,14 +432,14 @@ function bucketLabel(bucket: string): string {
       :title="t('gateway.byKey.title')"
       :subtitle="t('gateway.byKey.subtitle')"
     >
-      <div v-if="!keyRows.length" class="py-6 text-center text-[12.5px] text-muted">
+      <div v-if="!keyRows.length" class="py-6 text-center text-body-sm text-muted">
         {{ t("gateway.byKey.empty") }}
       </div>
       <ul v-else class="divide-y divide-line-soft">
         <li
           v-for="item in keyRows"
           :key="item.key.id"
-          class="flex flex-wrap items-center gap-3 py-3 text-[12.5px]"
+          class="flex flex-wrap items-center gap-3 py-3 text-body-sm"
         >
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -448,9 +448,9 @@ function bucketLabel(bucket: string): string {
                 {{ t("gateway.byKey.revoked") }}
               </StatusPill>
             </div>
-            <div class="mt-0.5 truncate font-mono text-[11px] text-muted">{{ item.key.mask }}</div>
+            <div class="mt-0.5 truncate font-mono text-caption text-muted">{{ item.key.mask }}</div>
           </div>
-          <div class="shrink-0 text-right text-[11.5px] text-ink-soft">
+          <div class="shrink-0 text-right text-caption text-ink-soft">
             {{
               t("gateway.byKey.cumulative", {
                 requests: item.requests,
@@ -458,10 +458,10 @@ function bucketLabel(bucket: string): string {
               })
             }}
           </div>
-          <div class="w-[92px] shrink-0 text-right text-[11px] text-muted">
+          <div class="w-[92px] shrink-0 text-right text-caption text-muted">
             {{ t("gateway.byKey.avgPerRequest", { tokens: compact(item.avgTokens) }) }}
           </div>
-          <div class="w-[118px] shrink-0 text-right text-[11px] text-muted">
+          <div class="w-[118px] shrink-0 text-right text-caption text-muted">
             {{
               item.key.dayRequests || item.key.dayTokens
                 ? t("gateway.byKey.today", {
@@ -473,13 +473,13 @@ function bucketLabel(bucket: string): string {
           </div>
           <button
             type="button"
-            class="shrink-0 rounded-[9px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
+            class="shrink-0 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark disabled:opacity-60"
             :disabled="store.keyUsageBusy === item.key.id"
             @click="store.openKeyUsage(item.key)"
           >
             {{ t("gateway.byKey.viewUsage") }}
           </button>
-          <div class="w-[150px] shrink-0 text-right text-[11px] text-muted">
+          <div class="w-[150px] shrink-0 text-right text-caption text-muted">
             {{
               item.key.lastUsedAt
                 ? t("gateway.byKey.lastUsed", { time: formatTime(item.key.lastUsedAt) })

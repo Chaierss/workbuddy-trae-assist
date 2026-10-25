@@ -358,6 +358,9 @@ def _mount_webui(app: FastAPI) -> None:
     assets = webui / "assets"
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
+    # 兜底路由只允许读 dist 内的文件。`%2F` 编码的 `..` 会被解码成真实路径
+    # （`GET /..%2F..%2FCHANGELOG.md`），不校验就能把安装目录外的文件读出来。
+    webui_root = webui.resolve()
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -369,9 +372,10 @@ def _mount_webui(app: FastAPI) -> None:
         # 否则前端会拿到一份 HTML 却按 JSON 解析。
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="接口不存在")
-        target = webui / full_path
-        if full_path and target.is_file():
-            return FileResponse(target)
+        if full_path:
+            target = (webui / full_path).resolve()
+            if target.is_file() and target.is_relative_to(webui_root):
+                return FileResponse(target)
         return FileResponse(webui / "index.html")
 
 

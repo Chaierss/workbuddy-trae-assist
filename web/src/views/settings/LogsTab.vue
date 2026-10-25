@@ -131,27 +131,27 @@ onMounted(() => {
         v-model="keyword"
         type="text"
         :placeholder="t('settings.logs.keywordPlaceholder')"
-        class="w-[220px] rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink outline-none placeholder:text-muted focus:border-brand"
+        class="w-[220px] rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink outline-none placeholder:text-muted focus:border-brand"
       />
 
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[8px] border border-line px-2 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line px-2 py-1.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
         @click="refresh"
       >
         <RefreshCw :size="12" :class="loading ? 'animate-spin' : ''" /> {{ t("common.refresh") }}
       </button>
     </div>
 
-    <div class="overflow-hidden rounded-[12px] border border-line bg-surface">
+    <div class="overflow-hidden rounded-card border border-line bg-surface">
       <div
         v-if="loading && !entries.length"
-        class="flex items-center gap-2 px-4 py-10 text-[13px] text-muted"
+        class="flex items-center gap-2 px-4 py-10 text-body text-muted"
       >
         <Loader2 :size="14" class="animate-spin" /> {{ t("settings.logs.reading") }}
       </div>
-      <p v-else-if="error" class="px-4 py-10 text-[13px] text-danger">{{ error }}</p>
-      <p v-else-if="!entries.length" class="px-4 py-10 text-center text-[13px] text-muted">
+      <p v-else-if="error" class="px-4 py-10 text-body text-danger">{{ error }}</p>
+      <p v-else-if="!entries.length" class="px-4 py-10 text-center text-body text-muted">
         {{ t("settings.logs.empty") }}
       </p>
 
@@ -163,23 +163,23 @@ onMounted(() => {
             @click="expanded = expanded === index ? null : index"
           >
             <span
-              class="w-[62px] shrink-0 rounded-[5px] px-1.5 py-0.5 text-center font-mono text-[10.5px] font-semibold"
+              class="w-[62px] shrink-0 rounded-badge px-1.5 py-0.5 text-center font-mono text-micro font-semibold"
               :class="levelTone[entry.level] ?? 'bg-line-soft text-muted'"
             >
               {{ entry.level || "LOG" }}
             </span>
-            <span class="w-[124px] shrink-0 font-mono text-[11px] text-muted">
+            <span class="w-[124px] shrink-0 font-mono text-caption text-muted">
               {{ formatAt(entry.at).slice(5) }}
             </span>
             <span
-              class="min-w-0 flex-1 font-mono text-[11.5px] text-ink-soft"
+              class="min-w-0 flex-1 font-mono text-caption text-ink-soft"
               :class="expanded === index ? 'whitespace-pre-wrap break-all' : 'truncate'"
             >
               {{ entry.message }}
             </span>
           </button>
           <div v-if="expanded === index" class="border-t border-line-soft bg-line-soft/40 px-4 py-1.5">
-            <span class="font-mono text-[10.5px] text-muted">
+            <span class="font-mono text-micro text-muted">
               {{ entry.file }} · {{ entry.logger || t("settings.logs.unknownLogger") }}
             </span>
           </div>
@@ -188,16 +188,16 @@ onMounted(() => {
     </div>
 
     <div class="flex items-center gap-3">
-      <span class="text-[11.5px] text-muted">
+      <span class="text-caption text-muted">
         {{ t("settings.logs.pageInfo", { page, size: pageSize }) }}
       </span>
-      <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-muted" :title="dir">
+      <span class="min-w-0 flex-1 truncate font-mono text-caption text-muted" :title="dir">
         {{ dir || t("settings.logs.dirUnknown") }}
       </span>
       <div class="flex items-center gap-1.5">
         <button
           type="button"
-          class="inline-flex items-center gap-1 rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-40"
+          class="inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40"
           :disabled="page <= 1 || loading"
           @click="prev"
         >
@@ -205,7 +205,7 @@ onMounted(() => {
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1 rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-40"
+          class="inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-40"
           :disabled="!data?.hasMore || loading"
           @click="next"
         >

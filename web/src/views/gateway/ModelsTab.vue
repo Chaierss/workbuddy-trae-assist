@@ -38,7 +38,7 @@ function setRefreshMinutes(value: number): void {
 </script>
 
 <template>
-  <div v-if="!store.status" class="py-8 text-center text-[12.5px] text-muted">
+  <div v-if="!store.status" class="py-8 text-center text-body-sm text-muted">
     {{ t("gateway.loading") }}
   </div>
 
@@ -49,14 +49,14 @@ function setRefreshMinutes(value: number): void {
           store.status.catalog.fresh ? t("gateway.models.cached") : t("gateway.models.notFetched")
         }}
       </StatusPill>
-      <span class="text-[11.5px] text-muted">
+      <span class="text-caption text-muted">
         {{
           store.status.catalog.fetchedAt
             ? t("gateway.models.fetchedAt", { time: formatTime(store.status.catalog.fetchedAt) })
             : t("gateway.models.neverFetched")
         }}
       </span>
-      <label class="flex items-center gap-1.5 text-[11.5px] text-muted">
+      <label class="flex items-center gap-1.5 text-caption text-muted">
         {{ t("gateway.models.autoRefresh") }}
         <SelectMenu
           :model-value="store.status.catalogRefreshMinutes"
@@ -69,7 +69,7 @@ function setRefreshMinutes(value: number): void {
       </label>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[9px] border border-line px-2.5 py-2 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line px-2.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="store.loading"
         @click="store.refreshModels"
       >
@@ -78,7 +78,7 @@ function setRefreshMinutes(value: number): void {
       </button>
     </template>
 
-    <div v-if="!store.status.catalog.models.length" class="py-6 text-center text-[12.5px] text-muted">
+    <div v-if="!store.status.catalog.models.length" class="py-6 text-center text-body-sm text-muted">
       {{ t("gateway.models.empty") }}
     </div>
 
@@ -86,17 +86,17 @@ function setRefreshMinutes(value: number): void {
       <div
         v-for="model in store.status.catalog.models"
         :key="model.id"
-        class="rounded-[10px] border border-line-soft px-3.5 py-2.5"
+        class="rounded-control border border-line-soft px-3.5 py-2.5"
       >
         <div class="flex items-center gap-2">
           <Cable :size="14" :stroke-width="1.9" class="shrink-0 text-muted" />
-          <span class="truncate font-mono text-[12px] text-ink" :title="model.id">{{ model.id }}</span>
+          <span class="truncate font-mono text-body-sm text-ink" :title="model.id">{{ model.id }}</span>
           <StatusPill v-if="model.free" tone="brand">{{ t("gateway.models.freeBadge") }}</StatusPill>
         </div>
-        <div class="mt-0.5 truncate text-[11.5px] text-muted">{{ model.name }}</div>
+        <div class="mt-0.5 truncate text-caption text-muted">{{ model.name }}</div>
 
         <!-- 能力标注：上下文 / 最大输出 / 计费 / 图片 -->
-        <div class="mt-2 flex flex-wrap gap-1.5 text-[10.5px]">
+        <div class="mt-2 flex flex-wrap gap-1.5 text-micro">
           <span class="rounded-md bg-line-soft px-1.5 py-0.5 text-ink-soft">
             {{ t("gateway.models.context", { value: compact(model.contextWindow) }) }}
           </span>

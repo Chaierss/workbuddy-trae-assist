@@ -40,6 +40,7 @@ import {
   type AccountActivities,
   type ActivityCatalogEntry,
   type ActivityItem,
+  type ActivityRun,
   type ActivityRunReport,
   type ActivityState,
   type ActivitySummary,
@@ -161,6 +162,9 @@ const error = ref<string | null>(null);
 const platformFilter = ref<"all" | "workbuddy" | "trae">("all");
 const hideDone = ref(false);
 const runReport = ref<ActivityRunReport | null>(null);
+/** 最近执行流水：落库的是每轮最终结论，用来回看「为什么失败」。 */
+const runs = ref<ActivityRun[]>([]);
+const recentRuns = computed(() => runs.value.slice(0, 8));
 const runningTargets = ref<Set<string>>(new Set());
 const expanded = ref<Set<string>>(new Set());
 const toast = ref<string | null>(null);
@@ -356,11 +360,30 @@ async function load(refresh = false): Promise<void> {
     const data = await api.activities(refresh);
     pool.value = data.accounts;
     summary.value = data.summary;
+    void loadRuns();
   } catch (cause) {
     error.value = (cause as Error).message;
   } finally {
     busy.value = false;
   }
+}
+
+async function loadRuns(): Promise<void> {
+  try {
+    const data = await api.activityRuns(7, 200);
+    runs.value = data.runs;
+  } catch {
+    // 流水只是辅助信息，读不到不影响活动页主流程。
+    runs.value = [];
+  }
+}
+
+/** 流水时间戳 → `MM-DD HH:mm`（本地时区）。 */
+function dayLabel(value: string): string {
+  const moment = new Date(value);
+  if (Number.isNaN(moment.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(moment.getMonth() + 1)}-${pad(moment.getDate())} ${pad(moment.getHours())}:${pad(moment.getMinutes())}`;
 }
 
 /**
@@ -494,15 +517,15 @@ const failedResults = computed(() =>
   <div>
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0">
-        <h1 class="text-[23.5px] font-semibold tracking-[-0.02em] text-ink">{{ t("activity.title") }}</h1>
-        <p class="mt-1 max-w-[660px] text-[12.5px] leading-relaxed text-muted">
+        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("activity.title") }}</h1>
+        <p class="mt-1 max-w-[660px] text-body-sm leading-relaxed text-muted">
           {{ t("activity.subtitle") }}
         </p>
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[9px] border border-line bg-surface px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
           :disabled="busy || running"
           @click="load(true)"
         >
@@ -511,7 +534,7 @@ const failedResults = computed(() =>
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[9px] bg-ink px-3.5 py-2 text-[12.5px] text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          class="inline-flex items-center gap-1.5 rounded-control bg-ink px-3.5 py-2 text-body-sm text-white transition-opacity hover:opacity-90 disabled:opacity-40"
           :disabled="!canRun"
           :title="actionable ? t('activity.runAllHint') : t('activity.runNoneHint')"
           @click="execute()"
@@ -530,43 +553,43 @@ const failedResults = computed(() =>
     </div>
 
     <div
-      class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-[var(--radius-card)] border border-line bg-surface px-5 py-3 shadow-card"
+      class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-card border border-line bg-surface px-5 py-3 shadow-card"
     >
       <div class="flex items-baseline gap-1.5">
-        <span class="text-[17px] font-semibold leading-none tabular-nums text-ink">
+        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
           {{ summary?.detectable ?? 0 }}/{{ summary?.accounts ?? 0 }}
         </span>
-        <span class="text-[11.5px] text-muted">{{ t("activity.statAccounts") }}</span>
+        <span class="text-caption text-muted">{{ t("activity.statAccounts") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
         <span
-          class="text-[17px] font-semibold leading-none tabular-nums"
+          class="text-metric font-semibold leading-none tabular-nums"
           :class="actionable ? 'text-warn' : 'text-ink'"
         >
           {{ actionable }}
         </span>
-        <span class="text-[11.5px] text-muted">{{ t("activity.statActionable") }}</span>
+        <span class="text-caption text-muted">{{ t("activity.statActionable") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
-        <span class="text-[17px] font-semibold leading-none tabular-nums text-ink">
+        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
           {{ summary?.done ?? 0 }}
         </span>
-        <span class="text-[11.5px] text-muted">{{ t("activity.stateDone") }}</span>
+        <span class="text-caption text-muted">{{ t("activity.stateDone") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
-        <span class="text-[17px] font-semibold leading-none tabular-nums text-ink">
+        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
           {{ summary?.manual ?? 0 }}
         </span>
-        <span class="text-[11.5px] text-muted">{{ t("activity.statManual") }}</span>
+        <span class="text-caption text-muted">{{ t("activity.statManual") }}</span>
       </div>
-      <span class="ml-auto text-[11.5px] text-muted">
+      <span class="ml-auto text-caption text-muted">
         {{ t("activity.scopeSummary", { accounts: visibleAccounts.length, items: totalEntries }) }}
         <template v-if="detecting">{{ t("activity.detectingSuffix") }}</template>
       </span>
     </div>
 
     <div class="mt-3 flex flex-wrap items-center gap-3">
-      <div class="flex items-center gap-1 rounded-[9px] border border-line bg-surface p-1">
+      <div class="flex items-center gap-1 rounded-control border border-line bg-surface p-1">
         <button
           v-for="option in [
             { key: 'all', label: t('activity.filterAll') },
@@ -575,7 +598,7 @@ const failedResults = computed(() =>
           ]"
           :key="option.key"
           type="button"
-          class="rounded-[7px] px-2.5 py-1 text-[12px] transition-colors"
+          class="rounded-control px-2.5 py-1 text-body-sm transition-colors"
           :class="
             platformFilter === option.key
               ? 'bg-line-soft text-ink'
@@ -586,8 +609,8 @@ const failedResults = computed(() =>
           {{ option.label }}
         </button>
       </div>
-      <label class="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-muted">
-        <input v-model="hideDone" type="checkbox" class="size-3.5 accent-[#16a34a]" />
+      <label class="inline-flex cursor-pointer items-center gap-1.5 text-body-sm text-muted">
+        <input v-model="hideDone" type="checkbox" class="size-3.5 accent-brand" />
         {{ t("activity.filterHideDone") }}
       </label>
       <SelectMenu
@@ -597,19 +620,19 @@ const failedResults = computed(() =>
         size="sm"
         class="w-[128px]"
       />
-      <span class="text-[11.5px] text-muted">{{ t("activity.cachedSuffix") }}</span>
+      <span class="text-caption text-muted">{{ t("activity.cachedSuffix") }}</span>
     </div>
 
     <div
       v-if="error"
-      class="mt-3 rounded-[var(--radius-card)] border border-line bg-danger-soft px-5 py-3 text-[12.5px] text-danger"
+      class="mt-3 rounded-card border border-line bg-danger-soft px-5 py-3 text-body-sm text-danger"
     >
       {{ t("activity.detectFailed", { message: error }) }}
     </div>
 
     <div
       v-if="runReport"
-      class="mt-3 rounded-[var(--radius-card)] border border-line bg-surface px-5 py-2.5 text-[11.5px]"
+      class="mt-3 rounded-card border border-line bg-surface px-5 py-2.5 text-caption"
     >
       <div class="flex flex-wrap items-center gap-2">
         <span class="text-muted">{{ t("activity.accountResultLabel") }}</span>
@@ -624,7 +647,7 @@ const failedResults = computed(() =>
         </StatusPill>
         <button
           type="button"
-          class="ml-auto text-[11px] text-muted transition-colors hover:text-ink"
+          class="ml-auto text-caption text-muted transition-colors hover:text-ink"
           @click="runReport = null"
         >
           {{ t("activity.hide") }}
@@ -636,7 +659,7 @@ const failedResults = computed(() =>
         <div
           v-for="item in failedResults.slice(0, 3)"
           :key="`${item.accountId}-${item.key}`"
-          class="flex flex-wrap items-center gap-1.5 text-[11px] text-danger"
+          class="flex flex-wrap items-center gap-1.5 text-caption text-danger"
         >
           <span class="min-w-0 flex-1 truncate" :title="`${item.displayName}：${item.message}`">
             {{ item.displayName }}：{{ item.message }}
@@ -644,22 +667,56 @@ const failedResults = computed(() =>
           <button
             v-if="item.retryable"
             type="button"
-            class="shrink-0 rounded-[6px] border border-line px-1.5 py-0.5 text-[11px] text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
+            class="shrink-0 rounded-badge border border-line px-1.5 py-0.5 text-caption text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
             :disabled="running || busy"
             @click="runTargets([item.accountId])"
           >
             {{ t("activity.retryAccount") }}
           </button>
         </div>
-        <div v-if="failedResults.length > 3" class="text-[11px] text-muted">
+        <div v-if="failedResults.length > 3" class="text-caption text-muted">
           {{ t("activity.moreFailures", { count: failedResults.length - 3 }) }}
         </div>
       </div>
     </div>
 
+    <!-- 最近执行流水：只说事实（时间 / 活动 / 结论），不带推断 -->
+    <SectionCard v-if="recentRuns.length" class="mt-3" flush>
+      <div class="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-3 pb-2">
+        <span class="text-body font-medium text-ink">{{ t("activity.recentRuns") }}</span>
+        <span class="text-caption text-muted">{{ t("activity.recentRunsHint") }}</span>
+      </div>
+      <div class="border-t border-line-soft">
+        <div
+          v-for="run in recentRuns"
+          :key="`${run.accountId}-${run.key}-${run.at}`"
+          class="flex items-center gap-2 px-5 py-1.5 text-caption"
+        >
+          <span
+            class="h-1.5 w-1.5 shrink-0 rounded-full"
+            :class="
+              run.status === 'ok'
+                ? 'bg-brand'
+                : run.status === 'failed'
+                  ? 'bg-danger'
+                  : 'bg-line-strong'
+            "
+          />
+          <span class="shrink-0 tabular-nums text-muted">{{ dayLabel(run.at) }}</span>
+          <span class="shrink-0 text-ink-soft">{{ run.key }}</span>
+          <span class="min-w-0 flex-1 truncate text-muted" :title="run.message">
+            {{ run.message }}
+          </span>
+          <span v-if="run.reward" class="shrink-0 tabular-nums text-brand-dark">
+            +{{ run.reward }}
+          </span>
+        </div>
+      </div>
+    </SectionCard>
+
     <div v-if="!visibleAccounts.length" class="mt-4">
       <SectionCard>
-        <div class="py-8 text-center text-[13px] text-muted">
+        <div class="py-8 text-center text-body text-muted">
           {{ t("activity.noAccounts") }}
         </div>
       </SectionCard>
@@ -667,7 +724,7 @@ const failedResults = computed(() =>
 
     <div v-else-if="!activityGroups.length" class="mt-4">
       <SectionCard>
-        <div class="flex items-center justify-center gap-2 py-8 text-[13px] text-ink-soft">
+        <div class="flex items-center justify-center gap-2 py-8 text-body text-ink-soft">
           <CheckCircle2 :size="16" class="text-brand" />
           {{ t("activity.toastNothingToRun") }}
         </div>
@@ -683,27 +740,27 @@ const failedResults = computed(() =>
         <div class="flex items-start gap-3 px-5 pt-3 pb-2">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span class="text-[13px] font-medium text-ink">{{ group.title }}</span>
+              <span class="text-body font-medium text-ink">{{ group.title }}</span>
               <span
-                class="rounded-full border border-line px-1.5 py-[1px] text-[10.5px] leading-tight text-muted"
+                class="rounded-full border border-line px-1.5 py-[1px] text-micro leading-tight text-muted"
               >
                 {{ groupLabel(group.group) }}
               </span>
-              <span class="text-[11px] text-muted">
+              <span class="text-caption text-muted">
                 {{ PLATFORM_LABEL[group.platform] ?? group.platform }}
               </span>
               <StatusPill v-if="!group.automatable" tone="neutral">
                 {{ t("activity.statManual") }}
               </StatusPill>
             </div>
-            <p class="mt-0.5 truncate text-[11.5px] text-muted" :title="group.subtitle">
+            <p class="mt-0.5 truncate text-caption text-muted" :title="group.subtitle">
               {{ group.subtitle }}
             </p>
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
             <div class="flex flex-col items-end gap-1">
-              <div class="text-[12px] font-medium tabular-nums text-ink-soft">
+              <div class="text-body-sm font-medium tabular-nums text-ink-soft">
                 {{ completionText(group) }}
               </div>
               <div class="h-[3px] w-[88px] overflow-hidden rounded-full bg-line-soft">
@@ -713,17 +770,17 @@ const failedResults = computed(() =>
                   :style="{ width: `${donePercent(group)}%` }"
                 />
               </div>
-              <div v-if="group.todo" class="text-[11px] font-medium text-warn">
+              <div v-if="group.todo" class="text-caption font-medium text-warn">
                 {{ t("activity.todoCount", { count: group.todo }) }}
               </div>
-              <div v-else-if="group.unavailable" class="text-[11px] text-danger">
+              <div v-else-if="group.unavailable" class="text-caption text-danger">
                 {{ t("activity.notQueryable") }} {{ group.unavailable }}
               </div>
             </div>
             <button
               v-if="group.todo"
               type="button"
-              class="inline-flex items-center gap-1 rounded-[8px] border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-50"
+              class="inline-flex items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
               :disabled="running"
               :title="t('activity.runThisAccountHint')"
               @click="
@@ -737,7 +794,7 @@ const failedResults = computed(() =>
             </button>
             <button
               type="button"
-              class="inline-flex items-center gap-0.5 rounded-[8px] px-1.5 py-1.5 text-[11.5px] text-muted transition-colors hover:text-ink"
+              class="inline-flex items-center gap-0.5 rounded-control px-1.5 py-1.5 text-caption text-muted transition-colors hover:text-ink"
               :title="expanded.has(group.key) ? t('activity.hide') : t('activity.expandDetail')"
               @click="toggleDetail(group.key)"
             >
@@ -755,7 +812,7 @@ const failedResults = computed(() =>
           <span
             v-for="entry in group.entries"
             :key="`${group.key}-${entry.accountId}`"
-            class="inline-flex max-w-[180px] items-center gap-1 rounded-[7px] border px-2 py-[3px] text-[11px] leading-tight"
+            class="inline-flex max-w-[180px] items-center gap-1 rounded-control border px-2 py-[3px] text-caption leading-tight"
             :class="CHIP_CLASS[entry.state]"
             :title="`${entry.name} · ${t(STATE_TEXT[entry.state])}${
               entry.progressText ? ` · ${entry.progressText}` : ''
@@ -776,12 +833,12 @@ const failedResults = computed(() =>
         </div>
 
         <div v-if="expanded.has(group.key)" class="border-t border-line-soft px-5 py-3">
-          <p class="text-[11.5px] leading-relaxed text-muted">{{ group.description }}</p>
+          <p class="text-caption leading-relaxed text-muted">{{ group.description }}</p>
           <div class="mt-2 grid gap-1.5 sm:grid-cols-2">
             <div
               v-for="entry in group.entries.filter((row) => row.state !== 'done' && row.state !== 'undetected')"
               :key="`detail-${group.key}-${entry.accountId}`"
-              class="rounded-[8px] border border-line-soft bg-canvas/60 px-2.5 py-2 text-[11px]"
+              class="rounded-control border border-line-soft bg-canvas/60 px-2.5 py-2 text-caption"
             >
               <div class="flex items-center gap-1.5">
                 <component :is="STATE_ICON[entry.state]" :size="11" class="shrink-0" />
@@ -842,7 +899,7 @@ const failedResults = computed(() =>
     <Teleport to="body">
       <div
         v-if="toast"
-        class="fixed bottom-8 left-1/2 z-[60] -translate-x-1/2 rounded-[9px] bg-ink px-4 py-2.5 text-[12.5px] text-white"
+        class="fixed bottom-8 left-1/2 z-[60] -translate-x-1/2 rounded-control bg-ink px-4 py-2.5 text-body-sm text-white"
       >
         {{ toast }}
       </div>

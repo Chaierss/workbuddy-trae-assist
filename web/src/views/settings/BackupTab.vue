@@ -234,7 +234,7 @@ onMounted(() => {
       <template #actions>
         <div class="flex items-center gap-3">
           <label
-            class="inline-flex cursor-pointer select-none items-center gap-2 text-[12px] text-ink-soft"
+            class="inline-flex cursor-pointer select-none items-center gap-2 text-body-sm text-ink-soft"
             :title="t('settings.backup.autoGlobalHint')"
           >
             <ToggleSwitch
@@ -246,7 +246,7 @@ onMounted(() => {
           </label>
           <button
             type="button"
-            class="rounded-[8px] border border-line px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-50"
+            class="rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
             :disabled="busy || selectedParts.length === 0"
             @click="createGlobal"
           >
@@ -267,13 +267,13 @@ onMounted(() => {
               @change="togglePart(part.key)"
             />
             <span class="min-w-0 flex-1">
-              <span class="flex items-center gap-2 text-[13px] font-medium text-ink">
+              <span class="flex items-center gap-2 text-body font-medium text-ink">
                 {{ part.label }}
                 <StatusPill v-if="part.credential" tone="warn">
                   {{ t("settings.backup.credential") }}
                 </StatusPill>
               </span>
-              <span class="mt-0.5 block truncate text-[11.5px] text-muted">
+              <span class="mt-0.5 block truncate text-caption text-muted">
                 {{ part.files.join(" · ") }}
               </span>
             </span>
@@ -282,7 +282,7 @@ onMounted(() => {
           <!-- 确认块贴着被勾的那一项，而不是甩到列表底部让人看不见 -->
           <div
             v-if="isPending(part.key)"
-            class="mt-1.5 ml-[22px] flex items-start gap-2 rounded-[9px] bg-warn-soft px-3 py-2 text-[12px] leading-relaxed text-warn"
+            class="mt-1.5 ml-[22px] flex items-start gap-2 rounded-control bg-warn-soft px-3 py-2 text-body-sm leading-relaxed text-warn"
           >
             <ShieldAlert :size="14" :stroke-width="1.9" class="mt-0.5 shrink-0" />
             <div class="min-w-0 flex-1">
@@ -290,14 +290,14 @@ onMounted(() => {
               <div class="mt-1.5 flex items-center gap-2">
                 <button
                   type="button"
-                  class="rounded-[7px] bg-warn px-2.5 py-1 text-[11.5px] font-medium text-white transition-opacity hover:opacity-90"
+                  class="rounded-control bg-warn px-2.5 py-1 text-caption font-medium text-white transition-opacity hover:opacity-90"
                   @click="confirmPart(part.key)"
                 >
                   {{ t("settings.backup.confirmPart") }}
                 </button>
                 <button
                   type="button"
-                  class="rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:text-ink"
+                  class="rounded-control border border-line px-2.5 py-1 text-caption text-ink-soft transition-colors hover:text-ink"
                   @click="cancelPart(part.key)"
                 >
                   {{ t("settings.backup.cancelPart") }}
@@ -310,7 +310,7 @@ onMounted(() => {
         <!-- 已收录含凭据分区：把后果摆明，别用灰字糊过去 -->
         <p
           v-if="riskySelected.length"
-          class="mt-1.5 flex items-start gap-2 rounded-[9px] bg-warn-soft/70 px-3 py-2 text-[11.5px] leading-relaxed text-warn"
+          class="mt-1.5 flex items-start gap-2 rounded-control bg-warn-soft/70 px-3 py-2 text-caption leading-relaxed text-warn"
         >
           <ShieldAlert :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
           <span>{{ t("settings.backup.autoScopeNote", { names: riskyNames }) }}</span>
@@ -319,7 +319,7 @@ onMounted(() => {
 
       <div v-if="globalMessage" class="border-b border-line-soft px-5 py-2.5">
         <p
-          class="flex items-center gap-1.5 text-[12px]"
+          class="flex items-center gap-1.5 text-body-sm"
           :class="globalFailed ? 'text-danger' : 'text-brand-dark'"
         >
           <AlertTriangle v-if="globalFailed" :size="13" />
@@ -328,7 +328,7 @@ onMounted(() => {
         </p>
       </div>
 
-      <p v-if="!globalSnapshots.length" class="px-5 py-8 text-center text-[13px] text-muted">
+      <p v-if="!globalSnapshots.length" class="px-5 py-8 text-center text-body text-muted">
         {{ t("settings.backup.globalEmpty") }}
       </p>
 
@@ -339,8 +339,8 @@ onMounted(() => {
           class="flex flex-wrap items-center gap-3 px-5 py-2.5"
         >
           <FileLock2 :size="14" :stroke-width="1.9" class="shrink-0 text-muted" />
-          <span class="text-[12px] text-ink-soft">{{ formatTime(snapshot.createdAt) }}</span>
-          <span class="text-[12px] text-muted">
+          <span class="text-body-sm text-ink-soft">{{ formatTime(snapshot.createdAt) }}</span>
+          <span class="text-body-sm text-muted">
             {{ t("settings.backup.fileCount", { count: snapshot.fileCount }) }} ·
             {{ formatBytes(snapshot.totalBytes) }}
           </span>
@@ -349,7 +349,7 @@ onMounted(() => {
           </StatusPill>
           <button
             type="button"
-            class="ml-auto rounded-[8px] border border-line px-2.5 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-50"
+            class="ml-auto rounded-control border border-line px-2.5 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
             :disabled="busy"
             @click="verifyGlobal(snapshot)"
           >
@@ -363,7 +363,7 @@ onMounted(() => {
       :title="t('settings.backup.rulesTitle')"
       :subtitle="t('settings.backup.rulesSubtitle')"
     >
-      <ul class="space-y-2 text-[12.5px] leading-relaxed text-ink-soft">
+      <ul class="space-y-2 text-body-sm leading-relaxed text-ink-soft">
         <li v-for="note in NOTES" :key="note">{{ t(note) }}</li>
       </ul>
     </SectionCard>

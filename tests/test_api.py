@@ -460,6 +460,20 @@ def test_trae_oauth_start_reads_storage(client, monkeypatch):
     assert body["port"] == 17388
 
 
+def test_spa_fallback_rejects_path_traversal(tmp_path, monkeypatch):
+    """`%2F` 编码的 `..` 会被解码成真实路径，兜底路由不能把 dist 外的文件送出去。"""
+    webui = tmp_path / "webui"
+    webui.mkdir()
+    (webui / "index.html").write_text("INDEX", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("SECRET", encoding="utf-8")
+    monkeypatch.setenv("CHAIERWW_WEBUI", str(webui))
+
+    with TestClient(create_app(Settings(home=tmp_path / "home"))) as web:
+        assert "SECRET" not in web.get("/..%2Fsecret.txt").text
+        assert "SECRET" not in web.get("/%2e%2e/secret.txt").text
+        assert "INDEX" in web.get("/accounts").text
+
+
 def test_trae_oauth_start_missing_storage(client, monkeypatch):
     adapter = client.app.state.adapters["trae-cn"]
     from chaierww.adapters.base import NotLoggedIn

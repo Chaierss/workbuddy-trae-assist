@@ -117,10 +117,10 @@ onMounted(async () => {
   <div class="flex h-full min-h-0">
     <div class="flex w-[212px] shrink-0 flex-col border-r border-line-soft">
       <div class="flex shrink-0 items-center gap-2 px-3 py-2">
-        <span class="flex-1 text-[11.5px] font-medium text-muted">{{ t("settings.wiki.toc") }}</span>
+        <span class="flex-1 text-caption font-medium text-muted">{{ t("settings.wiki.toc") }}</span>
         <button
           type="button"
-          class="grid size-6 place-items-center rounded-[6px] text-muted transition-colors hover:bg-line-soft hover:text-ink"
+          class="grid size-6 place-items-center rounded-badge text-muted transition-colors hover:bg-line-soft hover:text-ink"
           :title="t('settings.wiki.reload')"
           @click="refresh"
         >
@@ -129,25 +129,25 @@ onMounted(async () => {
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        <p v-if="loading && !files.length" class="px-2 py-3 text-[12px] text-muted">
+        <p v-if="loading && !files.length" class="px-2 py-3 text-body-sm text-muted">
           {{ t("settings.wiki.reading") }}
         </p>
-        <p v-else-if="error" class="px-2 py-3 text-[12px] text-danger">{{ error }}</p>
-        <p v-else-if="!files.length" class="px-2 py-3 text-[12px] leading-relaxed text-muted">
+        <p v-else-if="error" class="px-2 py-3 text-body-sm text-danger">{{ error }}</p>
+        <p v-else-if="!files.length" class="px-2 py-3 text-body-sm leading-relaxed text-muted">
           {{ t("settings.wiki.noDocs") }}
           <code class="font-mono">CHAIERWW_DOCS</code>
           {{ t("settings.wiki.noDocsTail") }}
         </p>
 
         <div v-for="entry in groups" :key="entry.group" class="mb-1.5 last:mb-0">
-          <div v-if="entry.group" class="px-2 py-1 font-mono text-[10.5px] uppercase text-muted">
+          <div v-if="entry.group" class="px-2 py-1 font-mono text-micro uppercase text-muted">
             {{ entry.group }}
           </div>
           <button
             v-for="file in entry.items"
             :key="file.path"
             type="button"
-            class="flex w-full items-start gap-1.5 rounded-[7px] px-2 py-1.5 text-left text-[12.5px] transition-colors"
+            class="flex w-full items-start gap-1.5 rounded-control px-2 py-1.5 text-left text-body-sm transition-colors"
             :class="
               selected === file.path
                 ? 'bg-brand-soft font-medium text-brand-dark'
@@ -166,21 +166,21 @@ onMounted(async () => {
       <header
         class="sticky top-0 z-[1] flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-soft bg-surface px-6 py-2.5"
       >
-        <h2 class="text-[13px] font-semibold text-ink">
+        <h2 class="text-body font-semibold text-ink">
           {{ content?.title ?? t("settings.wiki.selectDoc") }}
         </h2>
-        <span v-if="content" class="font-mono text-[11px] text-muted">{{ content.path }}</span>
-        <span v-if="meta" class="ml-auto text-[11px] text-muted">
+        <span v-if="content" class="font-mono text-caption text-muted">{{ content.path }}</span>
+        <span v-if="meta" class="ml-auto text-caption text-muted">
           {{ formatTime(meta.updatedAt) }} · {{ formatBytes(meta.size) }}
         </span>
       </header>
 
-      <div v-if="contentLoading" class="flex items-center gap-2 px-6 py-10 text-[13px] text-muted">
+      <div v-if="contentLoading" class="flex items-center gap-2 px-6 py-10 text-body text-muted">
         <Loader2 :size="14" class="animate-spin" /> {{ t("common.loading") }}
       </div>
-      <p v-else-if="contentError" class="px-6 py-10 text-[13px] text-danger">{{ contentError }}</p>
+      <p v-else-if="contentError" class="px-6 py-10 text-body text-danger">{{ contentError }}</p>
       <div v-else-if="rendered" class="doc-prose px-6 py-5" @click="onArticleClick" v-html="rendered" />
-      <p v-else class="px-6 py-10 text-[13px] text-muted">{{ t("settings.wiki.pickDoc") }}</p>
+      <p v-else class="px-6 py-10 text-body text-muted">{{ t("settings.wiki.pickDoc") }}</p>
     </article>
   </div>
 </template>

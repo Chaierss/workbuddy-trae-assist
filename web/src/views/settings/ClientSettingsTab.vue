@@ -109,17 +109,17 @@ onMounted(() => {
       :title="t('clientSettings.title')"
       :subtitle="t('clientSettings.subtitle')"
     >
-      <p v-if="loading" class="py-6 text-center text-[13px] text-muted">
+      <p v-if="loading" class="py-6 text-center text-body text-muted">
         {{ t("clientSettings.loading") }}
       </p>
-      <p v-else-if="error" class="py-6 text-center text-[13px] text-rose-500">{{ error }}</p>
+      <p v-else-if="error" class="py-6 text-center text-body text-rose-500">{{ error }}</p>
 
       <div v-else-if="snapshot && !snapshot.available" class="space-y-2 py-4">
         <div class="flex items-center gap-2">
           <StatusPill tone="neutral">{{ t("clientSettings.unreadable") }}</StatusPill>
-          <span class="text-[12px] text-muted">{{ snapshot.message }}</span>
+          <span class="text-body-sm text-muted">{{ snapshot.message }}</span>
         </div>
-        <p class="text-[12px] leading-relaxed text-muted">
+        <p class="text-body-sm leading-relaxed text-muted">
           {{ t("clientSettings.pathLabel")
           }}<span class="font-mono text-ink-soft">{{ snapshot.path }}</span>
           <br />{{ t("clientSettings.pathHint") }}
@@ -131,13 +131,13 @@ onMounted(() => {
           <div v-for="spec in snapshot.specs" :key="spec.key" class="flex items-start gap-3 pt-3">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="text-[13px] font-medium text-ink">{{ spec.label }}</span>
-                <span class="font-mono text-[11px] text-muted">{{ spec.key }}</span>
+                <span class="text-body font-medium text-ink">{{ spec.label }}</span>
+                <span class="font-mono text-caption text-muted">{{ spec.key }}</span>
                 <StatusPill v-if="!spec.present" tone="neutral">{{
                   t("clientSettings.notInFile")
                 }}</StatusPill>
               </div>
-              <div class="mt-0.5 text-[12px] text-muted">{{ spec.hint }}</div>
+              <div class="mt-0.5 text-body-sm text-muted">{{ spec.hint }}</div>
             </div>
 
             <ToggleSwitch
@@ -151,7 +151,7 @@ onMounted(() => {
               v-else
               :value="draft[spec.key]"
               type="text"
-              class="w-[200px] shrink-0 rounded-md border border-line-soft bg-surface px-2 py-1 text-[12px] text-ink outline-none"
+              class="w-[200px] shrink-0 rounded-md border border-line-soft bg-surface px-2 py-1 text-body-sm text-ink outline-none"
               :disabled="busy"
               @input="setValue(spec.key, ($event.target as HTMLInputElement).value)"
             />
@@ -159,10 +159,10 @@ onMounted(() => {
         </div>
 
         <div v-if="pending.length" class="rounded-md border border-line-soft px-3 py-2">
-          <div class="mb-1 text-[12px] font-medium text-ink-soft">
+          <div class="mb-1 text-body-sm font-medium text-ink-soft">
             {{ t("clientSettings.pendingTitle") }}
           </div>
-          <div v-for="item in pending" :key="item.spec.key" class="text-[12px] text-muted">
+          <div v-for="item in pending" :key="item.spec.key" class="text-body-sm text-muted">
             {{ item.spec.label }}：
             <span class="text-muted">{{ render(item.before) }}</span>
             →
@@ -173,7 +173,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1 text-[12px] text-ink hover:border-brand hover:text-brand-dark disabled:opacity-50"
+            class="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1 text-body-sm text-ink hover:border-brand hover:text-brand-dark disabled:opacity-50"
             :disabled="busy || !pending.length"
             @click="save"
           >
@@ -181,7 +181,7 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="rounded-md border border-dashed border-line px-2.5 py-1 text-[12px] text-muted hover:border-brand hover:text-brand-dark disabled:opacity-50"
+            class="rounded-md border border-dashed border-line px-2.5 py-1 text-body-sm text-muted hover:border-brand hover:text-brand-dark disabled:opacity-50"
             :disabled="busy || !pending.length"
             @click="resetDraft"
           >
@@ -189,7 +189,7 @@ onMounted(() => {
           </button>
           <span
             v-if="flash"
-            class="text-[12px]"
+            class="text-body-sm"
             :class="flash.tone === 'ok' ? 'text-brand-dark' : 'text-rose-500'"
           >
             {{ flash.text }}
@@ -198,7 +198,7 @@ onMounted(() => {
       </div>
     </SectionCard>
 
-    <p class="flex items-start gap-1.5 text-[12px] leading-relaxed text-muted">
+    <p class="flex items-start gap-1.5 text-body-sm leading-relaxed text-muted">
       <ShieldCheck :size="13" class="mt-0.5 shrink-0" />
       <span>
         {{ t("clientSettings.fingerprintNoteA") }}

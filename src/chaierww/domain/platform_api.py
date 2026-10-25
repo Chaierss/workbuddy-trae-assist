@@ -26,6 +26,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -60,13 +61,23 @@ def _safe_trae_origin(raw: str) -> str:
         return TRAE_ACCOUNT_BASE
     return f"https://{parsed.netloc}"
 
-TRAE_APP_VERSION = "0.1.45"
-TRAE_UA = "VSCode 1.107.1 (TRAE CN)"
+
+def _env_text(name: str, default: str) -> str:
+    """环境变量覆盖上游指纹；空串/纯空白视为未设置。"""
+    value = os.environ.get(name, "").strip()
+    return value or default
+
+
+#: Trae 的客户端指纹。上游 2026-10 已从 TraeWork 0.1.x 迁移到 TRAE v3.6.x，
+#: 旧指纹容易被网关当成「未知客户端」拦成 code=10085，所以允许用环境变量
+#: 覆盖而不必改代码发版（见 README「平台指纹」）。
+TRAE_APP_VERSION = _env_text("CHAIERWW_TRAE_APP_VERSION", "0.1.45")
+TRAE_UA = _env_text("CHAIERWW_TRAE_UA", "VSCode 1.107.1 (TRAE CN)")
 TRAE_USER_REGION = "CN"
 TRAE_PACKAGE_TYPE = "stable_cn"
 TRAE_MARKET_AID = "787976"
 TRAE_SDK_TYPE = "3"
-TRAE_MARKET_CLIENT_ID = "VSCode 1.107.1"
+TRAE_MARKET_CLIENT_ID = _env_text("CHAIERWW_TRAE_CLIENT_ID", "VSCode 1.107.1")
 
 ICUBE_DC_PREFIX = "iCubeAuthInfo://icube-dc:"
 ICUBE_CLOUDIDE_KEY = "iCubeAuthInfo://icube.cloudide"

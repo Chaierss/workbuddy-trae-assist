@@ -140,36 +140,36 @@ async function toggle(key: PrefKey): Promise<void> {
           v-for="item in themeItems"
           :key="item.key"
           type="button"
-          class="flex flex-col items-start gap-2 rounded-[10px] border p-3 text-left transition-colors"
+          class="flex flex-col items-start gap-2 rounded-control border p-3 text-left transition-colors"
           :class="
             theme === item.key
               ? 'border-brand bg-brand-soft'
-              : 'border-line hover:border-[#d5d8d3] dark:hover:border-line'
+              : 'border-line hover:border-line-strong dark:hover:border-line'
           "
           @click="setTheme(item.key)"
         >
           <span
-            class="grid size-8 place-items-center rounded-[9px]"
+            class="grid size-8 place-items-center rounded-control"
             :class="theme === item.key ? 'bg-brand text-white' : 'bg-line-soft text-ink-soft'"
           >
             <component :is="item.icon" :size="16" :stroke-width="1.9" />
           </span>
-          <span class="text-[13px] font-medium text-ink">{{ t(item.titleKey) }}</span>
-          <span class="text-[11.5px] leading-relaxed text-muted">{{ t(item.descKey) }}</span>
+          <span class="text-body font-medium text-ink">{{ t(item.titleKey) }}</span>
+          <span class="text-caption leading-relaxed text-muted">{{ t(item.descKey) }}</span>
         </button>
       </div>
 
       <div class="mt-4 flex items-center gap-3 border-t border-line-soft pt-3.5">
         <div class="min-w-0 flex-1">
-          <div class="text-[13px] font-medium text-ink">{{ t("theme.language") }}</div>
-          <div class="mt-0.5 text-[12px] text-muted">{{ t("theme.language.desc") }}</div>
+          <div class="text-body font-medium text-ink">{{ t("theme.language") }}</div>
+          <div class="mt-0.5 text-body-sm text-muted">{{ t("theme.language.desc") }}</div>
         </div>
-        <div class="flex shrink-0 gap-1 rounded-[9px] border border-line p-1">
+        <div class="flex shrink-0 gap-1 rounded-control border border-line p-1">
           <button
             v-for="item in LOCALES"
             :key="item.code"
             type="button"
-            class="rounded-[6px] px-2.5 py-1 text-[12px] transition-colors"
+            class="rounded-badge px-2.5 py-1 text-body-sm transition-colors"
             :class="
               locale === item.code
                 ? 'bg-brand text-white'
@@ -186,12 +186,12 @@ async function toggle(key: PrefKey): Promise<void> {
     <SectionCard :title="t('migrate.title')" :subtitle="t('migrate.subtitle')">
       <div class="divide-y divide-line-soft">
         <div v-for="item in migrateItems" :key="item.key" class="flex items-center gap-3 py-3.5">
-          <span class="grid size-9 shrink-0 place-items-center rounded-[10px] bg-brand-soft text-brand-dark">
+          <span class="grid size-9 shrink-0 place-items-center rounded-control bg-brand-soft text-brand-dark">
             <component :is="item.icon" :size="17" :stroke-width="1.9" />
           </span>
           <div class="min-w-0 flex-1">
-            <div class="text-[13px] font-medium text-ink">{{ t(item.titleKey) }}</div>
-            <div class="mt-0.5 text-[12px] text-muted">{{ t(item.descKey) }}</div>
+            <div class="text-body font-medium text-ink">{{ t(item.titleKey) }}</div>
+            <div class="mt-0.5 text-body-sm text-muted">{{ t(item.descKey) }}</div>
           </div>
           <ToggleSwitch
             :model-value="!!prefs?.[item.key]"
@@ -205,7 +205,7 @@ async function toggle(key: PrefKey): Promise<void> {
     <!-- 网页版登录态诊断：只读摊开归属关系，回答「为什么切完网页版还得登录」 -->
     <SectionCard :title="t('webview.title')" :subtitle="t('webview.subtitle')">
       <div class="flex items-center justify-between gap-3">
-        <p class="text-[12.5px] leading-relaxed text-ink-soft">
+        <p class="text-body-sm leading-relaxed text-ink-soft">
           {{
             diagnostics
               ? t("webview.summary", {
@@ -220,7 +220,7 @@ async function toggle(key: PrefKey): Promise<void> {
         </p>
         <button
           type="button"
-          class="shrink-0 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+          class="shrink-0 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
           :disabled="diagnosticsLoading"
           @click="loadDiagnostics"
         >
@@ -228,34 +228,34 @@ async function toggle(key: PrefKey): Promise<void> {
         </button>
       </div>
 
-      <p v-if="diagnosticsError" class="mt-2 text-[12px] text-danger">
+      <p v-if="diagnosticsError" class="mt-2 text-body-sm text-danger">
         {{ t("webview.error", { reason: diagnosticsError }) }}
       </p>
 
       <div v-else-if="webviewMissing.length" class="mt-2.5">
-        <p class="text-[12px] text-warn">
+        <p class="text-body-sm text-warn">
           {{ t("webview.missingHint", { count: webviewMissing.length }) }}
         </p>
         <div class="mt-1.5 flex flex-wrap gap-1.5">
           <span
             v-for="item in webviewMissing"
             :key="item.accountId"
-            class="rounded-full bg-warn-soft/70 px-2 py-0.5 text-[11.5px] text-warn"
+            class="rounded-full bg-warn-soft/70 px-2 py-0.5 text-caption text-warn"
           >
             {{ item.displayName }}
           </span>
         </div>
       </div>
 
-      <p v-else-if="diagnostics && webviewAccounts.length" class="mt-2 text-[12px] text-muted">
+      <p v-else-if="diagnostics && webviewAccounts.length" class="mt-2 text-body-sm text-muted">
         {{ t("webview.allCovered") }}
       </p>
 
-      <p v-if="diagnostics" class="mt-2.5 break-all font-mono text-[11px] leading-relaxed text-muted">
+      <p v-if="diagnostics" class="mt-2.5 break-all font-mono text-caption leading-relaxed text-muted">
         {{ diagnostics.partitionsDir }}
       </p>
     </SectionCard>
 
-    <p class="text-[12px] leading-relaxed text-muted">{{ t("migrate.footnote") }}</p>
+    <p class="text-body-sm leading-relaxed text-muted">{{ t("migrate.footnote") }}</p>
   </div>
 </template>

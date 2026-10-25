@@ -9,6 +9,8 @@
   --color-surface: #ffffff;
   --color-line: #e5e7e4;
   --color-line-soft: #f0f1ef;
+  /* 可交互控件（输入框、卡片）的 hover / focus 描边，比 line 深一档。 */
+  --color-line-strong: #d5d8d3;
   --color-ink: #1c1e1c;
   --color-ink-soft: #4b4f4a;
   --color-muted: #767b74;
@@ -18,11 +20,47 @@
   --color-warn: #9a6206;
   --color-warn-soft: #fdf3e2;
   --color-danger: #b0322f;
+  --color-danger-dark: #982724;
   --color-danger-soft: #fdeceb;
   --color-info: #1f6fb2;
   --color-info-soft: #eaf2fb;
+  /* 代码块底色与文本选区：深色值在下面主题覆盖里同步。 */
+  --color-code-surface: #fbfcfb;
+  --color-selection: #cdebd9;
+  /* 账号头像底色：按账号 id 哈希取色，只在这里定义，组件里引用变量。 */
+  --color-avatar-1: #16a34a;
+  --color-avatar-2: #0f6e56;
+  --color-avatar-3: #1f6fb2;
+  --color-avatar-4: #7c3aed;
+  --color-avatar-5: #b45309;
+  --color-avatar-6: #be185d;
+  --color-avatar-7: #0e7490;
+  --color-avatar-8: #4d7c0f;
 
   --font-sans: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+
+  /* 字号阶梯：页面与组件只允许用这六档（见 设置 → 规则 → 设计令牌唯一来源）。
+     不带 line-height，行高由各处的 leading-* 决定，替换后渲染尺寸不变。 */
+  --text-micro: 10.5px;
+  --text-caption: 11.5px;
+  --text-body-sm: 12.5px;
+  --text-body: 13px;
+  --text-title: 15px;
+  --text-metric: 18px;
+  --text-display: 24px;
+
+  /* 长文阅读字号：只用于 .doc-prose（Wiki / 文档正文），与 UI 字号阶梯分开，
+     长文按阅读节奏走自己的四档，避免 UI 档位把正文压小。 */
+  --text-prose-sm: 12px;
+  --text-prose: 13.5px;
+  --text-prose-h1: 19px;
+  --text-prose-h2: 15.5px;
+  --text-prose-h3: 14px;
+
+  /* 图表数据色块（图例、柱条）只用这一档极小圆角。 */
+  --radius-mark: 2px;
+
+  --radius-badge: 6px;
   --radius-card: 14px;
   --radius-control: 9px;
   --radius-chip: 999px;
@@ -66,6 +104,7 @@ html[data-theme="dark"] {
   --color-surface: #1a1e1b;
   --color-line: #2c322d;
   --color-line-soft: #232824;
+  --color-line-strong: #3a413b;
   --color-ink: #e7eae6;
   --color-ink-soft: #b3bab1;
   --color-muted: #838b80;
@@ -77,24 +116,19 @@ html[data-theme="dark"] {
   --color-warn: #dda43c;
   --color-warn-soft: #32280f;
   --color-danger: #e07b74;
+  --color-danger-dark: #c9665f;
   --color-danger-soft: #3a1e1c;
   --color-info: #63aee0;
   --color-info-soft: #16293a;
-}
-
-html[data-theme="dark"] ::selection {
-  background: #2c5a3d;
+  --color-code-surface: #1e2320;
+  --color-selection: #2c5a3d;
 }
 
 html[data-theme="dark"] * {
-  scrollbar-color: #3b423c transparent;
+  scrollbar-color: var(--color-line-strong) transparent;
 }
 html[data-theme="dark"] *::-webkit-scrollbar-thumb {
-  background: #3b423c;
-}
-
-html[data-theme="dark"] .doc-prose pre {
-  background: #1e2320;
+  background: var(--color-line-strong);
 }
 
 body {
@@ -105,20 +139,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 页面底色：极轻的顶部光晕，避免大片留白时整屏「一片死灰」。
-   颜色从主题变量混出来，深浅色自动适配，不额外维护第二套配色。 */
+/* 页面底色：纸墨极简，整屏只用画布底色，不做背景渐变与光晕；
+   层次交给卡片、留白与描边。 */
 .app-canvas {
-  background-image:
-    radial-gradient(
-      1100px 420px at 16% -12%,
-      color-mix(in srgb, var(--color-brand) 7%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      900px 360px at 100% -6%,
-      color-mix(in srgb, var(--color-info) 6%, transparent),
-      transparent 68%
-    );
+  background: var(--color-canvas);
 }
 
 /* 浮层（下拉选择、菜单）：淡入 + 轻微上移 + 缩放，让它「从按钮下面长出来」。 */
@@ -177,21 +201,21 @@ body {
 }
 
 ::selection {
-  background: #cdebd9;
+  background: var(--color-selection);
 }
 
 /* 细滚动条，避免侧栏和内容区出现粗重滚动条 */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #d5d8d3 transparent;
+  scrollbar-color: var(--color-line-strong) transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #d5d8d3;
-  border-radius: 8px;
+  background: var(--color-line-strong);
+  border-radius: var(--radius-control);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -201,7 +225,7 @@ body {
    文档页把 md 渲染成 HTML 后直接注入，这里给出与整体风格一致的排版。
    全部走主题变量，改配色只需要动 @theme。 */
 .doc-prose {
-  font-size: 13.5px;
+  font-size: var(--text-prose);
   line-height: 1.75;
   color: var(--color-ink-soft);
   word-break: break-word;
@@ -226,21 +250,21 @@ body {
 }
 .doc-prose h1 {
   margin: 0 0 14px;
-  font-size: 19px;
+  font-size: var(--text-prose-h1);
 }
 .doc-prose h2 {
   margin: 26px 0 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--color-line-soft);
-  font-size: 15.5px;
+  font-size: var(--text-prose-h2);
 }
 .doc-prose h3 {
   margin: 20px 0 8px;
-  font-size: 14px;
+  font-size: var(--text-prose-h3);
 }
 .doc-prose h4 {
   margin: 16px 0 6px;
-  font-size: 13.5px;
+  font-size: var(--text-prose);
 }
 
 .doc-prose p {
@@ -285,7 +309,7 @@ body {
   padding: 8px 14px;
   border-left: 3px solid var(--color-line);
   background: var(--color-line-soft);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
   color: var(--color-muted);
 }
 .doc-prose blockquote > :first-child {
@@ -297,32 +321,32 @@ body {
 
 .doc-prose code {
   padding: 1px 5px;
-  border-radius: 5px;
+  border-radius: var(--radius-badge);
   background: var(--color-line-soft);
   color: var(--color-ink);
   font-family: "Cascadia Code", "Consolas", monospace;
-  font-size: 12px;
+  font-size: var(--text-prose-sm);
 }
 .doc-prose pre {
   margin: 12px 0;
   padding: 12px 14px;
   overflow-x: auto;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-line);
-  background: #fbfcfb;
+  background: var(--color-code-surface);
   line-height: 1.6;
 }
 .doc-prose pre code {
   padding: 0;
   background: none;
-  font-size: 12px;
+  font-size: var(--text-prose-sm);
 }
 
 .doc-prose table {
   margin: 12px 0;
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--text-body-sm);
 }
 .doc-prose th,
 .doc-prose td {
@@ -345,7 +369,7 @@ body {
 
 .doc-prose img {
   max-width: 100%;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 
 /* ---------- 更新说明 ----------
@@ -353,7 +377,7 @@ body {
    所以不能直接用 .doc-prose：那套是给长文阅读的（13.5px / h2 带下边框 / margin 26px），
    塞进弹窗 220px 的滚动区会把「到底改了什么」挤掉一半。这里只保留层级和节奏。 */
 .release-notes {
-  font-size: 12.5px;
+  font-size: var(--text-body-sm);
   line-height: 1.7;
   color: var(--color-ink-soft);
   word-break: break-word;
@@ -379,14 +403,14 @@ body {
 .release-notes h1,
 .release-notes h2 {
   margin: 12px 0 5px;
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .release-notes h3,
 .release-notes h4,
 .release-notes h5,
 .release-notes h6 {
   margin: 10px 0 4px;
-  font-size: 12.5px;
+  font-size: var(--text-body-sm);
 }
 
 .release-notes p {
@@ -428,34 +452,31 @@ body {
 
 .release-notes code {
   padding: 1px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-mark);
   background: var(--color-line-soft);
   color: var(--color-ink);
   font-family: "Cascadia Code", "Consolas", monospace;
-  font-size: 11.5px;
+  font-size: var(--text-caption);
 }
 .release-notes pre {
   margin: 8px 0;
   padding: 8px 10px;
   overflow-x: auto;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-line);
-  background: #fbfcfb;
+  background: var(--color-code-surface);
   line-height: 1.6;
 }
 .release-notes pre code {
   padding: 0;
   background: none;
 }
-html[data-theme="dark"] .release-notes pre {
-  background: #1e2320;
-}
 
 .release-notes blockquote {
   margin: 8px 0;
   padding: 6px 10px;
   border-left: 3px solid var(--color-line);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-badge) var(--radius-badge) 0;
   background: var(--color-line-soft);
   color: var(--color-muted);
 }
@@ -470,7 +491,7 @@ html[data-theme="dark"] .release-notes pre {
   margin: 8px 0;
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-body-sm);
 }
 .release-notes th,
 .release-notes td {
@@ -485,189 +506,65 @@ html[data-theme="dark"] .release-notes pre {
   font-weight: 600;
 }
 
-/* ---------- 号池「当前登录」卡面光圈 ----------
-   卡片内沿一圈缓慢流动的极光，让「现在用的是哪个号」一眼可见（替代静态竖条）。
-   颜色全部走主题变量，深浅色自动适配；`prefers-reduced-motion` 下停转、只留静态圈。 */
-@property --aurora-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
-
-.aurora-ring {
-  isolation: isolate;
-}
-
-.aurora-ring::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 2px;
-  background: conic-gradient(
-    from var(--aurora-angle),
-    color-mix(in srgb, var(--color-brand) 45%, transparent) 0deg,
-    var(--color-brand) 70deg,
-    color-mix(in srgb, var(--color-info) 80%, transparent) 150deg,
-    color-mix(in srgb, var(--color-brand) 30%, transparent) 235deg,
-    color-mix(in srgb, var(--color-brand) 45%, transparent) 360deg
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: aurora-spin 5s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes aurora-spin {
-  to {
-    --aurora-angle: 360deg;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .aurora-ring::before {
-    animation: none;
-  }
-}
-
-/* ---------- 号池卡片光晕 ----------
-   每张卡片外圈一圈淡淡的品牌色柔光；当前登录的卡片再叠一层扩散涟漪，
-   让「哪个号正在用」在扫一眼时就能分清。box-shadow 不受 overflow 裁剪。 */
+/* ---------- 号池卡片状态 ----------
+   纸墨极简：卡片只允许一档中性阴影，选中与「当前登录」靠描边和左侧竖条表达。
+   不做光圈、外发光与循环涟漪（见 设置 → 规则 → 优雅设计）。 */
 .card-halo {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-brand) 13%, transparent),
-    0 8px 24px -16px color-mix(in srgb, var(--color-brand) 55%, transparent);
+  box-shadow: var(--shadow-card);
   transition:
-    box-shadow 0.35s ease,
-    transform 0.3s ease;
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .card-halo:hover {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-brand) 26%, transparent),
-    0 12px 32px -16px color-mix(in srgb, var(--color-brand) 68%, transparent);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .card-halo--selected {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-brand) 38%, transparent),
-    0 10px 28px -14px color-mix(in srgb, var(--color-brand) 60%, transparent);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .card-current {
-  animation: card-ripple 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-}
-
-@keyframes card-ripple {
-  0% {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-brand) 45%, transparent),
-      0 0 0 0 color-mix(in srgb, var(--color-brand) 32%, transparent),
-      0 0 26px -6px color-mix(in srgb, var(--color-brand) 62%, transparent);
-  }
-  70% {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-brand) 30%, transparent),
-      0 0 0 12px color-mix(in srgb, var(--color-brand) 0%, transparent),
-      0 0 30px -8px color-mix(in srgb, var(--color-brand) 42%, transparent);
-  }
-  100% {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-brand) 45%, transparent),
-      0 0 0 14px color-mix(in srgb, var(--color-brand) 0%, transparent),
-      0 0 26px -6px color-mix(in srgb, var(--color-brand) 62%, transparent);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .card-current {
-    animation: none;
-  }
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-brand) 40%, transparent),
+    var(--shadow-card);
 }
 
 /* ---------- 号池积分余量条 ----------
-   余量 = 剩余 / 总额。宽度用缓动过渡，条上有一道循环扫光，低于阈值时整条泛红，
-   目的是「不点开也知道这个号还剩多少」。 */
+   余量 = 剩余 / 总额。单色实心条：正常用品牌色、偏低用警示色、见底用危险色，
+   宽度过渡只做 200ms，不做循环扫光。 */
 .credit-track {
   position: relative;
   overflow: hidden;
-  transition: box-shadow 0.3s ease;
+  transition: box-shadow 0.2s ease;
 }
 
 .credit-fill {
   position: relative;
   min-width: 6%;
-  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.credit-fill::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.35) 42%,
-    rgba(255, 255, 255, 0.8) 50%,
-    rgba(255, 255, 255, 0.35) 58%,
-    transparent 100%
-  );
-  transform: translateX(-120%);
-  animation: credit-sweep 2.6s ease-in-out infinite;
+  transition: width 0.2s ease;
 }
 
 .credit-fill--normal {
-  background: linear-gradient(
-    90deg,
-    var(--color-brand),
-    color-mix(in srgb, var(--color-brand) 55%, #86efac)
-  );
+  background: var(--color-brand);
 }
 
 .credit-fill--mid {
-  background: linear-gradient(90deg, #d97706, #fbbf24);
+  background: var(--color-warn);
 }
 
 .credit-fill--low {
-  background: linear-gradient(90deg, #dc2626, #f87171);
+  background: var(--color-danger);
 }
 
 .credit-track--low {
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, #dc2626 28%, transparent),
-    0 0 14px -5px rgba(220, 38, 38, 0.55);
-}
-
-@keyframes credit-sweep {
-  0% {
-    transform: translateX(-120%);
-  }
-  60%,
-  100% {
-    transform: translateX(120%);
-  }
+  box-shadow: 0 0 0 1px var(--color-danger);
 }
 
 /* ---------- 号池「今日活动」分段进度 ----------
-   一项活动一段：绿=完成、浅绿=可自动、灰=需手动。执行中待做的段循环呼吸。 */
+   一项活动一段：绿=完成、浅绿=可自动、灰=需手动。执行中的段用实心品牌色，不做呼吸动画。 */
 .activity-seg--running {
-  background-color: color-mix(in srgb, var(--color-brand) 55%, #86efac);
-  animation: activity-pulse 1.15s ease-in-out infinite;
-}
-
-@keyframes activity-pulse {
-  0%,
-  100% {
-    background-color: color-mix(in srgb, var(--color-brand) 28%, #d9f99d);
-    opacity: 0.65;
-  }
-  50% {
-    background-color: var(--color-brand);
-    opacity: 1;
-  }
+  background-color: color-mix(in srgb, var(--color-brand) 55%, var(--color-brand-soft));
 }
 
 /* ---------- 活动页卡片内执行进度 ----------
@@ -675,12 +572,8 @@ html[data-theme="dark"] .release-notes pre {
    只要这条在动，就说明「这个号正在执行」，避免点了没反应。 */
 .run-fill {
   width: 38%;
-  background-image: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--color-brand) 55%, #ffffff) 45%,
-    var(--color-brand) 100%
-  );
+  background-image: none;
+  background-color: var(--color-brand);
   animation: run-slide 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
@@ -731,31 +624,21 @@ html[data-theme="dark"] .release-notes pre {
     transition: none;
   }
 
-  .credit-fill::after {
-    animation: none;
-    display: none;
-  }
-
-  .activity-seg--running {
-    animation: none;
-  }
-
   .reward-pop {
     animation: none;
   }
 
   .stat-tile,
-  .stat-bump,
-  .stat-dot {
+  .stat-bump {
     animation: none;
   }
 }
 
 /* ---------- 号池健康度卡片（号池总数 / 凭据可用 / …） ----------
    数据是异步到的，直接换数字看不出「刚刚更新过」；这里让整块入场时错开浮起，
-   数字变了先滚动再轻轻跳一下，异常项点一颗会呼吸的圆点。 */
+   数字变了先滚动再轻轻跳一下，异常项用一颗静态圆点。 */
 .stat-tile {
-  animation: stat-in 0.46s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: stat-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes stat-in {
@@ -771,7 +654,7 @@ html[data-theme="dark"] .release-notes pre {
 
 /* 数字变化时的一次性脉冲：只放大不改色，避免和红/黄/绿的语义色打架 */
 .stat-bump {
-  animation: stat-bump 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: stat-bump 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes stat-bump {
@@ -787,31 +670,16 @@ html[data-theme="dark"] .release-notes pre {
 }
 
 /* 异常标记：不写数字也一眼看到「这块有问题」。颜色走 currentColor，
-   圆点本体与呼吸光圈同色，danger 只换一个 color 值。 */
+   静态圆点 + danger 换色即可，不做呼吸动画（见 设置 → 规则 → 优雅设计）。 */
 .stat-dot {
   width: 5px;
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-chip);
   color: var(--color-warn);
   background: currentColor;
-  box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent);
-  animation: stat-dot 2.2s ease-out infinite;
 }
 
 .stat-dot--danger {
   color: var(--color-danger);
-}
-
-@keyframes stat-dot {
-  0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
-  }
-  35% {
-    box-shadow: 0 0 0 3.5px color-mix(in srgb, currentColor 22%, transparent);
-  }
-  70%,
-  100% {
-    box-shadow: 0 0 0 3.5px transparent;
-  }
 }
 

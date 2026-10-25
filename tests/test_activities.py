@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from chaierww.config import Settings
 from chaierww.domain import activities as mod
 from chaierww.domain import wb_extras as extras
+from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountNotFound
 from chaierww.domain.activities import (
     RESULT_FAILED,
@@ -90,22 +91,37 @@ def _wb_streak(days: int = 4, cards: int = 0, tier_status: str = "locked") -> di
 
 
 class _FakeAccount:
-    """服务只读这三个字段，不必造完整的 Account 行。"""
+    """服务只读这四个字段，不必造完整的 Account 行。"""
 
-    def __init__(self, account_id: str = "a1", scope: str = "workbuddy-cn", name: str = "账号甲"):
+    def __init__(
+        self,
+        account_id: str = "a1",
+        scope: str = "workbuddy-cn",
+        name: str = "账号甲",
+        state: str = "unverified",
+    ):
         self.id = account_id
         self.scope = scope
         self.display_name = name
+        self.credential_state = CredentialState(state)
 
 
 class _FakeRepo:
     def __init__(self, credential: dict[str, Any] | None):
         self._credential = credential
+        self.states: dict[str, CredentialState] = {}
+        self.runs: list[dict[str, Any]] = []
 
     def current_credential(self, account_id: str) -> dict[str, Any]:
         if self._credential is None:
             raise AccountNotFound(account_id)
         return self._credential
+
+    def set_credential_state(self, account_id: str, state: CredentialState) -> None:
+        self.states[account_id] = state
+
+    def record_activity_runs(self, rows: list[dict[str, Any]]) -> None:
+        self.runs.extend(rows)
 
 
 def _wb_credential(token: str = "tok") -> dict[str, Any]:
@@ -858,4 +874,42 @@ def test_run_retry_flag_off_keeps_single_attempt(monkeypatch):
     assert body["summary"]["retried"] == 0
     assert body["results"][0]["retryable"] is True
     assert len(urls) == 1
+    service.close()
+
+
+def test_401_marks_relogin_and_records_run(monkeypatch):
+    """活动遇 401 = 登录失效：必须回写账号状态，并落一条执行流水。"""
+    _sequence_calls(monkeypatch, [(401, {"code": 401, "msg": "unauthorized"}, "")])
+    repo = _FakeRepo(_wb_credential())
+    service = ActivitiesService(repo)
+    body = service.run([_FakeAccount()], include_growth=False)
+
+    assert body["results"][0]["status"] == RESULT_FAILED
+    assert repo.states["a1"] is CredentialState.RELOGIN_REQUIRED
+    assert len(repo.runs) == 1
+    assert repo.runs[0]["status"] == RESULT_FAILED
+    service.close()
+
+
+def test_waf_10085_does_not_change_credential_state(monkeypatch):
+    """WAF 指纹拦截不是令牌失效：一次网关抖动不能把好号标成需重登。"""
+    _sequence_calls(monkeypatch, [(403, {"code": 10085, "msg": "blocked"}, "")])
+    repo = _FakeRepo(_wb_credential())
+    service = ActivitiesService(repo)
+    service.run([_FakeAccount()], include_growth=False)
+
+    assert repo.states == {}
+    service.close()
+
+
+def test_relogin_account_is_skipped_before_hitting_upstream(monkeypatch):
+    """预检：已确认失效的号不发任何请求，直接列为待人工处理。"""
+    urls = _sequence_calls(monkeypatch, [])
+    service = ActivitiesService(_FakeRepo(_wb_credential()))
+    account = _FakeAccount(state="relogin_required")
+    body = service.run([account], include_growth=False)
+
+    assert body["results"][0]["status"] == RESULT_SKIPPED
+    assert "重新扫码登录" in body["results"][0]["message"]
+    assert urls == []
     service.close()

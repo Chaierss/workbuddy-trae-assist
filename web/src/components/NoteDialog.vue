@@ -30,24 +30,26 @@ function save(): void {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[400] grid place-items-center bg-black/25 p-4"
+      class="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/25 p-4"
       @click.self="emit('close')"
     >
-      <div class="w-full max-w-[420px] rounded-[16px] border border-line bg-surface p-5">
-        <h3 class="text-[15px] font-semibold text-ink">{{ t("dialog.note.title") }}</h3>
-        <p class="mt-1 text-[12px] text-muted">{{ t("dialog.note.desc", { name: accountName }) }}</p>
+      <div
+        class="max-h-[calc(100vh-2rem)] w-full max-w-[min(420px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5"
+      >
+        <h3 class="text-title font-semibold text-ink">{{ t("dialog.note.title") }}</h3>
+        <p class="mt-1 text-body-sm text-muted">{{ t("dialog.note.desc", { name: accountName }) }}</p>
         <input
           v-model="value"
           type="text"
           maxlength="200"
           :placeholder="t('dialog.note.placeholder')"
-          class="mt-3 w-full rounded-[10px] border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
+          class="mt-3 w-full rounded-control border border-line bg-surface px-3 py-2 text-body text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
           @keyup.enter="save"
         />
         <div class="mt-4 flex justify-end gap-2">
           <button
             type="button"
-            class="rounded-[9px] border border-line px-3.5 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+            class="rounded-control border border-line px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
             :disabled="busy"
             @click="emit('close')"
           >
@@ -55,7 +57,7 @@ function save(): void {
           </button>
           <button
             type="button"
-            class="rounded-[9px] bg-brand px-3.5 py-2 text-[13px] font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+            class="rounded-control bg-brand px-3.5 py-2 text-body font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
             :disabled="busy"
             @click="save"
           >

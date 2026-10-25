@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 def now_iso() -> str:
@@ -109,6 +109,47 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V1 + "\nCOMMIT;")
 
 
+#: v2：凭据探测记录（过期时间未知时的盲续期节流）+ 活动执行流水。
+#: 两张表都只追加，不参与任何账号状态判定以外的读放大。
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS credential_probes (
+    account_id TEXT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    probed_at  TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS activity_runs (
+    id           TEXT PRIMARY KEY,
+    account_id   TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    activity_key TEXT NOT NULL,
+    day          TEXT NOT NULL,
+    attempt      INTEGER NOT NULL DEFAULT 1,
+    status       TEXT NOT NULL,
+    message      TEXT NOT NULL DEFAULT '',
+    reward       REAL,
+    at           TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_runs_day ON activity_runs (day, account_id);
+CREATE INDEX IF NOT EXISTS idx_activity_runs_account ON activity_runs (account_id, at DESC);
+"""
+
+
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V2 + "\nCOMMIT;")
+
+
+#: v3：凭据探测的连续认证失败次数。连续 3 次 401/403 后停止自动续期，
+#: 避免对已确认失效的号反复打上游（重新扫码登录后计数清零）。
+_SCHEMA_V3 = """
+ALTER TABLE credential_probes ADD COLUMN failures INTEGER NOT NULL DEFAULT 0;
+"""
+
+
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V3 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -116,6 +157,10 @@ def migrate(conn: sqlite3.Connection) -> int:
 
     if version < 1:
         _migrate_v1(conn)
+    if version < 2:
+        _migrate_v2(conn)
+    if version < 3:
+        _migrate_v3(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

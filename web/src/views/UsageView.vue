@@ -922,8 +922,8 @@ onMounted(() => {
   <div>
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 class="text-[23.5px] font-semibold tracking-[-0.02em] text-ink">{{ t("usage.title") }}</h1>
-        <p class="mt-1 max-w-[680px] text-[12.5px] leading-relaxed text-muted">
+        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("usage.title") }}</h1>
+        <p class="mt-1 max-w-[680px] text-body-sm leading-relaxed text-muted">
           {{ t("usage.subtitleLead") }}<span class="text-ink-soft">{{ t("usage.subtitleKey") }}</span>{{ t("usage.subtitleTail") }}
         </p>
       </div>
@@ -936,7 +936,7 @@ onMounted(() => {
         />
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[9px] border border-line bg-surface px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
           :disabled="busy"
           @click="load(true)"
         >
@@ -987,7 +987,7 @@ onMounted(() => {
 
     <div
       v-if="error"
-      class="mt-4 rounded-[var(--radius-card)] border border-line bg-danger-soft px-5 py-3 text-[12.5px] text-danger"
+      class="mt-4 rounded-card border border-line bg-danger-soft px-5 py-3 text-body-sm text-danger"
     >
       {{ t("usage.error", { message: error }) }}
     </div>
@@ -1000,12 +1000,12 @@ onMounted(() => {
         size="sm"
         @update:model-value="platformFilter = $event as 'all' | 'workbuddy' | 'trae'"
       />
-      <span class="text-[12px] text-muted">{{ t("usage.accountCount", { count: visibleAccounts.length }) }}</span>
+      <span class="text-body-sm text-muted">{{ t("usage.accountCount", { count: visibleAccounts.length }) }}</span>
     </div>
 
     <div
       v-if="busy && !pool.length"
-      class="mt-4 flex items-center gap-2 px-5 py-10 text-[13px] text-muted"
+      class="mt-4 flex items-center gap-2 px-5 py-10 text-body text-muted"
     >
       <Loader2 :size="15" class="animate-spin" /> {{ t("usage.loading") }}
     </div>
@@ -1039,7 +1039,7 @@ onMounted(() => {
         </template>
 
         <div v-if="trendSeries.length">
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px]">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption">
             <span
               class="inline-flex items-center gap-1"
               :class="
@@ -1104,12 +1104,12 @@ onMounted(() => {
               />
             </div>
           </div>
-          <div class="mt-1 flex justify-between text-[10px] text-muted">
+          <div class="mt-1 flex justify-between text-micro text-muted">
             <span>{{ shortDate(trendSeries[0]?.date ?? "") }}</span>
             <span>{{ shortDate(trendSeries[Math.floor(trendSeries.length / 2)]?.date ?? "") }}</span>
             <span>{{ shortDate(trendSeries[trendSeries.length - 1]?.date ?? "") }}</span>
           </div>
-          <div v-if="traeAccounts.length" class="mt-2 text-[11px] text-muted">
+          <div v-if="traeAccounts.length" class="mt-2 text-caption text-muted">
             {{ t("usage.trend.traeNote") }}
           </div>
         </div>
@@ -1143,22 +1143,22 @@ onMounted(() => {
                 />
               </svg>
               <div class="absolute inset-0 flex flex-col items-center justify-center">
-                <span class="text-[11px] text-muted">{{ t("usage.detail.credit") }}</span>
-                <span class="text-[16px] font-semibold text-ink">{{ creditText(creditStats.total) }}</span>
+                <span class="text-caption text-muted">{{ t("usage.detail.credit") }}</span>
+                <span class="text-title font-semibold text-ink">{{ creditText(creditStats.total) }}</span>
               </div>
             </div>
             <ul class="min-w-0 flex-1 space-y-1.5">
               <li
                 v-for="slice in shareSlices"
                 :key="slice.label"
-                class="flex items-center gap-2 text-[12px]"
+                class="flex items-center gap-2 text-body-sm"
               >
                 <span class="h-2 w-2 shrink-0 rounded-full" :style="{ background: slice.color }" />
                 <span class="min-w-0 flex-1 truncate text-ink-soft" :title="slice.label">
                   {{ slice.label }}
                 </span>
                 <span class="shrink-0 text-muted">{{ creditText(slice.value) }}</span>
-                <span class="w-10 shrink-0 text-right text-[11px] text-muted">
+                <span class="w-10 shrink-0 text-right text-caption text-muted">
                   {{ slice.percent.toFixed(0) }}%
                 </span>
               </li>
@@ -1172,7 +1172,7 @@ onMounted(() => {
             <div
               v-for="item in modelAgg.slice(0, 8)"
               :key="item.model"
-              class="flex items-center gap-3 text-[12.5px]"
+              class="flex items-center gap-3 text-body-sm"
             >
               <span class="w-40 shrink-0 truncate text-ink-soft" :title="item.model">
                 {{ item.model }}
@@ -1189,7 +1189,7 @@ onMounted(() => {
               <span class="w-14 shrink-0 text-right text-muted">
                 {{ item.requests }} {{ t("usage.unitRequests") }}
               </span>
-              <span class="w-14 shrink-0 text-right text-[11px] text-muted">
+              <span class="w-14 shrink-0 text-right text-caption text-muted">
                 {{ item.accounts }} {{ t("usage.unitAccounts") }}
               </span>
             </div>
@@ -1202,13 +1202,13 @@ onMounted(() => {
         <article
           v-for="account in visibleAccounts"
           :key="account.accountId"
-          class="flex flex-col gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-4 shadow-card transition-colors hover:border-[#d7dad5]"
+          class="flex flex-col gap-3 rounded-card border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-strong"
         >
           <header class="flex items-center gap-2">
-            <span class="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+            <span class="min-w-0 flex-1 truncate text-body font-medium text-ink">
               {{ account.displayName }}
             </span>
-            <span class="shrink-0 text-[11px] text-muted">
+            <span class="shrink-0 text-caption text-muted">
               {{ PLATFORM_LABEL[account.platform] ?? account.platform }}
             </span>
             <StatusPill v-if="!account.detectable" tone="danger">{{ t("usage.undetectable") }}</StatusPill>
@@ -1216,7 +1216,7 @@ onMounted(() => {
 
           <div
             v-if="!account.detectable"
-            class="flex items-start gap-2 text-[11.5px] leading-relaxed text-muted"
+            class="flex items-start gap-2 text-caption leading-relaxed text-muted"
           >
             <AlertTriangle :size="14" class="mt-0.5 shrink-0 text-warn" />
             <span>{{ account.error ?? t("usage.unsupportedCredential") }}</span>
@@ -1226,20 +1226,20 @@ onMounted(() => {
           <template v-else-if="account.platform === 'trae'">
             <div class="flex items-baseline gap-6">
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.trae.consumed") }}</div>
-                <div class="mt-0.5 text-[20px] font-semibold text-ink">
+                <div class="text-caption text-muted">{{ t("usage.trae.consumed") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">
                   {{ creditText(account.creditsConsumed) }}
                 </div>
               </div>
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.trae.total") }}</div>
-                <div class="mt-0.5 text-[20px] font-semibold text-ink-soft">
+                <div class="text-caption text-muted">{{ t("usage.trae.total") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink-soft">
                   {{ creditText(account.creditsTotal) }}
                 </div>
               </div>
             </div>
             <div v-if="account.creditsTotal" class="space-y-1">
-              <div class="flex items-center justify-between text-[11px] text-muted">
+              <div class="flex items-center justify-between text-caption text-muted">
                 <span>{{ t("usage.trae.remaining") }}</span>
                 <span>
                   {{ creditText(Math.max(0, account.creditsTotal - (account.creditsConsumed ?? 0))) }}
@@ -1257,38 +1257,38 @@ onMounted(() => {
                   }"
                 />
               </div>
-              <div class="text-[10.5px] text-muted">{{ t("usage.trae.remainingHint") }}</div>
+              <div class="text-micro text-muted">{{ t("usage.trae.remainingHint") }}</div>
             </div>
-            <div class="text-[11px] text-muted">{{ t("usage.trae.note") }}</div>
+            <div class="text-caption text-muted">{{ t("usage.trae.note") }}</div>
           </template>
 
           <!-- WorkBuddy：周期 + 日均 / 峰值 / 预测 + 迷你柱状 -->
           <template v-else>
             <div class="grid grid-cols-3 gap-2">
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.period.today") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-ink">{{ account.todayRequests }}</div>
-                <div class="text-[11px] text-ink-soft">
+                <div class="text-caption text-muted">{{ t("usage.period.today") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">{{ account.todayRequests }}</div>
+                <div class="text-caption text-ink-soft">
                   {{ creditText(account.todayCredit) }} {{ t("usage.unitCredit") }}
                 </div>
               </div>
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.period.week") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-ink">{{ account.weekRequests }}</div>
-                <div class="text-[11px] text-ink-soft">
+                <div class="text-caption text-muted">{{ t("usage.period.week") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">{{ account.weekRequests }}</div>
+                <div class="text-caption text-ink-soft">
                   {{ creditText(account.weekCredit) }} {{ t("usage.unitCredit") }}
                 </div>
               </div>
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.period.month") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-ink">{{ account.monthRequests }}</div>
-                <div class="text-[11px] text-ink-soft">
+                <div class="text-caption text-muted">{{ t("usage.period.month") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">{{ account.monthRequests }}</div>
+                <div class="text-caption text-ink-soft">
                   {{ creditText(account.monthCredit) }} {{ t("usage.unitCredit") }}
                 </div>
               </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-2 rounded-[8px] bg-line-soft px-3 py-2 text-[11.5px]">
+            <div class="grid grid-cols-2 gap-2 rounded-control bg-line-soft px-3 py-2 text-caption">
               <div>
                 <div class="text-muted">{{ t("usage.account.dailyAvg") }}</div>
                 <div class="mt-0.5 font-medium text-ink">
@@ -1305,7 +1305,7 @@ onMounted(() => {
                   <template v-else>—</template>
                 </div>
               </div>
-              <div class="col-span-2 text-[10.5px] leading-relaxed text-muted">
+              <div class="col-span-2 text-micro leading-relaxed text-muted">
                 {{ t("usage.account.projection", { value: creditText(dailyAverage(account) * 30) }) }}
               </div>
             </div>
@@ -1335,13 +1335,13 @@ onMounted(() => {
                   />
                 </div>
               </div>
-              <div class="mt-1 flex justify-between text-[10px] text-muted">
+              <div class="mt-1 flex justify-between text-micro text-muted">
                 <span>{{ shortDate(account.daily[0]?.date ?? "") }}</span>
                 <span>{{ shortDate(account.daily[account.daily.length - 1]?.date ?? "") }}</span>
               </div>
             </div>
 
-            <div class="text-[11px] text-muted">
+            <div class="text-caption text-muted">
               {{
                 account.detail.length
                   ? t("usage.account.linked", {
@@ -1369,27 +1369,27 @@ onMounted(() => {
               <div
                 v-for="hour in 24"
                 :key="`h-${hour}`"
-                class="text-center text-[9px] leading-[16px] text-muted"
+                class="text-center text-micro leading-[16px] text-muted"
               >
                 {{ (hour - 1) % 3 === 0 ? pad(hour - 1) : "" }}
               </div>
               <template v-for="(label, dayIndex) in weekdayLabels" :key="label">
-                <div class="pr-1 text-right text-[10px] leading-[18px] text-muted">{{ label }}</div>
+                <div class="pr-1 text-right text-micro leading-[18px] text-muted">{{ label }}</div>
                 <div
                   v-for="hour in 24"
                   :key="`${dayIndex}-${hour}`"
-                  class="h-[18px] rounded-[2px] transition-opacity hover:opacity-80"
+                  class="h-[18px] rounded-mark transition-opacity hover:opacity-80"
                   :style="heatStyle(dayIndex, hour - 1)"
                   :title="heatTitle(dayIndex, hour - 1)"
                 />
               </template>
             </div>
-            <div class="mt-2 flex items-center justify-end gap-2 text-[10.5px] text-muted">
+            <div class="mt-2 flex items-center justify-end gap-2 text-micro text-muted">
               <span>{{ t("usage.dist.legendLow") }}</span>
               <span
                 v-for="step in [18, 42, 66, 90]"
                 :key="step"
-                class="h-2.5 w-5 rounded-[2px]"
+                class="h-2.5 w-5 rounded-mark"
                 :style="{
                   background: `color-mix(in srgb, var(--color-brand) ${step}%, var(--color-surface))`,
                 }"
@@ -1404,31 +1404,31 @@ onMounted(() => {
           <template v-if="creditStats.count">
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.dist.avg") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-ink">
+                <div class="text-caption text-muted">{{ t("usage.dist.avg") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">
                   {{ creditText(creditStats.mean) }}
                 </div>
               </div>
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.dist.median") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-ink">
+                <div class="text-caption text-muted">{{ t("usage.dist.median") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">
                   {{ creditText(creditStats.median) }}
                 </div>
               </div>
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.dist.p90") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-ink">
+                <div class="text-caption text-muted">{{ t("usage.dist.p90") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-ink">
                   {{ creditText(creditStats.p90) }}
                 </div>
               </div>
               <div>
-                <div class="text-[11.5px] text-muted">{{ t("usage.dist.maxValue") }}</div>
-                <div class="mt-0.5 text-[17px] font-semibold text-warn">
+                <div class="text-caption text-muted">{{ t("usage.dist.maxValue") }}</div>
+                <div class="mt-0.5 text-metric font-semibold text-warn">
                   {{ creditText(creditStats.max) }}
                 </div>
               </div>
             </div>
-            <div class="mt-1 text-[11px] text-muted">
+            <div class="mt-1 text-caption text-muted">
               {{ t("usage.dist.samples", { count: creditStats.count }) }}
             </div>
 
@@ -1436,7 +1436,7 @@ onMounted(() => {
               <div
                 v-for="bucket in bucketStats"
                 :key="bucket.label"
-                class="flex items-center gap-3 text-[11.5px]"
+                class="flex items-center gap-3 text-caption"
               >
                 <span class="w-28 shrink-0 text-muted">{{ bucket.label }}</span>
                 <div class="h-2.5 flex-1 overflow-hidden rounded-full bg-line-soft">
@@ -1459,7 +1459,7 @@ onMounted(() => {
             <div
               v-for="item in clientAgg"
               :key="item.client"
-              class="flex items-center gap-3 text-[12.5px]"
+              class="flex items-center gap-3 text-body-sm"
             >
               <span class="w-32 shrink-0 truncate text-ink-soft" :title="item.client">
                 {{ item.client }}
@@ -1473,7 +1473,7 @@ onMounted(() => {
               <span class="w-20 shrink-0 text-right text-muted">
                 {{ creditText(item.credit) }} {{ t("usage.unitCredit") }}
               </span>
-              <span class="w-14 shrink-0 text-right text-[11px] text-muted">
+              <span class="w-14 shrink-0 text-right text-caption text-muted">
                 {{ item.requests }} {{ t("usage.unitRequests") }}
               </span>
             </div>
@@ -1489,7 +1489,7 @@ onMounted(() => {
             <div
               v-for="item in modelEfficiency"
               :key="item.model"
-              class="flex items-center gap-3 text-[12.5px]"
+              class="flex items-center gap-3 text-body-sm"
             >
               <span class="w-40 shrink-0 truncate text-ink-soft" :title="item.model">
                 {{ item.model }}
@@ -1502,9 +1502,9 @@ onMounted(() => {
               </div>
               <span class="w-20 shrink-0 text-right font-medium text-ink">
                 {{ creditText(item.average) }}
-                <span class="text-[10.5px] font-normal text-muted">{{ t("usage.dist.perRequest") }}</span>
+                <span class="text-micro font-normal text-muted">{{ t("usage.dist.perRequest") }}</span>
               </span>
-              <span class="w-14 shrink-0 text-right text-[11px] text-muted">
+              <span class="w-14 shrink-0 text-right text-caption text-muted">
                 {{ item.requests }} {{ t("usage.unitRequests") }}
               </span>
             </div>
@@ -1515,9 +1515,9 @@ onMounted(() => {
 
       <SectionCard :title="t('usage.dist.matrixTitle')" :subtitle="t('usage.dist.matrixSubtitle')" flush>
         <div v-if="matrixModels.length" class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-[12px]">
+          <table class="w-full min-w-[720px] text-body-sm">
             <thead>
-              <tr class="border-b border-line-soft text-[11.5px] text-muted">
+              <tr class="border-b border-line-soft text-caption text-muted">
                 <th class="px-4 py-2.5 text-left font-medium">{{ t("usage.detail.account") }}</th>
                 <th
                   v-for="model in matrixModels"
@@ -1539,7 +1539,7 @@ onMounted(() => {
                 <td class="max-w-[180px] truncate px-4 py-2 text-ink">{{ account.displayName }}</td>
                 <td v-for="model in matrixModels" :key="model" class="px-1 py-1.5 text-center">
                   <div
-                    class="rounded-[4px] px-2 py-1.5 text-[11.5px]"
+                    class="rounded-badge px-2 py-1.5 text-caption"
                     :class="matrixValue(account, model) === null ? 'text-muted' : 'text-ink'"
                     :style="matrixStyle(matrixValue(account, model))"
                     :title="`${account.displayName} · ${model}`"
@@ -1569,8 +1569,8 @@ onMounted(() => {
               class="flex w-full flex-col gap-1 px-4 py-2.5 text-left transition-colors hover:bg-line-soft"
               @click="openRequestTurn(item.account, item.row)"
             >
-              <span class="flex w-full items-center gap-3 text-[12px]">
-                <span class="w-6 shrink-0 text-[11px] text-muted">{{ index + 1 }}</span>
+              <span class="flex w-full items-center gap-3 text-body-sm">
+                <span class="w-6 shrink-0 text-caption text-muted">{{ index + 1 }}</span>
                 <span class="w-32 shrink-0 truncate text-muted">{{ item.row.requestTime }}</span>
                 <span class="w-40 shrink-0 truncate text-ink-soft">{{ item.row.model }}</span>
                 <span class="min-w-0 flex-1 truncate text-muted">
@@ -1581,7 +1581,7 @@ onMounted(() => {
                 </span>
                 <Flame :size="13" class="shrink-0 text-warn" />
               </span>
-              <span class="block w-full pl-9 text-[11.5px] leading-relaxed">
+              <span class="block w-full pl-9 text-caption leading-relaxed">
                 <template v-if="briefFor(item.account.accountId, item.row.requestId)">
                   <span class="block truncate text-ink-soft">
                     <span class="text-muted">{{ t("usage.detail.asked") }}</span>
@@ -1592,10 +1592,10 @@ onMounted(() => {
                     {{ briefFor(item.account.accountId, item.row.requestId)?.assistantText || "—" }}
                   </span>
                 </template>
-                <span v-else-if="briefLoading" class="text-[11px] text-muted">
+                <span v-else-if="briefLoading" class="text-caption text-muted">
                   <Loader2 :size="11" class="inline animate-spin" />
                 </span>
-                <span v-else class="text-[11px] text-muted">
+                <span v-else class="text-caption text-muted">
                   {{ t("usage.detail.briefNotFound") }}
                 </span>
               </span>
@@ -1610,7 +1610,7 @@ onMounted(() => {
     <div v-else-if="view === 'conversations'" class="mt-4 space-y-4">
       <SectionCard :title="t('usage.conv.title')" :subtitle="t('usage.conv.subtitle')" flush>
         <template #actions>
-          <span class="text-[11.5px] text-muted">
+          <span class="text-caption text-muted">
             {{ t("usage.conv.linked", conversationLinked) }}
           </span>
         </template>
@@ -1621,7 +1621,7 @@ onMounted(() => {
             v-model="convQuery"
             type="text"
             :placeholder="t('usage.conv.search')"
-            class="h-8 w-full max-w-[360px] rounded-[9px] border border-line bg-surface px-3 text-[12.5px] text-ink placeholder:text-muted focus:border-[#d5d8d3] focus:outline-none"
+            class="h-8 w-full max-w-[360px] rounded-control border border-line bg-surface px-3 text-body-sm text-ink placeholder:text-muted focus:border-line-strong focus:outline-none"
           />
         </div>
 
@@ -1637,10 +1637,10 @@ onMounted(() => {
             >
               <MessageSquare :size="15" class="shrink-0 text-muted" />
               <div class="min-w-0 flex-1">
-                <div class="truncate text-[12.5px] font-medium text-ink">
+                <div class="truncate text-body-sm font-medium text-ink">
                   {{ item.conversation.title || t("usage.conv.unknown") }}
                 </div>
-                <div class="mt-0.5 truncate text-[11px] text-muted">
+                <div class="mt-0.5 truncate text-caption text-muted">
                   {{ item.account.displayName }} ·
                   {{ workspaceName(item.conversation.cwd) }} ·
                   {{ t("usage.conv.requests", { count: item.conversation.requests }) }} ·
@@ -1648,11 +1648,11 @@ onMounted(() => {
                 </div>
               </div>
               <div class="shrink-0 text-right">
-                <div class="text-[13px] font-semibold text-ink">
+                <div class="text-body font-semibold text-ink">
                   {{ creditText(item.conversation.credit) }}
-                  <span class="text-[10.5px] font-normal text-muted">{{ t("usage.unitCredit") }}</span>
+                  <span class="text-micro font-normal text-muted">{{ t("usage.unitCredit") }}</span>
                 </div>
-                <div class="mt-0.5 text-[11px] text-brand">{{ t("usage.conv.open") }}</div>
+                <div class="mt-0.5 text-caption text-brand">{{ t("usage.conv.open") }}</div>
               </div>
             </button>
           </li>
@@ -1665,9 +1665,9 @@ onMounted(() => {
     <div v-else-if="view === 'compare'" class="mt-4">
       <SectionCard :title="t('usage.compare.title')" :subtitle="t('usage.compare.subtitle')" flush>
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-[12.5px]">
+          <table class="w-full min-w-[720px] text-body-sm">
             <thead>
-              <tr class="border-b border-line-soft text-[11.5px] text-muted">
+              <tr class="border-b border-line-soft text-caption text-muted">
                 <th class="px-5 py-2.5 text-left font-medium">{{ t("usage.stat.accounts") }}</th>
                 <th
                   v-for="column in COMPARE_COLUMNS"
@@ -1689,14 +1689,14 @@ onMounted(() => {
                 <td class="px-5 py-2.5">
                   <div class="flex items-center gap-2">
                     <span class="truncate text-ink">{{ row.account.displayName }}</span>
-                    <span class="shrink-0 text-[11px] text-muted">
+                    <span class="shrink-0 text-caption text-muted">
                       {{ PLATFORM_LABEL[row.account.platform] ?? row.account.platform }}
                     </span>
                     <StatusPill v-if="!row.account.detectable" tone="danger">
                       {{ t("usage.undetectable") }}
                     </StatusPill>
                   </div>
-                  <div v-if="!row.account.detectable" class="mt-0.5 text-[11px] text-muted">
+                  <div v-if="!row.account.detectable" class="mt-0.5 text-caption text-muted">
                     {{ row.account.error ?? t("usage.unsupportedCredential") }}
                   </div>
                 </td>
@@ -1708,11 +1708,11 @@ onMounted(() => {
                   <template v-if="row.account.detectable">
                     <div class="text-ink">
                       {{ row.cells[column.key].requests === null ? "—" : row.cells[column.key].requests }}
-                      <span class="text-[11px] font-normal text-muted">
+                      <span class="text-caption font-normal text-muted">
                         {{ t("usage.unitRequests") }}
                       </span>
                     </div>
-                    <div class="text-[11.5px] text-muted">
+                    <div class="text-caption text-muted">
                       {{ creditText(row.cells[column.key].credit) }} {{ t("usage.unitCredit") }}
                     </div>
                   </template>
@@ -1722,7 +1722,7 @@ onMounted(() => {
             </tbody>
           </table>
         </div>
-        <div class="border-t border-line-soft px-5 py-2.5 text-[11.5px] text-muted">
+        <div class="border-t border-line-soft px-5 py-2.5 text-caption text-muted">
           {{ t("usage.compare.footnote") }}
         </div>
       </SectionCard>
@@ -1758,24 +1758,24 @@ onMounted(() => {
             size="sm"
             class="w-[112px]"
           />
-          <div class="flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2">
+          <div class="flex items-center gap-1.5 rounded-control border border-line bg-surface px-2">
             <Search :size="13" class="text-muted" />
             <input
               v-model="detailKeyword"
               type="text"
               :placeholder="t('usage.detail.keyword')"
-              class="h-8 w-48 bg-transparent text-[12px] text-ink placeholder:text-muted focus:outline-none"
+              class="h-8 w-48 bg-transparent text-body-sm text-ink placeholder:text-muted focus:outline-none"
             />
           </div>
-          <span class="ml-auto text-[11.5px] text-muted">
+          <span class="ml-auto text-caption text-muted">
             {{ t("usage.detail.showing", { count: detailRows.length }) }}
           </span>
         </div>
 
         <div class="overflow-x-auto border-t border-line-soft">
-          <table class="w-full min-w-[860px] text-[12px]">
+          <table class="w-full min-w-[860px] text-body-sm">
             <thead>
-              <tr class="border-b border-line-soft text-[11.5px] text-muted">
+              <tr class="border-b border-line-soft text-caption text-muted">
                 <th class="px-4 py-2.5 text-left font-medium">{{ t("usage.detail.time") }}</th>
                 <th class="px-4 py-2.5 text-left font-medium">{{ t("usage.detail.account") }}</th>
                 <th class="px-4 py-2.5 text-left font-medium">{{ t("usage.detail.model") }}</th>
@@ -1800,22 +1800,22 @@ onMounted(() => {
                 <td class="max-w-[120px] truncate px-4 py-2 text-muted">{{ item.row.client }}</td>
                 <td class="max-w-[300px] px-4 py-2 align-top">
                   <template v-if="briefFor(item.account.accountId, item.row.requestId)">
-                    <div class="truncate text-[11.5px] text-ink-soft">
+                    <div class="truncate text-caption text-ink-soft">
                       <span class="text-muted">{{ t("usage.detail.asked") }}</span>
                       {{ briefFor(item.account.accountId, item.row.requestId)?.userText || "—" }}
                     </div>
-                    <div class="mt-0.5 truncate text-[11px] text-muted">
+                    <div class="mt-0.5 truncate text-caption text-muted">
                       <span>{{ t("usage.detail.replied") }}</span>
                       {{ briefFor(item.account.accountId, item.row.requestId)?.assistantText || "—" }}
                     </div>
                   </template>
                   <span
                     v-else-if="briefLoading"
-                    class="text-[11px] text-muted"
+                    class="text-caption text-muted"
                   >
                     <Loader2 :size="11" class="inline animate-spin" />
                   </span>
-                  <span v-else class="text-[11px] text-muted">
+                  <span v-else class="text-caption text-muted">
                     {{ t("usage.detail.briefNotFound") }}
                   </span>
                 </td>
@@ -1825,13 +1825,13 @@ onMounted(() => {
                 <td class="whitespace-nowrap px-4 py-2 text-right">
                   <span
                     v-if="briefFor(item.account.accountId, item.row.requestId)"
-                    class="inline-flex items-center gap-1 text-[11.5px] text-brand"
+                    class="inline-flex items-center gap-1 text-caption text-brand"
                   >
                     <MessageSquare :size="12" /> {{ t("usage.detail.dialogCount", {
                       count: briefFor(item.account.accountId, item.row.requestId)?.messageCount ?? 0,
                     }) }}
                   </span>
-                  <span v-else class="text-[11.5px] text-muted">{{ t("usage.detail.noDialog") }}</span>
+                  <span v-else class="text-caption text-muted">{{ t("usage.detail.noDialog") }}</span>
                 </td>
               </tr>
             </tbody>
@@ -1842,11 +1842,11 @@ onMounted(() => {
 
         <div
           v-if="detailRows.length"
-          class="flex items-center justify-end gap-2 border-t border-line-soft px-4 py-2.5 text-[11.5px] text-muted"
+          class="flex items-center justify-end gap-2 border-t border-line-soft px-4 py-2.5 text-caption text-muted"
         >
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-[7px] border border-line px-2 py-1 transition-colors hover:text-ink disabled:opacity-40"
+            class="inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 transition-colors hover:text-ink disabled:opacity-40"
             :disabled="detailPage <= 1"
             @click="detailPage -= 1"
           >
@@ -1855,7 +1855,7 @@ onMounted(() => {
           <span>{{ t("usage.detail.page", { page: detailPage, pages: detailPages }) }}</span>
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-[7px] border border-line px-2 py-1 transition-colors hover:text-ink disabled:opacity-40"
+            class="inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 transition-colors hover:text-ink disabled:opacity-40"
             :disabled="detailPage >= detailPages"
             @click="detailPage += 1"
           >
@@ -1866,13 +1866,13 @@ onMounted(() => {
     </div>
 
     <!-- ================= 对话抽屉 ================= -->
-    <div v-if="drawer" class="fixed inset-0 z-40 flex justify-end">
+    <div v-if="drawer" class="fixed inset-0 z-[var(--z-modal)] flex justify-end">
       <div class="absolute inset-0 bg-black/25" @click="closeDrawer" />
       <aside class="relative flex h-full w-full max-w-[620px] flex-col border-l border-line bg-canvas shadow-xl">
         <header class="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div class="min-w-0">
-            <div class="truncate text-[14px] font-semibold text-ink">{{ drawer.title }}</div>
-            <div class="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
+            <div class="truncate text-title font-semibold text-ink">{{ drawer.title }}</div>
+            <div class="mt-1 flex flex-wrap items-center gap-2 text-caption text-muted">
               <span>{{ drawer.subtitle }}</span>
               <StatusPill v-if="drawer.messages.length" tone="neutral">
                 {{ t("usage.detail.messageCount", { count: drawer.messages.length }) }}
@@ -1887,7 +1887,7 @@ onMounted(() => {
           </div>
           <button
             type="button"
-            class="rounded-[8px] p-1.5 text-muted transition-colors hover:bg-line-soft hover:text-ink"
+            class="rounded-control p-1.5 text-muted transition-colors hover:bg-line-soft hover:text-ink"
             :aria-label="t('usage.drawer.close')"
             @click="closeDrawer"
           >
@@ -1896,7 +1896,7 @@ onMounted(() => {
         </header>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div v-if="drawer.meta.length" class="mb-4 grid grid-cols-2 gap-2 text-[11px]">
+          <div v-if="drawer.meta.length" class="mb-4 grid grid-cols-2 gap-2 text-caption">
             <div v-for="item in drawer.meta" :key="item.label" class="flex items-baseline gap-1">
               <span class="font-medium text-muted">{{ item.label }}</span>
               <span class="text-ink-soft">{{ item.value }}</span>
@@ -1905,18 +1905,18 @@ onMounted(() => {
 
           <div
             v-if="drawer.note"
-            class="mb-3 rounded-[10px] border border-line bg-surface px-3 py-2 text-[11.5px] text-muted"
+            class="mb-3 rounded-control border border-line bg-surface px-3 py-2 text-caption text-muted"
           >
             {{ drawer.note }}
           </div>
 
-          <div v-if="drawer.loading" class="flex items-center gap-2 py-10 text-[13px] text-muted">
+          <div v-if="drawer.loading" class="flex items-center gap-2 py-10 text-body text-muted">
             <Loader2 :size="15" class="animate-spin" /> {{ t("usage.drawer.loading") }}
           </div>
 
           <div
             v-else-if="drawer.notFound"
-            class="flex items-start gap-2.5 rounded-[12px] border border-line bg-surface px-4 py-3 text-[12.5px] text-ink-soft"
+            class="flex items-start gap-2.5 rounded-card border border-line bg-surface px-4 py-3 text-body-sm text-ink-soft"
           >
             <AlertTriangle :size="15" class="mt-0.5 shrink-0 text-warn" />
             <div>
@@ -1929,7 +1929,7 @@ onMounted(() => {
 
           <div
             v-else-if="drawer.error"
-            class="rounded-[12px] border border-line bg-danger-soft px-4 py-3 text-[12.5px] text-danger"
+            class="rounded-card border border-line bg-danger-soft px-4 py-3 text-body-sm text-danger"
           >
             {{ t("usage.drawer.error", { message: drawer.error }) }}
           </div>
@@ -1939,7 +1939,7 @@ onMounted(() => {
           <template v-else>
             <div
               v-if="drawer.messages.length > MAX_DRAWER_MESSAGES"
-              class="mb-3 rounded-[10px] border border-line bg-surface px-3 py-2 text-[11.5px] text-muted"
+              class="mb-3 rounded-control border border-line bg-surface px-3 py-2 text-caption text-muted"
             >
               {{ t("usage.drawer.truncated", { count: shownDrawerMessages.length }) }}
             </div>
@@ -1950,7 +1950,7 @@ onMounted(() => {
                 class="flex flex-col"
                 :class="message.role === 'user' ? 'items-end' : 'items-start'"
               >
-                <div class="mb-1 flex items-center gap-2 text-[11px] text-muted">
+                <div class="mb-1 flex items-center gap-2 text-caption text-muted">
                   <span>
                     {{ message.role === "user" ? t("usage.detail.roleUser") : t("usage.detail.roleAssistant") }}
                   </span>
@@ -1958,7 +1958,7 @@ onMounted(() => {
                   <span v-if="message.at">{{ formatTime(isoOf(message.at)) }}</span>
                 </div>
                 <div
-                  class="max-w-[88%] whitespace-pre-wrap break-words rounded-[12px] px-3.5 py-2.5 text-[12.5px] leading-relaxed"
+                  class="max-w-[88%] whitespace-pre-wrap break-words rounded-card px-3.5 py-2.5 text-body-sm leading-relaxed"
                   :class="
                     message.role === 'user'
                       ? 'bg-brand-soft text-ink'

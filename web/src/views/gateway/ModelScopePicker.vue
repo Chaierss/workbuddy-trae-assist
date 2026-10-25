@@ -130,35 +130,35 @@ const modeOptions = computed(() => [
 </script>
 
 <template>
-  <div class="rounded-[10px] border border-line-soft px-3.5 py-3">
+  <div class="rounded-control border border-line-soft px-3.5 py-3">
     <!-- 模式三选一 -->
     <div class="flex flex-wrap items-center gap-1.5">
       <button
         v-for="mode in modeOptions"
         :key="mode.value"
         type="button"
-        class="rounded-[9px] border px-2.5 py-1 text-[11.5px] transition-colors"
+        class="rounded-control border px-2.5 py-1 text-caption transition-colors"
         :class="
           props.scope === mode.value
             ? 'border-brand/40 bg-brand-soft text-brand-dark'
-            : 'border-line text-ink-soft hover:border-[#d5d8d3] hover:text-ink'
+            : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
         "
         @click="setScope(mode.value)"
       >
         {{ mode.label }}
       </button>
-      <span class="ml-auto text-[11.5px] text-muted">
+      <span class="ml-auto text-caption text-muted">
         {{ t("gateway.scope.count", { total: props.catalog.length, matched }) }}
       </span>
     </div>
 
     <!-- 全部：目录新增自动可用 -->
-    <p v-if="props.scope === 'all'" class="mt-2 text-[11px] leading-relaxed text-muted">
+    <p v-if="props.scope === 'all'" class="mt-2 text-caption leading-relaxed text-muted">
       {{ t("gateway.scope.allHint") }}
     </p>
 
     <template v-else-if="props.scope === 'capability'">
-      <p class="mt-2 text-[11px] leading-relaxed text-muted">
+      <p class="mt-2 text-caption leading-relaxed text-muted">
         {{ t("gateway.scope.capabilityHint") }}
       </p>
       <div class="mt-2 flex flex-wrap gap-1.5">
@@ -166,47 +166,47 @@ const modeOptions = computed(() => [
           v-for="capability in CAPABILITIES"
           :key="capability"
           type="button"
-          class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors"
+          class="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-caption transition-colors"
           :class="
             props.capabilities.includes(capability)
               ? 'border-brand/40 bg-brand-soft text-brand-dark'
-              : 'border-line text-ink-soft hover:border-[#d5d8d3] hover:text-ink'
+              : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
           "
           @click="toggleCapability(capability)"
         >
           <Check v-if="props.capabilities.includes(capability)" :size="12" :stroke-width="2.4" />
           {{ t(`gateway.scope.cap.${capability}`) }}
           <span
-            class="rounded-full bg-black/5 px-1.5 text-[10.5px] tabular-nums dark:bg-white/10"
+            class="rounded-full bg-black/5 px-1.5 text-micro tabular-nums dark:bg-white/10"
             >{{ capabilityCounts[capability] }}</span
           >
         </button>
       </div>
       <!-- 结果要看得见：按能力选中后把命中的模型逐个列出来，避免「一片空白」 -->
-      <p v-if="!props.capabilities.length" class="mt-2 text-[11px] text-muted">
+      <p v-if="!props.capabilities.length" class="mt-2 text-caption text-muted">
         {{ t("gateway.scope.capabilityEmpty") }}
       </p>
       <template v-else>
-        <div class="mt-2.5 flex items-center gap-1.5 text-[11px] text-muted">
+        <div class="mt-2.5 flex items-center gap-1.5 text-caption text-muted">
           <span>{{ t("gateway.scope.capabilityModels") }}</span>
         </div>
         <div v-if="capabilityModels.length" class="mt-1 flex flex-wrap gap-1.5">
           <span
             v-for="model in capabilityModels"
             :key="model.id"
-            class="rounded-full border border-dashed border-brand/40 bg-brand-soft/60 px-2.5 py-1 text-[11.5px] text-brand-dark"
+            class="rounded-full border border-dashed border-brand/40 bg-brand-soft/60 px-2.5 py-1 text-caption text-brand-dark"
           >
             {{ model.id }}
           </span>
         </div>
-        <p v-else class="mt-1 text-[11px] text-warn">
+        <p v-else class="mt-1 text-caption text-warn">
           {{ t("gateway.scope.noMatch") }}
         </p>
       </template>
     </template>
 
     <template v-else>
-      <p class="mt-2 text-[11px] leading-relaxed text-muted">
+      <p class="mt-2 text-caption leading-relaxed text-muted">
         {{ t("gateway.scope.listHint") }}
       </p>
 
@@ -214,21 +214,21 @@ const modeOptions = computed(() => [
       <div class="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
-          class="rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+          class="rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
           @click="selectAll"
         >
           {{ t("gateway.scope.selectAll") }}
         </button>
         <button
           type="button"
-          class="rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+          class="rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
           @click="selectNone"
         >
           {{ t("gateway.scope.selectNone") }}
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1 rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+          class="inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
           @click="invert"
         >
           <Shuffle :size="12" :stroke-width="1.9" />
@@ -245,33 +245,33 @@ const modeOptions = computed(() => [
             v-model="search"
             type="text"
             :placeholder="t('gateway.scope.searchPlaceholder')"
-            class="h-7 w-40 rounded-[8px] border border-line bg-surface pl-6 pr-2 text-[11.5px] text-ink placeholder:text-muted focus:border-[#d5d8d3] focus:outline-none"
+            class="h-7 w-40 rounded-control border border-line bg-surface pl-6 pr-2 text-caption text-ink placeholder:text-muted focus:border-line-strong focus:outline-none"
           />
         </div>
 
-        <span class="ml-auto text-[11px] text-muted">{{ t("gateway.scope.batchHint") }}</span>
+        <span class="ml-auto text-caption text-muted">{{ t("gateway.scope.batchHint") }}</span>
         <button
           v-for="capability in CAPABILITIES"
           :key="capability"
           type="button"
-          class="rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+          class="rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
           @click="addByCapability(capability)"
         >
           + {{ t(`gateway.scope.cap.${capability}`) }}
         </button>
       </div>
 
-      <div v-if="!props.catalog.length" class="mt-2 flex items-center gap-2 text-[11.5px] text-muted">
+      <div v-if="!props.catalog.length" class="mt-2 flex items-center gap-2 text-caption text-muted">
         <span>{{ t("gateway.keys.noCatalog") }}</span>
         <button
           type="button"
-          class="rounded-[8px] border border-line px-2 py-1 text-[11.5px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+          class="rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
           @click="emit('refresh')"
         >
           {{ t("gateway.models.refresh") }}
         </button>
       </div>
-      <div v-else-if="!visible.length" class="mt-2 text-[11.5px] text-muted">
+      <div v-else-if="!visible.length" class="mt-2 text-caption text-muted">
         {{ t("gateway.scope.searchEmpty") }}
       </div>
       <div v-else class="mt-2 flex flex-wrap gap-1.5">
@@ -279,11 +279,11 @@ const modeOptions = computed(() => [
           v-for="model in visible"
           :key="model.id"
           type="button"
-          class="rounded-full border px-2.5 py-1 text-[11.5px] transition-colors"
+          class="rounded-full border px-2.5 py-1 text-caption transition-colors"
           :class="
             props.models.includes(model.id)
               ? 'border-brand/40 bg-brand-soft text-brand-dark'
-              : 'border-line text-ink-soft hover:border-[#d5d8d3] hover:text-ink'
+              : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
           "
           @click="toggleModel(model.id)"
         >
@@ -293,7 +293,7 @@ const modeOptions = computed(() => [
       <button
         v-if="props.models.length"
         type="button"
-        class="mt-2 text-[11.5px] text-muted transition-colors hover:text-ink"
+        class="mt-2 text-caption text-muted transition-colors hover:text-ink"
         @click="selectNone"
       >
         {{ t("gateway.keys.clear") }}

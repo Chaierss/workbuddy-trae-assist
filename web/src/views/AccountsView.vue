@@ -408,9 +408,31 @@ async function loadCredentialHealth(): Promise<void> {
 
 const gapAccounts = computed(() => credentialHealth.value?.accounts ?? []);
 
+/** 登录真的失效的号：活动/签到遇 401 已经回写，续期也救不回来，只能重新扫码。 */
+const reloginAccounts = computed(() =>
+  gapAccounts.value.filter((item) => item.credentialState === "relogin_required"),
+);
+
+const reloginNames = computed(() => {
+  const names = reloginAccounts.value.map((item) => item.displayName);
+  if (names.length <= 3) return names.join("、");
+  return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
+});
+
+/** 「去登录」按第一个失效号所属平台打开扫码面板。 */
+const reloginPlatform = computed<"workbuddy" | "trae">(() => {
+  const first = reloginAccounts.value[0];
+  const matched = accounts.value.find((item) => item.id === first?.accountId);
+  return matched?.platform === "trae" ? "trae" : "workbuddy";
+});
+
 /** 缺口账号的名字，最多列 3 个，剩下的折成「等 N 个」。 */
+const gapOnlyAccounts = computed(() =>
+  gapAccounts.value.filter((item) => item.credentialState !== "relogin_required"),
+);
+
 const gapNames = computed(() => {
-  const names = gapAccounts.value.map((item) => item.displayName);
+  const names = gapOnlyAccounts.value.map((item) => item.displayName);
   if (names.length <= 3) return names.join("、");
   return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
 });
@@ -1201,13 +1223,13 @@ const confirmText = computed(() => {
     <!-- 客户端扫描入池：已登录的客户端账号不在号池时提示 -->
     <div
       v-if="pendingPool"
-      class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-card)] border border-line bg-brand-soft px-4 py-3 text-[12.5px] text-brand-dark"
+      class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-brand-soft px-4 py-3 text-body-sm text-brand-dark"
     >
       <UserPlus :size="15" :stroke-width="1.9" class="shrink-0" />
       <span class="flex-1">{{ t("accounts.pendingPoolHint") }}</span>
       <button
         type="button"
-        class="inline-flex shrink-0 items-center gap-1.5 rounded-[9px] bg-brand px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+        class="inline-flex shrink-0 items-center gap-1.5 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
         :disabled="importing"
         @click="onImport"
       >
@@ -1215,15 +1237,36 @@ const confirmText = computed(() => {
       </button>
     </div>
 
-    <!-- 凭据缺口：能切号但 token 一过期就要重登。早说清楚，别等用户撞上 -->
+    <!-- 登录失效：活动/签到遇 401 已回写到账号状态，续期救不回来，只能重新扫码 -->
     <div
-      v-if="gapAccounts.length"
-      class="mb-3 flex items-start gap-2 rounded-[var(--radius-card)] border border-warn/30 bg-warn-soft px-4 py-2.5 text-[12.5px] leading-relaxed text-warn"
+      v-if="reloginAccounts.length"
+      class="mb-3 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm leading-relaxed text-danger-dark"
     >
       <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
       <div class="min-w-0 flex-1">
-        <p>{{ t("accounts.credential.gapBanner", { count: gapAccounts.length }) }}</p>
-        <p class="mt-0.5 text-[11.5px] opacity-85">
+        <p>{{ t("accounts.credential.reloginBanner", { count: reloginAccounts.length }) }}</p>
+        <p class="mt-0.5 text-caption opacity-85">
+          {{ reloginNames }} · {{ t("accounts.credential.reloginBannerHint") }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 rounded-control border border-danger/40 bg-surface px-2.5 py-1 text-caption text-danger-dark transition-colors hover:border-danger"
+        @click="oauthPlatform = reloginPlatform; oauthOpen = true"
+      >
+        {{ t("accounts.credential.reloginAction") }}
+      </button>
+    </div>
+
+    <!-- 凭据缺口：能切号但 token 一过期就要重登。早说清楚，别等用户撞上 -->
+    <div
+      v-if="gapOnlyAccounts.length"
+      class="mb-3 flex items-start gap-2 rounded-card border border-warn/30 bg-warn-soft px-4 py-2.5 text-body-sm leading-relaxed text-warn"
+    >
+      <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+      <div class="min-w-0 flex-1">
+        <p>{{ t("accounts.credential.gapBanner", { count: gapOnlyAccounts.length }) }}</p>
+        <p class="mt-0.5 text-caption opacity-85">
           {{ gapNames }} · {{ t("accounts.credential.gapBannerHint") }}
         </p>
       </div>
@@ -1231,8 +1274,8 @@ const confirmText = computed(() => {
 
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-[23.5px] font-semibold tracking-[-0.02em] text-ink">{{ t("accounts.title") }}</h1>
-        <p class="mt-1.5 text-[13px] text-muted">{{ subtitle }}</p>
+        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("accounts.title") }}</h1>
+        <p class="mt-1.5 text-body text-muted">{{ subtitle }}</p>
       </div>
     </div>
 
@@ -1244,10 +1287,10 @@ const confirmText = computed(() => {
         v-for="(stat, index) in health"
         :key="stat.key"
         :type="stat.risk ? 'button' : undefined"
-        class="stat-tile min-w-0 rounded-[var(--radius-control)] border px-3 py-2 text-left transition-[border-color,box-shadow,background-color,transform] duration-200"
+        class="stat-tile min-w-0 rounded-control border px-3 py-2 text-left transition-[border-color,box-shadow,background-color,transform] duration-200"
         :class="[
           stat.risk
-            ? 'hover:-translate-y-px hover:border-[#d5d8d3] hover:shadow-card-hover'
+            ? 'hover:-translate-y-px hover:border-line-strong hover:shadow-card-hover'
             : 'cursor-default',
           stat.risk && riskFilter === stat.risk
             ? 'border-brand bg-brand-soft/60'
@@ -1263,7 +1306,7 @@ const confirmText = computed(() => {
         "
         @click="applyRisk(stat.risk)"
       >
-        <div class="flex items-center gap-1.5 text-[11px] text-muted">
+        <div class="flex items-center gap-1.5 text-caption text-muted">
           <span class="truncate">{{ stat.label }}</span>
           <span
             v-if="stat.tone === 'danger'"
@@ -1276,32 +1319,32 @@ const confirmText = computed(() => {
           <AnimatedNumber
             :value="stat.value"
             :delay="index * 45"
-            class="text-[18px] font-semibold leading-none"
+            class="text-metric font-semibold leading-none"
             :class="TONE_TEXT[stat.tone]"
           />
-          <span v-if="riskFilter === stat.risk" class="text-[10.5px] text-brand-dark">
+          <span v-if="riskFilter === stat.risk" class="text-micro text-brand-dark">
             {{ t("accounts.health.filtered") }}
           </span>
         </div>
-        <div class="mt-0.5 truncate text-[10.5px] text-muted">{{ stat.hint }}</div>
+        <div class="mt-0.5 truncate text-micro text-muted">{{ stat.hint }}</div>
       </component>
     </div>
 
     <!-- 批量操作条：选中后出现在工具栏上方，跟着内容走，不浮在视口底部挡卡片 -->
     <div
       v-if="selectedCount"
-      class="mt-5 flex flex-wrap items-center gap-2 rounded-[10px] border border-brand/30 bg-brand-soft px-3 py-2"
+      class="mt-5 flex flex-wrap items-center gap-2 rounded-control border border-brand/30 bg-brand-soft px-3 py-2"
     >
-      <span class="text-[12.5px] font-medium text-ink">
+      <span class="text-body-sm font-medium text-ink">
         {{ t("accounts.selectedOf", { count: selectedCount, total: visible.length }) }}
       </span>
-      <span v-if="hiddenSelectedCount" class="text-[11.5px] text-warn">
+      <span v-if="hiddenSelectedCount" class="text-caption text-warn">
         {{ t("accounts.hiddenSelected", { count: hiddenSelectedCount }) }}
       </span>
       <!-- 全选只在工具栏放一个；这里重复会让「选中共几个」和「再点一次全选」挤在一起 -->
       <button
         type="button"
-        class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark transition-colors hover:bg-surface/60"
+        class="inline-flex items-center gap-1 rounded-control px-2 py-1 text-caption text-brand-dark transition-colors hover:bg-surface/60"
         :title="t('accounts.invertHint')"
         @click="invertSelection"
       >
@@ -1311,7 +1354,7 @@ const confirmText = computed(() => {
       <button
         v-if="hiddenSelectedCount"
         type="button"
-        class="inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[11.5px] text-brand-dark underline decoration-dotted transition-colors hover:bg-surface/60"
+        class="inline-flex items-center gap-1 rounded-control px-2 py-1 text-caption text-brand-dark underline decoration-dotted transition-colors hover:bg-surface/60"
         :title="t('accounts.keepVisibleHint')"
         @click="keepVisibleOnly"
       >
@@ -1319,7 +1362,7 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="exporting"
         :title="t('accounts.exportHint')"
         @click="askExport"
@@ -1330,7 +1373,7 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="Boolean(credentialBusy)"
         :title="t('accounts.credential.checkHint')"
         @click="runCredentialSweep('check')"
@@ -1350,7 +1393,7 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="Boolean(credentialBusy)"
         :title="t('accounts.credential.refreshHint')"
         @click="runCredentialSweep('due')"
@@ -1370,7 +1413,7 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[8px] border border-danger/30 bg-surface px-2.5 py-1.5 text-[12px] text-danger transition-colors hover:bg-danger-soft"
+        class="inline-flex items-center gap-1.5 rounded-control border border-danger/30 bg-surface px-2.5 py-1.5 text-body-sm text-danger transition-colors hover:bg-danger-soft"
         @click="askBatchDelete"
       >
         <Trash2 :size="12" :stroke-width="2" />
@@ -1378,7 +1421,7 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
-        class="ml-auto inline-flex items-center gap-1 rounded-[8px] px-2 py-1.5 text-[12px] text-muted transition-colors hover:text-ink"
+        class="ml-auto inline-flex items-center gap-1 rounded-control px-2 py-1.5 text-body-sm text-muted transition-colors hover:text-ink"
         :title="t('accounts.clearHint')"
         @click="clearSelection"
       >
@@ -1397,20 +1440,20 @@ const confirmText = computed(() => {
           v-model="keyword"
           type="text"
           :placeholder="t('accounts.searchPlaceholder')"
-          class="w-full rounded-[10px] border border-line bg-surface py-2 pl-9 pr-3 text-[13px] text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
+          class="w-full rounded-control border border-line bg-surface py-2 pl-9 pr-3 text-body text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
         />
       </div>
 
       <!-- 平台筛选做成切换组：只有 2-3 个选项，下拉要多点一次 -->
       <div
         v-if="platformOptions.length > 2"
-        class="flex shrink-0 items-center gap-1 rounded-[10px] border border-line bg-surface p-1"
+        class="flex shrink-0 items-center gap-1 rounded-control border border-line bg-surface p-1"
       >
         <button
           v-for="option in platformOptions"
           :key="option.value"
           type="button"
-          class="rounded-[7px] px-2.5 py-[5px] text-[12.5px] transition-colors"
+          class="rounded-control px-2.5 py-[5px] text-body-sm transition-colors"
           :class="
             platformFilter === option.value
               ? 'bg-line-soft text-ink'
@@ -1439,11 +1482,11 @@ const confirmText = computed(() => {
       <!-- 全选常驻：选中后不搬走，否则按钮会在眼前消失又从别处冒出来 -->
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-2 text-[13px] transition-colors disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border px-3 py-2 text-body transition-colors disabled:opacity-60"
         :class="
           selectedCount
             ? 'border-brand/40 bg-brand-soft/60 text-brand-dark'
-            : 'border-line bg-surface text-ink-soft hover:border-[#d5d8d3] hover:text-ink'
+            : 'border-line bg-surface text-ink-soft hover:border-line-strong hover:text-ink'
         "
         :disabled="!visible.length"
         :title="t('accounts.selectAllHint')"
@@ -1459,7 +1502,7 @@ const confirmText = computed(() => {
 
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="!selectedCount || exporting"
         :title="selectedCount ? t('accounts.exportHint') : t('accounts.exportNeedSelection')"
         @click="askExport"
@@ -1471,7 +1514,7 @@ const confirmText = computed(() => {
 
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="creditsLoading || loading"
         :title="t('accounts.reloadCredits')"
         @click="loadCredits(true)"
@@ -1482,7 +1525,7 @@ const confirmText = computed(() => {
 
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3.5 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
         @click="oauthPlatform = 'workbuddy'; oauthOpen = true"
       >
         <QrCode :size="14" :stroke-width="1.9" />
@@ -1491,7 +1534,7 @@ const confirmText = computed(() => {
 
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3.5 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
         @click="oauthPlatform = 'trae'; oauthOpen = true"
       >
         <QrCode :size="14" :stroke-width="1.9" />
@@ -1500,7 +1543,7 @@ const confirmText = computed(() => {
 
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3.5 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
         :disabled="jsonDialog.busy"
         @click="openJsonImport"
       >
@@ -1511,7 +1554,7 @@ const confirmText = computed(() => {
       <!-- 删除确认框承诺「保留 30 天可恢复」，这里就是那个恢复入口 -->
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[10px] border border-line bg-surface px-3.5 py-2 text-[13px] transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body transition-colors hover:border-line-strong hover:text-ink"
         :class="recycle.items.length ? 'text-ink-soft' : 'text-muted hover:text-ink-soft'"
         :title="
           recycle.items.length
@@ -1524,18 +1567,18 @@ const confirmText = computed(() => {
         {{ t("accounts.recycle.open") }}
         <span
           v-if="recycle.items.length"
-          class="rounded-full bg-line-soft px-1.5 py-px text-[11px] text-ink-soft"
+          class="rounded-full bg-line-soft px-1.5 py-px text-caption text-ink-soft"
         >
           {{ recycle.items.length }}
         </span>
       </button>
     </div>
 
-    <div v-if="riskFilter" class="mt-3 flex items-center gap-2 text-[12px] text-ink-soft">
+    <div v-if="riskFilter" class="mt-3 flex items-center gap-2 text-body-sm text-ink-soft">
       <span>{{ t("accounts.health.filterActive") }}</span>
       <button
         type="button"
-        class="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand-soft px-2.5 py-0.5 text-[11.5px] text-brand-dark"
+        class="inline-flex items-center gap-1 rounded-full border border-brand/30 bg-brand-soft px-2.5 py-0.5 text-caption text-brand-dark"
         @click="riskFilter = ''"
       >
         {{ riskLabel }}
@@ -1543,11 +1586,11 @@ const confirmText = computed(() => {
       </button>
     </div>
 
-    <div v-if="!visible.length" class="mt-6 rounded-[var(--radius-card)] border border-dashed border-line bg-surface px-6 py-14 text-center">
-      <p class="text-[13px] text-ink-soft">
+    <div v-if="!visible.length" class="mt-6 rounded-card border border-dashed border-line bg-surface px-6 py-14 text-center">
+      <p class="text-body text-ink-soft">
         {{ accounts.length ? t("accounts.noMatch") : t("accounts.empty") }}
       </p>
-      <p class="mt-1.5 text-[12px] text-muted">
+      <p class="mt-1.5 text-body-sm text-muted">
         {{ accounts.length ? t("accounts.noMatchHint") : t("accounts.emptyHint") }}
       </p>
     </div>
@@ -1577,7 +1620,7 @@ const confirmText = computed(() => {
     <div v-if="hasMore" class="mt-4 flex justify-center">
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[9px] border border-line bg-surface px-4 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-4 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
         @click="loadMore"
       >
         {{ t("accounts.loadMore", { rest: visible.length - shown.length }) }}
@@ -1593,7 +1636,7 @@ const confirmText = computed(() => {
       @close="noteDialog.open = false"
     />
 
-    <p v-if="switchBlockedReason" class="mt-4 text-[12px] text-muted">
+    <p v-if="switchBlockedReason" class="mt-4 text-body-sm text-muted">
       {{ t("accounts.hint", { reason: switchBlockedReason }) }}
     </p>
 
@@ -1604,7 +1647,7 @@ const confirmText = computed(() => {
       :confirm-text="confirmText.confirmText"
       :tone="confirmText.tone"
       :busy="confirm.busy"
-      :z-index="recycle.open ? 600 : 50"
+      :z-index="recycle.open ? 1002 : 1001"
       @confirm="onConfirm"
       @cancel="confirm.open = false"
     />
@@ -1632,22 +1675,24 @@ const confirmText = computed(() => {
     <Teleport to="body">
       <div
         v-if="jsonDialog.open"
-        class="fixed inset-0 z-[500] flex items-center justify-center bg-black/30 p-6"
+        class="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/30 p-4 sm:p-6"
         @click.self="jsonDialog.open = false"
       >
-        <div class="w-full max-w-[560px] rounded-[14px] border border-line bg-surface p-5 shadow-[0_16px_48px_-12px_rgba(28,30,28,0.28)]">
+        <div
+          class="max-h-[calc(100vh-2rem)] w-full max-w-[min(560px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5 shadow-float"
+        >
           <div class="flex items-center justify-between">
-            <h2 class="text-[15px] font-semibold text-ink">{{ t("accounts.jsonImport") }}</h2>
+            <h2 class="text-title font-semibold text-ink">{{ t("accounts.jsonImport") }}</h2>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 rounded-[8px] border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+              class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
               @click="pickFile"
             >
               <FileUp :size="13" :stroke-width="1.9" />
               {{ t("accounts.chooseFile") }}
             </button>
           </div>
-          <p class="mt-1.5 text-[12px] leading-relaxed text-muted">
+          <p class="mt-1.5 text-body-sm leading-relaxed text-muted">
             {{ t("accounts.jsonDesc") }}
           </p>
 
@@ -1660,17 +1705,17 @@ const confirmText = computed(() => {
           />
 
           <div
-            class="mt-3 rounded-[10px] border border-dashed border-line bg-line-soft/40 px-4 py-3 transition-colors"
+            class="mt-3 rounded-control border border-dashed border-line bg-line-soft/40 px-4 py-3 transition-colors"
             :class="jsonDialog.fileName ? 'border-brand' : ''"
             @dragover="onDragOver"
             @drop.prevent="onFileDrop"
           >
-            <div v-if="jsonDialog.fileName" class="flex items-center gap-2 text-[12.5px] text-ink">
+            <div v-if="jsonDialog.fileName" class="flex items-center gap-2 text-body-sm text-ink">
               <FileUp :size="14" :stroke-width="1.9" class="text-brand" />
               <span class="min-w-0 flex-1 truncate">{{ jsonDialog.fileName }}</span>
               <span class="shrink-0 text-muted">{{ t("accounts.fileLoaded") }}</span>
             </div>
-            <div v-else class="text-center text-[12px] text-muted">
+            <div v-else class="text-center text-body-sm text-muted">
               {{ t("accounts.dropHere") }}
             </div>
           </div>
@@ -1680,13 +1725,13 @@ const confirmText = computed(() => {
             rows="9"
             spellcheck="false"
             :placeholder="t('accounts.jsonPlaceholder')"
-            class="mt-3 w-full resize-y rounded-[10px] border border-line bg-surface p-3 font-mono text-[12px] leading-relaxed text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
+            class="mt-3 w-full resize-y rounded-control border border-line bg-surface p-3 font-mono text-body-sm leading-relaxed text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
           ></textarea>
 
           <!-- 认出是本工具的导出包：明确告知含登录凭据，别让用户猜导入后有没有凭据 -->
           <div
             v-if="detectedBundle"
-            class="mt-2 flex items-start gap-2 rounded-[9px] bg-brand-soft px-3 py-2 text-[12px] leading-relaxed text-brand-dark"
+            class="mt-2 flex items-start gap-2 rounded-control bg-brand-soft px-3 py-2 text-body-sm leading-relaxed text-brand-dark"
           >
             <Download :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
             <span>{{ t("accounts.bundleDetected", { count: detectedBundle.count }) }}</span>
@@ -1695,25 +1740,25 @@ const confirmText = computed(() => {
           <!-- 导出包里自带的缺口标记：导入前就说清「这几个过期要重登」 -->
           <div
             v-if="detectedBundle && detectedBundle.gapCount"
-            class="mt-2 flex items-start gap-2 rounded-[9px] bg-warn-soft/70 px-3 py-2 text-[12px] leading-relaxed text-warn"
+            class="mt-2 flex items-start gap-2 rounded-control bg-warn-soft/70 px-3 py-2 text-body-sm leading-relaxed text-warn"
           >
             <AlertTriangle :size="13" :stroke-width="1.9" class="mt-0.5 shrink-0" />
             <span>{{ t("accounts.importBundleGap", { count: detectedBundle.gapCount }) }}</span>
           </div>
 
-          <p v-if="jsonDialog.error" class="mt-2 text-[12px] text-danger">{{ jsonDialog.error }}</p>
+          <p v-if="jsonDialog.error" class="mt-2 text-body-sm text-danger">{{ jsonDialog.error }}</p>
 
           <div class="mt-4 flex justify-end gap-2">
             <button
               type="button"
-              class="rounded-[9px] border border-line px-3.5 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+              class="rounded-control border border-line px-3.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
               @click="jsonDialog.open = false"
             >
               {{ t("common.cancel") }}
             </button>
             <button
               type="button"
-              class="rounded-[9px] bg-brand px-3.5 py-2 text-[12.5px] font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+              class="rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
               :disabled="jsonDialog.busy || !jsonDialog.content.trim()"
               @click="onJsonImport"
             >
@@ -1728,16 +1773,16 @@ const confirmText = computed(() => {
     <Teleport to="body">
       <div
         v-if="recycle.open"
-        class="fixed inset-0 z-[500] flex items-center justify-center bg-black/30 p-6"
+        class="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/30 p-4 sm:p-6"
         @click.self="recycle.open = false"
       >
         <div
-          class="w-full max-w-[560px] rounded-[14px] border border-line bg-surface p-5 shadow-[0_16px_48px_-12px_rgba(28,30,28,0.28)]"
+          class="max-h-[calc(100vh-2rem)] w-full max-w-[min(560px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5 shadow-float"
         >
           <div class="flex items-start justify-between gap-3">
             <div>
-              <h2 class="text-[15px] font-semibold text-ink">{{ t("accounts.recycle.title") }}</h2>
-              <p class="mt-1 text-[12px] leading-relaxed text-muted">
+              <h2 class="text-title font-semibold text-ink">{{ t("accounts.recycle.title") }}</h2>
+              <p class="mt-1 text-body-sm leading-relaxed text-muted">
                 {{ t("accounts.recycle.desc") }}
               </p>
             </div>
@@ -1745,7 +1790,7 @@ const confirmText = computed(() => {
               <button
                 v-if="recycle.items.length"
                 type="button"
-                class="inline-flex items-center gap-1 rounded-[8px] border border-danger/30 px-2.5 py-1.5 text-[12px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-60"
+                class="inline-flex items-center gap-1 rounded-control border border-danger/30 px-2.5 py-1.5 text-body-sm font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-60"
                 :disabled="recycle.busy"
                 :title="t('accounts.recycle.purgeAllHint', { count: recycle.items.length })"
                 @click="askPurgeAll()"
@@ -1755,7 +1800,7 @@ const confirmText = computed(() => {
               </button>
               <button
                 type="button"
-                class="rounded-[8px] p-1 text-muted transition-colors hover:bg-line-soft hover:text-ink"
+                class="rounded-control p-1 text-muted transition-colors hover:bg-line-soft hover:text-ink"
                 @click="recycle.open = false"
               >
                 <X :size="15" :stroke-width="2" />
@@ -1763,23 +1808,23 @@ const confirmText = computed(() => {
             </div>
           </div>
 
-          <p v-if="recycle.error" class="mt-3 text-[12px] text-danger">
+          <p v-if="recycle.error" class="mt-3 text-body-sm text-danger">
             {{ t("accounts.recycle.loadFailed", { reason: recycle.error }) }}
           </p>
 
           <!-- 账号已删、但关联数据没清干净：留在界面上，别让用户错过 -->
           <ul
             v-if="recycle.warnings.length"
-            class="mt-3 space-y-1 rounded-[9px] border border-warn/30 bg-warn-soft/50 px-3 py-2"
+            class="mt-3 space-y-1 rounded-control border border-warn/30 bg-warn-soft/50 px-3 py-2"
           >
-            <li v-for="(warning, index) in recycle.warnings" :key="index" class="text-[11.5px] leading-relaxed text-warn">
+            <li v-for="(warning, index) in recycle.warnings" :key="index" class="text-caption leading-relaxed text-warn">
               {{ t("accounts.recycle.purgeCleanupWarning", { reason: warning }) }}
             </li>
           </ul>
 
           <div
             v-else-if="recycle.busy && !recycle.items.length"
-            class="mt-4 flex items-center justify-center gap-2 py-8 text-[12.5px] text-muted"
+            class="mt-4 flex items-center justify-center gap-2 py-8 text-body-sm text-muted"
           >
             <Loader2 :size="14" :stroke-width="2" class="animate-spin" />
             {{ t("accounts.recycle.busy") }}
@@ -1787,28 +1832,28 @@ const confirmText = computed(() => {
 
           <div
             v-else-if="!recycle.items.length"
-            class="mt-4 rounded-[10px] border border-dashed border-line bg-line-soft/40 px-4 py-10 text-center"
+            class="mt-4 rounded-control border border-dashed border-line bg-line-soft/40 px-4 py-10 text-center"
           >
-            <p class="text-[12.5px] text-ink-soft">{{ t("accounts.recycle.empty") }}</p>
-            <p class="mt-1 text-[11.5px] text-muted">{{ t("accounts.recycle.emptyHint") }}</p>
+            <p class="text-body-sm text-ink-soft">{{ t("accounts.recycle.empty") }}</p>
+            <p class="mt-1 text-caption text-muted">{{ t("accounts.recycle.emptyHint") }}</p>
           </div>
 
           <ul v-else class="mt-3 max-h-[336px] space-y-1.5 overflow-y-auto pr-1">
             <li
               v-for="item in recycle.items"
               :key="item.id"
-              class="flex items-center gap-2.5 rounded-[10px] border border-line px-3 py-2"
+              class="flex items-center gap-2.5 rounded-control border border-line px-3 py-2"
             >
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <span class="truncate text-[12.5px] text-ink">{{ item.displayName }}</span>
+                  <span class="truncate text-body-sm text-ink">{{ item.displayName }}</span>
                   <span
-                    class="shrink-0 rounded-[5px] bg-line-soft px-1.5 py-px text-[10.5px] text-muted"
+                    class="shrink-0 rounded-badge bg-line-soft px-1.5 py-px text-micro text-muted"
                   >
                     {{ platformLabel(item.platform) }}
                   </span>
                 </div>
-                <p class="mt-0.5 text-[11px] text-muted">
+                <p class="mt-0.5 text-caption text-muted">
                   {{
                     item.daysLeft > 0
                       ? t("accounts.recycle.daysLeft", { days: item.daysLeft })
@@ -1818,7 +1863,7 @@ const confirmText = computed(() => {
               </div>
               <button
                 type="button"
-                class="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-brand/30 bg-brand-soft px-2.5 py-1.5 text-[12px] font-medium text-brand-dark transition-colors hover:bg-brand-soft/70 disabled:opacity-60"
+                class="inline-flex shrink-0 items-center gap-1 rounded-control border border-brand/30 bg-brand-soft px-2.5 py-1.5 text-body-sm font-medium text-brand-dark transition-colors hover:bg-brand-soft/70 disabled:opacity-60"
                 :disabled="recycle.busy"
                 @click="restoreFromRecycle(item)"
               >
@@ -1828,7 +1873,7 @@ const confirmText = computed(() => {
               <!-- 不可逆操作，用文字而非纯图标：图标语义不够明确 -->
               <button
                 type="button"
-                class="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-danger/30 px-2.5 py-1.5 text-[12px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-60"
+                class="inline-flex shrink-0 items-center gap-1 rounded-control border border-danger/30 px-2.5 py-1.5 text-body-sm font-medium text-danger transition-colors hover:bg-danger-soft disabled:opacity-60"
                 :disabled="recycle.busy"
                 :title="t('accounts.recycle.purgeHint')"
                 @click="askPurge(item)"
@@ -1844,7 +1889,7 @@ const confirmText = computed(() => {
     <Teleport to="body">
       <div
         v-if="toast"
-        class="fixed bottom-8 left-1/2 z-[60] -translate-x-1/2 rounded-[9px] bg-ink px-4 py-2.5 text-[12.5px] text-white"
+        class="fixed bottom-8 left-1/2 z-[60] -translate-x-1/2 rounded-control bg-ink px-4 py-2.5 text-body-sm text-white"
       >
         {{ toast }}
       </div>

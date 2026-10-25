@@ -153,7 +153,7 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       type="button"
-      class="flex w-full items-center gap-1.5 rounded-[6px] border border-line bg-surface px-1.5 py-0.5 text-left text-[12px] text-ink transition-colors duration-150 hover:border-[#d5d8d3] disabled:cursor-not-allowed disabled:opacity-60"
+      class="flex w-full items-center gap-1.5 rounded-badge border border-line bg-surface px-1.5 py-0.5 text-left text-body-sm text-ink transition-colors duration-150 hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-60"
       :class="open ? 'border-brand' : ''"
       :disabled="disabled"
       :title="t('schedule.scopeHint')"
@@ -178,18 +178,18 @@ onBeforeUnmount(() => {
         <div
           v-if="open"
           ref="panel"
-          class="fixed z-[900] rounded-[10px] border border-line bg-surface p-2 shadow-[var(--shadow-float)]"
+          class="fixed z-[900] rounded-control border border-line bg-surface p-2 shadow-[var(--shadow-float)]"
           :style="panelStyle"
           role="dialog"
           @keydown="onKeydown"
         >
-          <div class="flex items-center gap-1.5 rounded-[7px] border border-line-soft px-2 py-1">
+          <div class="flex items-center gap-1.5 rounded-control border border-line-soft px-2 py-1">
             <Search :size="12" :stroke-width="2" class="shrink-0 text-muted" />
             <input
               ref="searchInput"
               v-model="query"
               type="text"
-              class="min-w-0 flex-1 bg-transparent text-[12px] text-ink outline-none placeholder:text-muted"
+              class="min-w-0 flex-1 bg-transparent text-body-sm text-ink outline-none placeholder:text-muted"
               :placeholder="t('schedule.scopeSearch')"
             />
           </div>
@@ -197,7 +197,7 @@ onBeforeUnmount(() => {
           <div class="mt-1.5 flex items-center gap-1">
             <button
               type="button"
-              class="rounded-[6px] border border-line px-1.5 py-0.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
+              class="rounded-badge border border-line px-1.5 py-0.5 text-caption text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
               :disabled="allSelected"
               @click="selectAll"
             >
@@ -205,31 +205,31 @@ onBeforeUnmount(() => {
             </button>
             <button
               type="button"
-              class="rounded-[6px] border border-line px-1.5 py-0.5 text-[11.5px] text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
+              class="rounded-badge border border-line px-1.5 py-0.5 text-caption text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
               :disabled="!modelValue.length"
               @click="clearAll"
             >
               {{ t("schedule.scopeSelectNone") }}
             </button>
-            <span class="ml-auto text-[11px] text-muted">{{ summary }}</span>
+            <span class="ml-auto text-caption text-muted">{{ summary }}</span>
           </div>
 
           <div class="mt-1 max-h-[240px] overflow-y-auto">
-            <div v-if="!accounts.length" class="px-2 py-2 text-[12px] text-muted">
+            <div v-if="!accounts.length" class="px-2 py-2 text-body-sm text-muted">
               {{ t("schedule.scopeEmpty") }}
             </div>
-            <div v-else-if="!filtered.length" class="px-2 py-2 text-[12px] text-muted">
+            <div v-else-if="!filtered.length" class="px-2 py-2 text-body-sm text-muted">
               {{ t("schedule.scopeNoMatch") }}
             </div>
             <button
               v-for="account in filtered"
               :key="account.id"
               type="button"
-              class="flex w-full items-center gap-2 rounded-[7px] px-2 py-1.5 text-left text-[12.5px] text-ink-soft transition-colors hover:bg-line-soft"
+              class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-body-sm text-ink-soft transition-colors hover:bg-line-soft"
               @click="toggleAccount(account.id)"
             >
               <span
-                class="grid size-3.5 shrink-0 place-items-center rounded-[4px] border"
+                class="grid size-3.5 shrink-0 place-items-center rounded-badge border"
                 :class="
                   selected.has(account.id)
                     ? 'border-brand bg-brand text-white'
@@ -244,13 +244,13 @@ onBeforeUnmount(() => {
                 />
               </span>
               <span class="min-w-0 flex-1 truncate">{{ account.displayName }}</span>
-              <span class="shrink-0 text-[10.5px] text-muted">
+              <span class="shrink-0 text-micro text-muted">
                 {{ PLATFORM_LABEL[account.platform] ?? account.platform }}
               </span>
             </button>
           </div>
 
-          <p class="mt-1 border-t border-line-soft pt-1.5 text-[11px] leading-relaxed text-muted">
+          <p class="mt-1 border-t border-line-soft pt-1.5 text-caption leading-relaxed text-muted">
             {{ t("schedule.scopeHint") }}
           </p>
         </div>

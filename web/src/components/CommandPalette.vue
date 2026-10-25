@@ -74,11 +74,11 @@ function onInput(): void {
 
 <template>
   <div
-    class="fixed inset-0 z-[1001] flex items-start justify-center bg-black/25 px-4 pt-[18vh]"
+    class="fixed inset-0 z-[var(--z-modal)] flex items-start justify-center bg-black/25 px-4 pt-[18vh]"
     @click.self="emit('close')"
   >
     <div
-      class="w-full max-w-[420px] overflow-hidden rounded-[12px] border border-line bg-surface shadow-[0_18px_48px_-12px_rgba(28,30,28,0.35)]"
+      class="w-full max-w-[420px] overflow-hidden rounded-card border border-line bg-surface shadow-float"
     >
       <div class="flex items-center gap-2.5 border-b border-line-soft px-4">
         <Search :size="15" :stroke-width="1.9" class="shrink-0 text-muted" />
@@ -87,16 +87,16 @@ function onInput(): void {
           v-model="keyword"
           type="text"
           :placeholder="t('palette.placeholder')"
-          class="h-11 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-muted"
+          class="h-11 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-muted"
           @input="onInput"
           @keydown="onKeydown"
         />
-        <kbd class="shrink-0 rounded-[5px] border border-line px-1.5 py-0.5 text-[10.5px] text-muted">
+        <kbd class="shrink-0 rounded-badge border border-line px-1.5 py-0.5 text-micro text-muted">
           Esc
         </kbd>
       </div>
 
-      <p v-if="!matches.length" class="px-4 py-6 text-center text-[12.5px] text-muted">
+      <p v-if="!matches.length" class="px-4 py-6 text-center text-body-sm text-muted">
         {{ t("palette.empty") }}
       </p>
 
@@ -104,7 +104,7 @@ function onInput(): void {
         <li v-for="(item, index) in matches" :key="item.key">
           <button
             type="button"
-            class="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[13px] transition-colors"
+            class="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left text-body transition-colors"
             :class="
               index === cursor
                 ? 'bg-brand-soft font-medium text-brand-dark'

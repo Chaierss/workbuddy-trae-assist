@@ -69,7 +69,7 @@ const updateBadgeTitle = computed(() => {
       <!-- 品牌块本身就是折叠按钮：logo 图标即展开/收起入口，不再单独摆一个折叠箭头 -->
       <button
         type="button"
-        class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-[11px] border border-line-soft bg-white transition-opacity hover:opacity-90"
+        class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-control border border-line-soft bg-white transition-opacity hover:opacity-90"
         :class="collapsed ? 'mx-auto' : ''"
         :title="collapsed ? t('shell.expandRail') : t('shell.collapseRail')"
         @click="toggleCollapsed"
@@ -79,11 +79,11 @@ const updateBadgeTitle = computed(() => {
 
       <template v-if="!collapsed">
         <div class="min-w-0 flex-1">
-          <div class="truncate text-[14px] font-semibold tracking-tight">chaierww</div>
-          <div class="truncate text-[11px] text-muted">{{ t("shell.tagline") }}</div>
+          <div class="truncate text-title font-semibold tracking-tight">chaierww</div>
+          <div class="truncate text-caption text-muted">{{ t("shell.tagline") }}</div>
           <!-- 版本号只有一个来源：后端 /api/health 报的 __version__。
                以前这里和 web/src/lib/version.ts 各写一份字面量，两处都停在 0.1.0。 -->
-          <div v-if="health?.version" class="truncate text-[10.5px] text-muted">
+          <div v-if="health?.version" class="truncate text-micro text-muted">
             v{{ health.version }}
           </div>
         </div>
@@ -93,7 +93,7 @@ const updateBadgeTitle = computed(() => {
     <nav class="flex-1 overflow-y-auto px-2 py-3">
       <div
         v-if="!collapsed"
-        class="px-2.5 pb-1.5 text-[10.5px] font-medium uppercase tracking-[0.09em] text-muted"
+        class="px-2.5 pb-1.5 text-micro font-medium uppercase tracking-[0.09em] text-muted"
       >
         {{ t("shell.sectionWorkbench") }}
       </div>
@@ -107,7 +107,7 @@ const updateBadgeTitle = computed(() => {
         >
           <button
             type="button"
-            class="relative flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] transition-[background-color,color] duration-150"
+            class="relative flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-body transition-[background-color,color] duration-150"
             :class="
               isActive
                 ? 'bg-brand-soft font-medium text-brand-dark'
@@ -125,7 +125,7 @@ const updateBadgeTitle = computed(() => {
               <span class="flex-1 truncate text-left">{{ item.label }}</span>
               <span
                 v-if="item.badge"
-                class="rounded-full px-1.5 py-0.5 text-[11px] leading-none tabular-nums"
+                class="rounded-full px-1.5 py-0.5 text-caption leading-none tabular-nums"
                 :class="isActive ? 'bg-white/80 text-brand-dark dark:bg-white/15' : 'bg-line-soft text-muted'"
               >
                 {{ item.badge }}
@@ -150,7 +150,7 @@ const updateBadgeTitle = computed(() => {
       >
         <button
           type="button"
-          class="relative flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] transition-colors"
+          class="relative flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-body transition-colors"
           :class="[
             collapsed ? 'justify-center' : '',
             isActive
@@ -175,7 +175,7 @@ const updateBadgeTitle = computed(() => {
 
       <button
         type="button"
-        class="grid size-9 shrink-0 place-items-center rounded-[9px] text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+        class="grid size-9 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
         :title="themeTitle"
         :aria-label="themeTitle"
         @click="toggleTheme"

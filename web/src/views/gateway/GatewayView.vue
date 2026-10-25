@@ -89,8 +89,8 @@ onBeforeUnmount(() => {
   <div class="flex h-full min-h-0 flex-col">
     <header class="flex shrink-0 flex-wrap items-start justify-between gap-3 pb-4">
       <div>
-        <h2 class="text-[15px] font-semibold tracking-tight text-ink">{{ t(activeTab.labelKey) }}</h2>
-        <p class="mt-0.5 text-[12px] text-muted">{{ t(activeTab.hintKey) }}</p>
+        <h2 class="text-title font-semibold tracking-tight text-ink">{{ t(activeTab.labelKey) }}</h2>
+        <p class="mt-0.5 text-body-sm text-muted">{{ t(activeTab.hintKey) }}</p>
       </div>
       <div class="flex items-center gap-2">
         <StatusPill :tone="store.status?.running ? 'brand' : 'neutral'" dot>
@@ -111,7 +111,7 @@ onBeforeUnmount(() => {
         />
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-[9px] border border-line bg-surface px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-60"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
           :disabled="store.loading"
           @click="store.load"
         >
@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="store.error"
-      class="mb-3 flex items-start gap-2.5 rounded-[var(--radius-card)] border border-line bg-danger-soft px-4 py-2.5 text-[12.5px] text-danger"
+      class="mb-3 flex items-start gap-2.5 rounded-card border border-line bg-danger-soft px-4 py-2.5 text-body-sm text-danger"
     >
       <TriangleAlert :size="15" class="mt-0.5 shrink-0" />
       <div>{{ store.error }}</div>
@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="store.loading && !store.status"
-      class="flex items-center gap-2 px-5 py-10 text-[13px] text-muted"
+      class="flex items-center gap-2 px-5 py-10 text-body text-muted"
     >
       <Loader2 :size="15" class="animate-spin" /> {{ t("gateway.loading") }}
     </div>

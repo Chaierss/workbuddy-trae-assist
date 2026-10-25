@@ -108,19 +108,23 @@ function viewRelease(): void {
   <Teleport to="body">
     <div
       v-if="updateDialog"
-      class="fixed inset-0 z-50 grid place-items-center bg-black/25 p-4"
+      class="fixed inset-0 z-[var(--z-modal)] grid place-items-center bg-black/25 p-4"
       @click.self="closeUpdateDialog"
     >
-      <div class="w-full max-w-[520px] rounded-[16px] border border-line bg-surface p-6">
+      <!-- 与其它弹窗共用 --z-modal 层级：低于侧栏（z-200）会让遮罩和面板被侧栏盖住。
+           小窗口下把高度收到视口内，内容自己滚动，避免底部的操作按钮出屏。 -->
+      <div
+        class="max-h-[calc(100vh-2rem)] w-full max-w-[min(520px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5 sm:p-6"
+      >
         <div class="flex items-start gap-3">
           <img
             src="/android-chrome-192x192.png"
             alt=""
-            class="size-11 shrink-0 rounded-[12px] border border-line-soft bg-white object-contain p-1"
+            class="size-11 shrink-0 rounded-card border border-line-soft bg-white object-contain p-1"
           />
           <div class="min-w-0 flex-1">
-            <h3 class="text-[15px] font-semibold text-ink">{{ title }}</h3>
-            <p v-if="state?.version" class="mt-0.5 text-[12px] text-muted">
+            <h3 class="text-title font-semibold text-ink">{{ title }}</h3>
+            <p v-if="state?.version" class="mt-0.5 text-body-sm text-muted">
               {{
                 t("update.dialog.versionFromTo", {
                   current: state.currentVersion,
@@ -134,25 +138,25 @@ function viewRelease(): void {
         <!-- 跳过提示 -->
         <div
           v-if="skipped"
-          class="mt-3 rounded-[9px] border border-warn/30 bg-warn-soft/60 px-3 py-2 text-[12px] text-warn"
+          class="mt-3 rounded-control border border-warn/30 bg-warn-soft/60 px-3 py-2 text-body-sm text-warn"
         >
           {{ t("update.dialog.skippedNote", { version: state?.version ?? "" }) }}
         </div>
 
         <!-- 更新说明：HTML 渲染（内容已白名单清洗），空则退回占位文案 -->
         <div v-if="updateDialog === 'available' || updateDialog === 'downloaded'" class="mt-4">
-          <div class="text-[12px] font-medium text-ink-soft">{{ t("update.dialog.notes") }}</div>
+          <div class="text-body-sm font-medium text-ink-soft">{{ t("update.dialog.notes") }}</div>
           <div
             v-if="notesHtml"
             class="release-notes mt-1.5 max-h-[220px] overflow-y-auto"
             v-html="notesHtml"
           />
-          <div v-else class="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">
+          <div v-else class="mt-1.5 text-body-sm leading-relaxed text-ink-soft">
             {{ t("update.dialog.noNotes") }}
           </div>
           <button
             type="button"
-            class="mt-1.5 text-[12px] text-brand underline-offset-2 hover:underline"
+            class="mt-1.5 text-body-sm text-brand underline-offset-2 hover:underline"
             @click="viewRelease"
           >
             {{ t("update.dialog.viewRelease") }}
@@ -162,10 +166,10 @@ function viewRelease(): void {
         <!-- 下载进度 -->
         <div v-if="updateDialog === 'downloading'" class="mt-4">
           <div class="flex items-baseline justify-between">
-            <span class="text-[26px] font-semibold tabular-nums text-ink">
+            <span class="text-display font-semibold tabular-nums text-ink">
               {{ state?.percent ?? 0 }}%
             </span>
-            <span class="text-[12px] tabular-nums text-muted">
+            <span class="text-body-sm tabular-nums text-muted">
               {{ formatBytes(state?.transferred ?? 0) }} / {{ formatBytes(state?.total ?? 0) }}
             </span>
           </div>
@@ -175,7 +179,7 @@ function viewRelease(): void {
               :style="{ width: `${state?.percent ?? 0}%` }"
             />
           </div>
-          <div class="mt-2 flex items-center justify-between text-[11.5px] text-muted">
+          <div class="mt-2 flex items-center justify-between text-caption text-muted">
             <span>{{ formatRate(state?.bytesPerSecond ?? 0) }}</span>
             <span>{{ eta }}</span>
           </div>
@@ -183,29 +187,29 @@ function viewRelease(): void {
 
         <!-- 错误 -->
         <div v-if="updateDialog === 'error'" class="mt-4">
-          <p class="text-[13px] leading-relaxed text-ink-soft">{{ errorText }}</p>
+          <p class="text-body leading-relaxed text-ink-soft">{{ errorText }}</p>
           <details v-if="state?.message" class="mt-2">
-            <summary class="cursor-pointer text-[12px] text-muted">
+            <summary class="cursor-pointer text-body-sm text-muted">
               {{ t("update.dialog.details") }}
             </summary>
-            <p class="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-muted">
+            <p class="mt-1.5 break-all font-mono text-caption leading-relaxed text-muted">
               {{ state.message }}
             </p>
           </details>
         </div>
 
         <!-- 已下载：安装说明 -->
-        <p v-if="updateDialog === 'downloaded'" class="mt-3 text-[12px] text-muted">
+        <p v-if="updateDialog === 'downloaded'" class="mt-3 text-body-sm text-muted">
           {{ t("update.dialog.installNote") }}
         </p>
 
-        <div class="mt-5 flex items-center justify-between gap-2">
+        <div class="mt-5 flex flex-wrap items-center justify-between gap-2">
           <!-- 左侧：次要动作（跳过 / 取消跳过 / 后台） -->
           <div class="flex items-center gap-1">
             <button
               v-if="updateDialog === 'available' && !skipped"
               type="button"
-              class="rounded-[9px] px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+              class="rounded-control px-3 py-2 text-body-sm text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
               :disabled="updateBusy"
               @click="skipCurrentVersion"
             >
@@ -214,7 +218,7 @@ function viewRelease(): void {
             <button
               v-if="updateDialog === 'available' && skipped"
               type="button"
-              class="rounded-[9px] px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+              class="rounded-control px-3 py-2 text-body-sm text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
               :disabled="updateBusy"
               @click="unskipVersion"
             >
@@ -223,7 +227,7 @@ function viewRelease(): void {
             <button
               v-if="updateDialog === 'downloading'"
               type="button"
-              class="rounded-[9px] px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+              class="rounded-control px-3 py-2 text-body-sm text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
               @click="closeUpdateDialog"
             >
               {{ t("update.dialog.background") }}
@@ -235,7 +239,7 @@ function viewRelease(): void {
             <button
               v-if="updateDialog !== 'downloaded'"
               type="button"
-              class="rounded-[9px] border border-line px-3.5 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+              class="rounded-control border border-line px-3.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
               :disabled="updateBusy"
               @click="closeUpdateDialog"
             >
@@ -243,7 +247,7 @@ function viewRelease(): void {
             </button>
             <button
               type="button"
-              class="rounded-[9px] bg-brand px-3.5 py-2 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              class="rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               :disabled="updateBusy"
               @click="onPrimary"
             >

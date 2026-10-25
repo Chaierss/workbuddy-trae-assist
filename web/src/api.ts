@@ -1,4 +1,5 @@
 import { t } from "./lib/i18n";
+import type { OpenApiSpec } from "./lib/openapi";
 
 export interface ScopeInfo {
   key: string;
@@ -71,6 +72,34 @@ export interface CredentialGap {
   scope: string;
   credentialKind: string;
   gaps: string[];
+  /** 号池里的凭据状态：usable / unverified / relogin_required / unknown。 */
+  credentialState?: string;
+  /** 凭据有效期（UTC ISO）。null = 无法解析（信封凭据 / 客户端托管）。 */
+  expiresAt?: string | null;
+  /** 到期前能否自动续期（有 refreshToken 且为扫码明文）。 */
+  refreshable?: boolean;
+  expired?: boolean;
+  /** 连续认证失败次数；≥3 会熔断自动续期。 */
+  probeFailures?: number;
+  /** 后端给的一句话原因，界面直接展示。 */
+  reason?: string;
+}
+
+/** 一条活动执行流水。 */
+export interface ActivityRun {
+  accountId: string;
+  key: string;
+  day: string;
+  attempt: number;
+  status: string;
+  message: string;
+  reward: number | null;
+  at: string;
+}
+
+export interface ActivityRuns {
+  since: string;
+  runs: ActivityRun[];
 }
 
 export interface CredentialHealth {
@@ -983,13 +1012,6 @@ export interface DocContent {
   content: string;
 }
 
-export interface DocsStatus {
-  available: boolean;
-  docsUrl: string;
-  openapiUrl: string;
-  reason: string;
-}
-
 export interface LogFile {
   name: string;
   size: number;
@@ -1181,6 +1203,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ accountIds: accountIds ?? null }),
     }),
+
+  /** 最近几天的活动执行流水（新的在前）。 */
+  activityRuns: (days = 7, limit = 500) =>
+    request<ActivityRuns>(`/api/activities/runs?days=${days}&limit=${limit}`),
 
   /** 凭据巡检：due 只续快到期的，force 全部尝试续期，check 只验活。 */
   refreshCredentials: (mode: "due" | "force" | "check", accountIds?: string[]) =>
@@ -1460,9 +1486,8 @@ export const api = {
   docContent: (path: string) =>
     request<DocContent>(`/api/docs/content?path=${encodeURIComponent(path)}`),
 
-
-  /** 接口文档是否可用：前端先问这里，再决定要不要挂 iframe。 */
-  docsStatus: () => request<DocsStatus>("/api/docs/status"),
+  /** 运行期接口规格：接口文档页直接渲染它，不再依赖 Swagger UI 静态资源。 */
+  openapi: () => request<OpenApiSpec>("/api/openapi.json"),
 
   logFiles: () => request<{ dir: string; files: LogFile[] }>("/api/logs/files"),
 

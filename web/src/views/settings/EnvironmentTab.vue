@@ -47,19 +47,19 @@ function statusTone(client: { installed: boolean; loggedIn: boolean; running: bo
           class="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
         >
           <component :is="row.icon" :size="15" class="mt-0.5 shrink-0 text-muted" />
-          <span class="w-[92px] shrink-0 text-[12.5px] text-muted">{{ row.label }}</span>
-          <span class="min-w-0 flex-1 break-all font-mono text-[12px] text-ink-soft">
+          <span class="w-[92px] shrink-0 text-body-sm text-muted">{{ row.label }}</span>
+          <span class="min-w-0 flex-1 break-all font-mono text-body-sm text-ink-soft">
             {{ row.value }}
           </span>
         </li>
         <li class="flex items-start gap-3 py-3">
           <HardDrive :size="15" class="mt-0.5 shrink-0 text-muted" />
-          <span class="w-[92px] shrink-0 text-[12.5px] text-muted">{{ t("env.stateDir") }}</span>
+          <span class="w-[92px] shrink-0 text-body-sm text-muted">{{ t("env.stateDir") }}</span>
           <div class="min-w-0 flex-1 space-y-1.5">
             <div
               v-for="client in clientDetections"
               :key="client.scope"
-              class="break-all font-mono text-[11.5px] text-ink-soft"
+              class="break-all font-mono text-caption text-ink-soft"
             >
               <span class="mr-1 font-sans text-muted">{{ client.label }}：</span>
               {{ client.stateDir ?? t("env.notDetected") }}
@@ -71,7 +71,7 @@ function statusTone(client: { installed: boolean; loggedIn: boolean; running: bo
     </SectionCard>
 
     <SectionCard :title="t('env.clientsTitle')" :subtitle="t('env.clientsSubtitle')">
-      <div class="space-y-2.5 text-[12.5px]">
+      <div class="space-y-2.5 text-body-sm">
         <div
           v-for="client in clientDetections"
           :key="client.scope"
@@ -90,11 +90,11 @@ function statusTone(client: { installed: boolean; loggedIn: boolean; running: bo
       <ul class="space-y-3">
         <li v-for="item in boundaries" :key="item.titleKey" class="flex items-start gap-3">
           <span
-            class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-[8px] bg-brand-soft text-brand-dark"
+            class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-control bg-brand-soft text-brand-dark"
           >
             <component :is="item.icon" :size="15" :stroke-width="1.9" />
           </span>
-          <div class="min-w-0 text-[12.5px] leading-relaxed">
+          <div class="min-w-0 text-body-sm leading-relaxed">
             <div class="font-medium text-ink">{{ t(item.titleKey) }}</div>
             <div class="text-muted">{{ t(item.descKey) }}</div>
           </div>

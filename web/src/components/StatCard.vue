@@ -22,13 +22,13 @@ defineProps<{
   <component
     :is="to ? RouterLink : 'div'"
     :to="to"
-    class="group block rounded-[var(--radius-card)] border border-line bg-surface px-5 py-4 shadow-card transition-all duration-200"
-    :class="to ? 'hover:-translate-y-px hover:border-[#d7dad5] hover:shadow-card-hover' : 'hover:border-[#d7dad5]'"
+    class="group block rounded-card border border-line bg-surface px-5 py-4 shadow-card transition-all duration-200"
+    :class="to ? 'hover:-translate-y-px hover:border-line-strong hover:shadow-card-hover' : 'hover:border-line-strong'"
   >
     <div class="flex items-center gap-2">
       <span
         v-if="icon"
-        class="grid size-6 shrink-0 place-items-center rounded-[7px] border"
+        class="grid size-6 shrink-0 place-items-center rounded-control border"
         :class="
           tone === 'warn'
             ? 'border-warn/20 bg-warn-soft text-warn'
@@ -41,12 +41,12 @@ defineProps<{
       >
         <component :is="icon" :size="13" :stroke-width="1.9" />
       </span>
-      <span class="truncate text-[11.5px] font-medium tracking-wide text-muted">{{ label }}</span>
+      <span class="truncate text-caption font-medium tracking-wide text-muted">{{ label }}</span>
     </div>
-    <div class="mt-2.5 text-[27px] leading-none font-semibold tracking-tight tabular-nums text-ink">
+    <div class="mt-2.5 text-display leading-none font-semibold tracking-tight tabular-nums text-ink">
       <AnimatedNumber v-if="number !== undefined" :value="number" />
       <template v-else>{{ value }}</template>
     </div>
-    <div v-if="hint" class="mt-2 truncate text-[11.5px] text-muted">{{ hint }}</div>
+    <div v-if="hint" class="mt-2 truncate text-caption text-muted">{{ hint }}</div>
   </component>
 </template>

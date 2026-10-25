@@ -40,6 +40,10 @@ export const accountsZh = {
   "accounts.credential.gapBadge": "凭据不完整",
   "accounts.credential.gapHint":
     "这个账号是扫码登录、凭据缺 {fields}，本次切换现在能用，但 token 过期后会要求重新登录（平台不提供明文，不是凭据损坏）。",
+  "accounts.credential.reloginBanner":
+    "{count} 个账号登录已失效（上游返回 401），签到和活动都会失败，自动续期也无法恢复。",
+  "accounts.credential.reloginBannerHint": "重新扫码登录即可恢复，失败计数会自动清零。",
+  "accounts.credential.reloginAction": "去登录",
   "accounts.credential.gapBanner":
     "{count} 个账号是扫码登录、凭据里没有明文 refresh token（平台不提供），现在能切号，但 token 过期后要重新扫码登录。",
   "accounts.credential.gapBannerHint": "导出这些账号时同样不含 refresh token，换机器导入后过期同样要重新扫码——这是正常现象，不是凭据损坏。",
@@ -334,6 +338,11 @@ export const accountsEn = {
   "accounts.credential.gapBadge": "Incomplete credentials",
   "accounts.credential.gapHint":
     "This account is QR-signed-in and its credentials are missing {fields}. Switching works for now, but you'll be asked to sign in again once the token expires (the platform does not expose a plaintext refresh token — not corrupt).",
+  "accounts.credential.reloginBanner":
+    "{count} accounts are signed out (upstream returned 401). Check-in and activities will fail, and automatic refresh cannot recover them.",
+  "accounts.credential.reloginBannerHint":
+    "Scan the QR code again to restore access; the failure counter resets automatically.",
+  "accounts.credential.reloginAction": "Sign in",
   "accounts.credential.gapBanner":
     "{count} accounts are QR-signed-in with no plaintext refresh token (the platform does not provide one). Switching works for now, but a new QR sign-in will be required once the token expires.",
   "accounts.credential.gapBannerHint":

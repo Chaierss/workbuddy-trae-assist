@@ -45,9 +45,9 @@ const selected = computed(() => props.options.find((item) => item.value === prop
 const selectedLabel = computed(() => selected.value?.label ?? props.placeholder ?? "");
 
 const triggerClass = computed(() => {
-  if (props.size === "xs") return "gap-1 rounded-[6px] px-1.5 py-0.5 text-[12px]";
-  if (props.size === "sm") return "gap-1.5 h-8 rounded-[8px] px-2 text-[12px]";
-  return "gap-2 rounded-[10px] px-3 py-2 text-[13px]";
+  if (props.size === "xs") return "gap-1 rounded-badge px-1.5 py-0.5 text-body-sm";
+  if (props.size === "sm") return "gap-1.5 h-8 rounded-control px-2 text-body-sm";
+  return "gap-2 rounded-control px-3 py-2 text-body";
 });
 
 const panelStyle = computed(() => {
@@ -168,7 +168,7 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       type="button"
-      class="flex w-full items-center border border-line bg-surface text-left text-ink transition-[border-color,box-shadow,color] duration-150 hover:border-[#d5d8d3] disabled:cursor-not-allowed disabled:opacity-60"
+      class="flex w-full items-center border border-line bg-surface text-left text-ink transition-[border-color,box-shadow,color] duration-150 hover:border-line-strong disabled:cursor-not-allowed disabled:opacity-60"
       :class="[triggerClass, open ? 'border-brand' : '']"
       :disabled="disabled"
       :title="title"
@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
         <div
           v-if="open"
           ref="panel"
-          class="fixed z-[900] max-h-[300px] overflow-y-auto rounded-[10px] border border-line bg-surface p-1 shadow-[var(--shadow-float)]"
+          class="fixed z-[900] max-h-[300px] overflow-y-auto rounded-control border border-line bg-surface p-1 shadow-[var(--shadow-float)]"
           :style="panelStyle"
           role="listbox"
           tabindex="-1"
@@ -205,7 +205,7 @@ onBeforeUnmount(() => {
             type="button"
             role="option"
             :aria-selected="option.value === modelValue"
-            class="flex w-full items-center gap-2 rounded-[7px] px-2.5 py-1.5 text-left text-[12.5px] transition-colors"
+            class="flex w-full items-center gap-2 rounded-control px-2.5 py-1.5 text-left text-body-sm transition-colors"
             :class="[
               option.disabled ? 'cursor-not-allowed opacity-45' : '',
               index === activeIndex ? 'bg-line-soft' : '',
@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
               class="shrink-0 text-brand"
             />
           </button>
-          <div v-if="!options.length" class="px-2.5 py-2 text-[12px] text-muted">
+          <div v-if="!options.length" class="px-2.5 py-2 text-body-sm text-muted">
             {{ placeholder }}
           </div>
         </div>

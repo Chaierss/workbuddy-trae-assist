@@ -9,10 +9,11 @@ withDefaults(
     confirmText?: string;
     tone?: "brand" | "danger";
     busy?: boolean;
-    /** 层级：默认 50 与既有调用点一致；在更高层的弹层里调用时传更大的值。 */
+    /** 层级：默认与 --z-modal 一致；叠在其它模态里时传更大的值（如回收站里 1002）。 */
     zIndex?: number;
   }>(),
-  { tone: "brand", busy: false, zIndex: 50 },
+  // 默认直接压到模态层：50 会落在侧栏（z-200）和下拉（z-900）下面。
+  { tone: "brand", busy: false, zIndex: 1001 },
 );
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>();
@@ -26,13 +27,15 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>();
       :style="{ zIndex }"
       @click.self="emit('cancel')"
     >
-      <div class="w-full max-w-[430px] rounded-[16px] border border-line bg-surface p-5">
-        <h3 class="text-[15px] font-semibold text-ink">{{ title }}</h3>
-        <p class="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-ink-soft">{{ message }}</p>
+      <div
+        class="max-h-[calc(100vh-2rem)] w-full max-w-[min(430px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5"
+      >
+        <h3 class="text-title font-semibold text-ink">{{ title }}</h3>
+        <p class="mt-2 whitespace-pre-line text-body leading-relaxed text-ink-soft">{{ message }}</p>
         <div class="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            class="rounded-[9px] border border-line px-3.5 py-2 text-[13px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+            class="rounded-control border border-line px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
             :disabled="busy"
             @click="emit('cancel')"
           >
@@ -40,8 +43,8 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>();
           </button>
           <button
             type="button"
-            class="rounded-[9px] px-3.5 py-2 text-[13px] font-medium text-white transition-colors disabled:opacity-60"
-            :class="tone === 'danger' ? 'bg-danger hover:bg-[#982724]' : 'bg-brand hover:bg-brand-dark'"
+            class="rounded-control px-3.5 py-2 text-body font-medium text-white transition-colors disabled:opacity-60"
+            :class="tone === 'danger' ? 'bg-danger hover:bg-danger-dark' : 'bg-brand hover:bg-brand-dark'"
             :disabled="busy"
             @click="emit('confirm')"
           >

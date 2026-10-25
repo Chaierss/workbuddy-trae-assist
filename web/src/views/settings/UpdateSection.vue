@@ -143,10 +143,10 @@ async function toggleAuto(): Promise<void> {
   <SectionCard :title="t('settings.update.title')" :subtitle="t('settings.update.subtitle')">
     <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">
-        <div class="text-[13px] font-medium text-ink">
+        <div class="text-body font-medium text-ink">
           chaierww {{ state?.currentVersion ?? desktop?.version ?? "" }}
         </div>
-        <div class="mt-1 flex items-center gap-1.5 text-[12px] text-muted">
+        <div class="mt-1 flex items-center gap-1.5 text-body-sm text-muted">
           <Loader2 v-if="updating" :size="13" class="shrink-0 animate-spin" />
           <CheckCircle2
             v-else-if="state?.status === 'up-to-date'"
@@ -165,12 +165,12 @@ async function toggleAuto(): Promise<void> {
           />
           <span class="min-w-0">{{ statusText }}</span>
         </div>
-        <div v-if="checkedText" class="mt-1 text-[11.5px] text-muted">{{ checkedText }}</div>
+        <div v-if="checkedText" class="mt-1 text-caption text-muted">{{ checkedText }}</div>
       </div>
 
       <button
         type="button"
-        class="shrink-0 rounded-[9px] border border-line px-3 py-1.5 text-[12.5px] text-ink transition-colors hover:bg-line-soft disabled:cursor-not-allowed disabled:opacity-50"
+        class="shrink-0 rounded-control border border-line px-3 py-1.5 text-body-sm text-ink transition-colors hover:bg-line-soft disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="busy || updating"
         @click="check"
       >
@@ -186,11 +186,11 @@ async function toggleAuto(): Promise<void> {
     <!-- 有新版本 / 正在下载 / 已下载：一条状态条说清楚下一步点哪 -->
     <div
       v-if="state && ['available', 'downloading', 'downloaded'].includes(state.status)"
-      class="mt-3.5 rounded-[10px] border border-line bg-line-soft/60 p-3"
+      class="mt-3.5 rounded-control border border-line bg-line-soft/60 p-3"
     >
       <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
-          <div class="text-[12.5px] font-medium text-ink">
+          <div class="text-body-sm font-medium text-ink">
             {{ t("settings.update.newVersion", { version: state.version ?? "" }) }}
           </div>
           <div
@@ -203,7 +203,7 @@ async function toggleAuto(): Promise<void> {
         <button
           v-if="state.status === 'available'"
           type="button"
-          class="shrink-0 rounded-[9px] bg-brand px-3 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
+          class="shrink-0 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           @click="download"
         >
           <Download :size="13" class="mr-1 inline-block align-[-2px]" />
@@ -212,19 +212,19 @@ async function toggleAuto(): Promise<void> {
         <button
           v-else-if="state.status === 'downloaded'"
           type="button"
-          class="shrink-0 rounded-[9px] bg-brand px-3 py-1.5 text-[12.5px] font-medium text-white transition-opacity hover:opacity-90"
+          class="shrink-0 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
           @click="install"
         >
           {{ t("settings.update.restart") }}
         </button>
-        <span v-else class="shrink-0 text-[12px] text-muted">{{ state.percent }}%</span>
+        <span v-else class="shrink-0 text-body-sm text-muted">{{ state.percent }}%</span>
       </div>
 
       <!-- 已跳过这个版本：给一个「取消跳过」的出口，否则用户再也想不起怎么把它找回来 -->
       <button
         v-if="state.status === 'available' && skipped"
         type="button"
-        class="mt-2 text-[12px] text-brand underline-offset-2 hover:underline"
+        class="mt-2 text-body-sm text-brand underline-offset-2 hover:underline"
         @click="unskipVersion"
       >
         {{ t("settings.update.unskip") }}
@@ -241,7 +241,7 @@ async function toggleAuto(): Promise<void> {
       <button
         v-if="state.status === 'error'"
         type="button"
-        class="mt-2 text-[12px] text-brand underline-offset-2 hover:underline"
+        class="mt-2 text-body-sm text-brand underline-offset-2 hover:underline"
         @click="check"
       >
         {{ t("settings.update.retry") }}
@@ -252,8 +252,8 @@ async function toggleAuto(): Promise<void> {
          这行字时手边就能关掉 -->
     <div class="mt-4 flex items-center gap-3 border-t border-line-soft pt-3.5">
       <div class="min-w-0 flex-1">
-        <div class="text-[13px] font-medium text-ink">{{ t("settings.update.autoCheck") }}</div>
-        <div class="mt-0.5 text-[12px] text-muted">{{ t("settings.update.autoCheckDesc") }}</div>
+        <div class="text-body font-medium text-ink">{{ t("settings.update.autoCheck") }}</div>
+        <div class="mt-0.5 text-body-sm text-muted">{{ t("settings.update.autoCheckDesc") }}</div>
       </div>
       <ToggleSwitch
         :model-value="prefs.autoCheck"
@@ -262,10 +262,10 @@ async function toggleAuto(): Promise<void> {
       />
     </div>
 
-    <p class="mt-3.5 border-t border-line-soft pt-3 text-[11.5px] leading-relaxed text-muted">
+    <p class="mt-3.5 border-t border-line-soft pt-3 text-caption leading-relaxed text-muted">
       {{ t("settings.update.note") }}
     </p>
-    <p class="mt-1.5 text-[11.5px] text-muted">
+    <p class="mt-1.5 text-caption text-muted">
       {{ platformLabel }} · {{ t("settings.update.envChannelValue") }}
     </p>
   </SectionCard>

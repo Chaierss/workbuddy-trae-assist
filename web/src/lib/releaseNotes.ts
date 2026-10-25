@@ -1,4 +1,4 @@
-import { md } from "./markdown";
+import MarkdownIt from "markdown-it";
 
 /**
  * 把主进程推过来的 `releaseNotes` 变成一个可以安全 `v-html` 的片段。
@@ -10,19 +10,34 @@ import { md } from "./markdown";
  * 以前前端直接 `{{ state.releaseNotes }}` 插值，第一种来源就会把标签当纯文本吐出来，
  * 用户看到的就是一整片「代码」。
  *
- * 这里的策略是「按内容猜格式，猜完必洗」：
- *   像 HTML → 白名单清洗后原样渲染；不像 → 交给 markdown-it（`html: false`，
- *   原文里的标签会被转义成文本而不是执行）。两条路都过一遍清洗，`v-html` 才敢用。
+ * 这里的策略是「统一走 markdown-it（放开原始 HTML）→ 必过白名单清洗」：
+ *   - GitHub 来源是渲染后的 HTML，markdown-it 会原样放行；
+ *   - yml 来源是 markdown，正常排版，夹带的 `<br>` 也不会被当成文本显示。
+ * 不再按内容猜格式：猜错的代价就是用户看到一整片 `&lt;h2&gt;` 标签。
  */
 
 /**
- * 命中这些**块级**标签才认为是 HTML。
+ * 说明专用 markdown 实例：`html: true`。
  *
- * 只认块级是刻意的：`latest.yml` 里手写的说明偶尔夹一个 `<br>`，那种情况仍该按
- * markdown 排版；而真正的 HTML 说明一定会出现 `<p>` / `<h2>` / `<ul>` 这类结构标签。
+ * 通用文档渲染里 `html: false` 是为了不执行原始标签；但更新说明的两种来源都会
+ * 带标签（GitHub 是渲染后的 HTML，yml 可能是夹着 `<br>` 的 markdown）。用 `html:
+ * false` 时这些标签会被转义成 `&lt;h2&gt;` 原样显示，也就是用户看到的「一堆代码」。
+ * 这里放开原始 HTML，再由 `sanitize()` 做白名单清洗——输出同样是安全的。
  */
-const HTML_BLOCK_HINT =
-  /<(?:p|div|h[1-6]|ul|ol|li|dl|dt|dd|pre|blockquote|table|thead|tbody|tr|td|th)\b[^>]*\/?>/i;
+const notesMd = new MarkdownIt({ html: true, linkify: true, breaks: false, typographer: false });
+
+/**
+ * 有些来源会给出**被转义过一次**的 HTML（`&lt;h2&gt;…&lt;/h2&gt;`），解析器不做
+ * 反解时 markdown 会把它当纯文本，最后又显示成标签。只在这种形态下解一层实体，
+ * 常规 markdown（比如代码块里的 `&lt;` 示例）保持原样。
+ */
+const ESCAPED_HTML_HINT = /&lt;\/?(?:p|div|h[1-6]|ul|ol|li|pre|blockquote|table)\b/i;
+
+function decodeEscapedHtml(text: string): string {
+  if (!ESCAPED_HTML_HINT.test(text)) return text;
+  const doc = new DOMParser().parseFromString(`<body>${text}</body>`, "text/html");
+  return doc.body.textContent ?? text;
+}
 
 /** 允许保留的标签。没有 img / script / style / iframe：说明里出现它们只会是跟踪像素或注入。 */
 const ALLOWED_TAGS = new Set([
@@ -90,16 +105,11 @@ const DROP_TAGS = new Set([
   "textarea",
 ]);
 
-/** 这份说明看起来是 HTML 吗。 */
-export function looksLikeHtml(raw: string): boolean {
-  return HTML_BLOCK_HINT.test(raw);
-}
-
 /** 更新说明 → 可安全插入的 HTML。空输入返回空串，调用方据此决定要不要显示占位文案。 */
 export function renderReleaseNotes(raw?: string | null): string {
-  const text = (raw ?? "").trim();
+  const text = decodeEscapedHtml((raw ?? "").trim());
   if (!text) return "";
-  return sanitize(looksLikeHtml(text) ? text : md.render(text));
+  return sanitize(notesMd.render(text));
 }
 
 /**

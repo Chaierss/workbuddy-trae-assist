@@ -21,7 +21,7 @@ const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 
 <template>
   <div
-    class="inline-flex items-center gap-0.5 rounded-[var(--radius-control)] border border-line bg-line-soft/60 p-0.5"
+    class="inline-flex items-center gap-0.5 rounded-control border border-line bg-line-soft/60 p-0.5"
     role="tablist"
     :aria-label="label"
   >
@@ -31,9 +31,9 @@ const emit = defineEmits<{ "update:modelValue": [value: string] }>();
       type="button"
       role="tab"
       :aria-selected="option.value === modelValue"
-      class="shrink-0 rounded-[7px] transition-[background-color,color,box-shadow] duration-150"
+      class="shrink-0 rounded-control transition-[background-color,color,box-shadow] duration-150"
       :class="[
-        size === 'sm' ? 'px-2 py-1 text-[11.5px]' : 'px-2.5 py-1.5 text-[12px]',
+        size === 'sm' ? 'px-2 py-1 text-caption' : 'px-2.5 py-1.5 text-body-sm',
         option.value === modelValue
           ? 'bg-surface font-medium text-ink shadow-card'
           : 'text-muted hover:text-ink-soft',

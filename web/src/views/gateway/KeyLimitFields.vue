@@ -9,15 +9,15 @@ import type { KeyLimits } from "./useGateway";
 const limits = defineModel<KeyLimits>({ required: true });
 
 const INPUT_CLASS =
-  "h-8 w-full rounded-[9px] border border-line bg-surface px-3 text-[12.5px] text-ink " +
-  "placeholder:text-muted focus:border-[#d5d8d3] focus:outline-none";
+  "h-8 w-full rounded-control border border-line bg-surface px-3 text-body-sm text-ink " +
+  "placeholder:text-muted focus:border-line-strong focus:outline-none";
 </script>
 
 <template>
   <div>
     <div class="grid gap-2 sm:grid-cols-3">
       <label class="flex flex-col gap-1">
-        <span class="text-[11.5px] text-muted">{{ t("gateway.keys.dailyTokens") }}</span>
+        <span class="text-caption text-muted">{{ t("gateway.keys.dailyTokens") }}</span>
         <input
           v-model.number="limits.dailyTokenLimit"
           type="number"
@@ -28,7 +28,7 @@ const INPUT_CLASS =
         />
       </label>
       <label class="flex flex-col gap-1">
-        <span class="text-[11.5px] text-muted">{{ t("gateway.keys.dailyRequests") }}</span>
+        <span class="text-caption text-muted">{{ t("gateway.keys.dailyRequests") }}</span>
         <input
           v-model.number="limits.dailyRequestLimit"
           type="number"
@@ -39,7 +39,7 @@ const INPUT_CLASS =
         />
       </label>
       <label class="flex flex-col gap-1">
-        <span class="text-[11.5px] text-muted">{{ t("gateway.keys.rpm") }}</span>
+        <span class="text-caption text-muted">{{ t("gateway.keys.rpm") }}</span>
         <input
           v-model.number="limits.rpmLimit"
           type="number"
@@ -50,6 +50,6 @@ const INPUT_CLASS =
         />
       </label>
     </div>
-    <p class="mt-1 text-[11px] text-muted">{{ t("gateway.keys.limitsHint") }}</p>
+    <p class="mt-1 text-caption text-muted">{{ t("gateway.keys.limitsHint") }}</p>
   </div>
 </template>

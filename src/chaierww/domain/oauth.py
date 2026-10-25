@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -129,6 +130,11 @@ class WorkBuddyOAuth:
         resp = self._client.get(account_url, headers=headers)
         resp.raise_for_status()
         acc_data = (resp.json().get("data") or {}) if isinstance(resp.json(), dict) else {}
+        issued_at = (
+            token_data.get("issuedAt")
+            or token_data.get("issued_at")
+            or datetime.now(UTC).replace(microsecond=0).isoformat()
+        )
 
         return {
             "uid": acc_data.get("uid"),
@@ -143,6 +149,10 @@ class WorkBuddyOAuth:
             or "Bearer",
             "domain": domain,
             "expiresAt": token_data.get("expiresAt") or token_data.get("expires_at"),
+            # 上游常只给相对有效期（秒）。落库时必须带上签发时间，
+            # 否则过期时间未知 → 续期只能盲探（见 credential_lifecycle.token_expiry）。
+            "expiresIn": token_data.get("expiresIn") or token_data.get("expires_in"),
+            "issuedAt": issued_at,
             "refreshExpiresAt": token_data.get("refreshExpiresAt")
             or token_data.get("refresh_expires_at"),
         }

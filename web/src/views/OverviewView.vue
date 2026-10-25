@@ -294,12 +294,12 @@ async function loadGlobalBackups(): Promise<void> {
   <div>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-[23.5px] font-semibold tracking-[-0.02em] text-ink">{{ t("nav.overview") }}</h1>
-        <p class="mt-1.5 text-[13px] text-muted">{{ subtitle }}</p>
+        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("nav.overview") }}</h1>
+        <p class="mt-1.5 text-body text-muted">{{ subtitle }}</p>
       </div>
       <RouterLink
         :to="navTo('/accounts')"
-        class="inline-flex items-center gap-1.5 rounded-[9px] border border-line bg-surface px-3 py-2 text-[12.5px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
       >
         <Users :size="14" :stroke-width="1.9" /> {{ t("overview.manageAccounts") }}
       </RouterLink>
@@ -344,12 +344,12 @@ async function loadGlobalBackups(): Promise<void> {
       "
       flush
     >
-      <p v-if="loadError" class="px-5 py-3.5 text-[12.5px] text-danger">
+      <p v-if="loadError" class="px-5 py-3.5 text-body-sm text-danger">
         {{ t("overview.actionables.error", { message: loadError }) }}
       </p>
       <div
         v-else-if="!groups.length"
-        class="flex items-center gap-2.5 px-5 py-8 text-[13px] text-ink-soft"
+        class="flex items-center gap-2.5 px-5 py-8 text-body text-ink-soft"
       >
         <CheckCircle2 :size="16" class="text-brand" />
         {{ t("overview.actionables.empty") }}
@@ -363,14 +363,14 @@ async function loadGlobalBackups(): Promise<void> {
           />
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span class="text-[13px] font-medium text-ink">{{ group.title }}</span>
-              <span v-if="group.count > 1" class="text-[11.5px] text-muted">
+              <span class="text-body font-medium text-ink">{{ group.title }}</span>
+              <span v-if="group.count > 1" class="text-caption text-muted">
                 {{ t("overview.actionables.accounts", { count: group.count }) }}
               </span>
             </div>
             <p
               v-if="group.count === 1"
-              class="mt-0.5 text-[12px] leading-relaxed text-muted"
+              class="mt-0.5 text-body-sm leading-relaxed text-muted"
             >
               {{ group.details[0] }}
             </p>
@@ -378,14 +378,14 @@ async function loadGlobalBackups(): Promise<void> {
               <span
                 v-for="(name, index) in group.names.slice(0, 6)"
                 :key="`${group.kind}-${index}`"
-                class="rounded-full border border-line-soft bg-line-soft px-2 py-[1px] text-[11px] text-ink-soft"
+                class="rounded-full border border-line-soft bg-line-soft px-2 py-[1px] text-caption text-ink-soft"
                 :title="group.details[index]"
               >
                 {{ name }}
               </span>
               <span
                 v-if="group.names.length > 6"
-                class="px-1 text-[11px] text-muted"
+                class="px-1 text-caption text-muted"
                 :title="group.details.slice(6).join('\n')"
               >
                 +{{ group.names.length - 6 }}
@@ -397,7 +397,7 @@ async function loadGlobalBackups(): Promise<void> {
           </StatusPill>
           <button
             type="button"
-            class="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-line px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-[#d5d8d3] hover:text-ink disabled:opacity-50"
+            class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
             :disabled="busyFor(group)"
             @click="trigger(group)"
           >
@@ -417,7 +417,7 @@ async function loadGlobalBackups(): Promise<void> {
             : undefined
         "
       >
-        <div v-if="!clientDetections.length" class="space-y-2.5 text-[12.5px]">
+        <div v-if="!clientDetections.length" class="space-y-2.5 text-body-sm">
           <div class="flex items-center justify-between">
             <span class="text-muted">{{ t("overview.client.status") }}</span>
             <StatusPill :tone="detection?.running ? 'warn' : 'brand'" dot>{{ clientText }}</StatusPill>
@@ -430,7 +430,7 @@ async function loadGlobalBackups(): Promise<void> {
           </div>
           <div v-if="detection?.stateDir" class="pt-1">
             <div class="text-muted">{{ t("overview.client.stateDir") }}</div>
-            <div class="mt-1 break-all rounded-[8px] bg-line-soft px-2 py-1.5 font-mono text-[11px] text-ink-soft">
+            <div class="mt-1 break-all rounded-control bg-line-soft px-2 py-1.5 font-mono text-caption text-ink-soft">
               {{ detection.stateDir }}
             </div>
           </div>
@@ -439,7 +439,7 @@ async function loadGlobalBackups(): Promise<void> {
         <ul v-else class="divide-y divide-line-soft">
           <li v-for="client in clientDetections" :key="client.scope" class="py-2.5 first:pt-0 last:pb-0">
             <div class="flex items-center gap-2">
-              <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium text-ink">
+              <span class="min-w-0 flex-1 truncate text-body-sm font-medium text-ink">
                 {{ client.label }}
               </span>
               <StatusPill :tone="client.running ? 'warn' : 'neutral'" dot>
@@ -457,48 +457,48 @@ async function loadGlobalBackups(): Promise<void> {
                 @click="toggleClient(client.scope)"
               >
                 <span
-                  class="min-w-0 flex-1 font-mono text-[10.5px] text-muted"
+                  class="min-w-0 flex-1 font-mono text-micro text-muted"
                   :class="expandedClients.has(client.scope) ? 'break-all' : 'truncate'"
                 >
                   {{ client.stateDir }}
                 </span>
-                <span class="shrink-0 text-[10px] text-muted hover:text-ink">
+                <span class="shrink-0 text-micro text-muted hover:text-ink">
                   {{ expandedClients.has(client.scope) ? t("overview.client.collapse") : t("overview.client.expand") }}
                 </span>
               </button>
             </div>
-            <div v-if="client.message" class="mt-1 text-[11px] text-muted">{{ client.message }}</div>
+            <div v-if="client.message" class="mt-1 text-caption text-muted">{{ client.message }}</div>
           </li>
         </ul>
       </SectionCard>
 
       <SectionCard :title="t('overview.pulse.title')" :subtitle="t('overview.pulse.subtitle')">
-        <div v-if="!pulse" class="text-[12.5px] text-muted">
+        <div v-if="!pulse" class="text-body-sm text-muted">
           {{ t("overview.pulse.loading") }}
         </div>
         <div v-else class="space-y-2">
           <RouterLink
             :to="navTo('/activity')"
-            class="flex items-center gap-3 rounded-[9px] px-2.5 py-2 transition-colors hover:bg-line-soft"
+            class="flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-line-soft"
           >
             <Activity :size="14" class="shrink-0 text-muted" />
-            <span class="min-w-0 flex-1 truncate text-[12px] text-muted">{{ t("overview.pulse.activity") }}</span>
-            <span class="shrink-0 text-[13px] font-medium tabular-nums text-ink">
+            <span class="min-w-0 flex-1 truncate text-body-sm text-muted">{{ t("overview.pulse.activity") }}</span>
+            <span class="shrink-0 text-body font-medium tabular-nums text-ink">
               {{ pulse.activityActionable }}
             </span>
-            <span class="shrink-0 text-[11px] text-muted">
+            <span class="shrink-0 text-caption text-muted">
               {{ t("overview.pulse.activityShort", { done: pulse.activityDone, total: pulse.activityTotal }) }}
             </span>
           </RouterLink>
           <RouterLink
             :to="navTo('/usage')"
-            class="flex items-center gap-3 rounded-[9px] px-2.5 py-2 transition-colors hover:bg-line-soft"
+            class="flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-line-soft"
           >
             <Coins :size="14" class="shrink-0 text-muted" />
-            <span class="min-w-0 flex-1 truncate text-[12px] text-muted">{{ t("overview.pulse.credits") }}</span>
-            <span class="shrink-0 text-[13px] font-medium tabular-nums text-ink">{{ formatAmount(pulse.credits) }}</span>
+            <span class="min-w-0 flex-1 truncate text-body-sm text-muted">{{ t("overview.pulse.credits") }}</span>
+            <span class="shrink-0 text-body font-medium tabular-nums text-ink">{{ formatAmount(pulse.credits) }}</span>
             <span
-              class="shrink-0 text-[11px]"
+              class="shrink-0 text-caption"
               :class="pulse.creditsExpiring ? 'text-warn' : 'text-muted'"
             >
               {{ t("overview.pulse.creditsShort", { count: pulse.creditsExpiring }) }}
@@ -506,14 +506,14 @@ async function loadGlobalBackups(): Promise<void> {
           </RouterLink>
           <RouterLink
             :to="navTo('/gateway')"
-            class="flex items-center gap-3 rounded-[9px] px-2.5 py-2 transition-colors hover:bg-line-soft"
+            class="flex items-center gap-3 rounded-control px-2.5 py-2 transition-colors hover:bg-line-soft"
           >
             <Network :size="14" class="shrink-0 text-muted" />
-            <span class="min-w-0 flex-1 truncate text-[12px] text-muted">{{ t("overview.pulse.gateway") }}</span>
-            <span class="shrink-0 text-[13px] font-medium tabular-nums text-ink">
+            <span class="min-w-0 flex-1 truncate text-body-sm text-muted">{{ t("overview.pulse.gateway") }}</span>
+            <span class="shrink-0 text-body font-medium tabular-nums text-ink">
               {{ pulse.gateway.requests }}
             </span>
-            <span class="shrink-0 text-[11px] text-muted">
+            <span class="shrink-0 text-caption text-muted">
               {{ t("overview.pulse.gatewayShort", { keys: pulse.gateway.activeKeys, errors: pulse.gateway.errors }) }}
             </span>
           </RouterLink>
@@ -524,18 +524,18 @@ async function loadGlobalBackups(): Promise<void> {
     <div class="mt-4">
       <SectionCard :title="t('overview.snapshots.title')" :subtitle="t('overview.snapshots.subtitle')" flush>
         <template #actions>
-          <RouterLink :to="navTo('/settings?tab=backup')" class="text-[12px] text-muted transition-colors hover:text-ink">
+          <RouterLink :to="navTo('/settings?tab=backup')" class="text-body-sm text-muted transition-colors hover:text-ink">
             {{ t("overview.snapshots.viewAll") }}
           </RouterLink>
         </template>
-        <div v-if="!globalSnapshots.length" class="px-5 py-8 text-center text-[13px] text-muted">
+        <div v-if="!globalSnapshots.length" class="px-5 py-8 text-center text-body text-muted">
           {{ t("overview.snapshots.empty") }}
         </div>
         <ul v-else class="divide-y divide-line-soft">
           <li
             v-for="snapshot in globalSnapshots.slice(0, 2)"
             :key="snapshot.id"
-            class="flex items-center gap-4 px-5 py-3 text-[12.5px]"
+            class="flex items-center gap-4 px-5 py-3 text-body-sm"
           >
             <Repeat2 :size="14" class="shrink-0 text-muted" />
             <span class="w-20 shrink-0 text-ink-soft">

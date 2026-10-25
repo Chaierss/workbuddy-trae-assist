@@ -76,7 +76,7 @@ function resetFilters(): void {
     <template #actions>
       <button
         type="button"
-        class="rounded-[9px] border px-2.5 py-2 text-[12px] transition-colors"
+        class="rounded-control border px-2.5 py-2 text-body-sm transition-colors"
         :class="
           groupByKey
             ? 'border-brand/50 text-brand-dark'
@@ -89,14 +89,14 @@ function resetFilters(): void {
       <a
         :href="store.logsExportUrl"
         download
-        class="inline-flex items-center gap-1.5 rounded-[9px] border border-line px-2.5 py-2 text-[12px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line px-2.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
       >
         <Download :size="13" :stroke-width="1.9" />
         {{ t("gateway.logs.export") }}
       </a>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-[9px] border border-line px-2.5 py-2 text-[12px] text-ink-soft transition-colors hover:border-danger/50 hover:text-danger"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line px-2.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-danger/50 hover:text-danger"
         @click="store.clearLogs"
       >
         <Trash2 :size="13" :stroke-width="1.9" />
@@ -116,7 +116,7 @@ function resetFilters(): void {
       <input
         v-model="store.logSessionFilter"
         list="gateway-log-sessions"
-        class="h-8 w-[220px] rounded-[9px] border border-line bg-surface px-2 font-mono text-[12px] text-ink focus:border-[#d5d8d3] focus:outline-none"
+        class="h-8 w-[220px] rounded-control border border-line bg-surface px-2 font-mono text-body-sm text-ink focus:border-line-strong focus:outline-none"
         :placeholder="t('gateway.logs.filterSessionPlaceholder')"
         @change="store.reloadLogs"
       />
@@ -127,46 +127,46 @@ function resetFilters(): void {
       <button
         v-if="filtered"
         type="button"
-        class="rounded-[9px] border border-line px-2.5 py-2 text-[12px] text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+        class="rounded-control border border-line px-2.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
         @click="resetFilters"
       >
         {{ t("gateway.logs.filterReset") }}
       </button>
-      <span v-if="filtered" class="text-[11.5px] text-muted">
+      <span v-if="filtered" class="text-caption text-muted">
         {{ t("gateway.logs.filteredCount", { count: store.logs.length }) }}
       </span>
     </div>
 
-    <div v-if="!store.logs.length" class="py-6 text-center text-[12.5px] text-muted">
+    <div v-if="!store.logs.length" class="py-6 text-center text-body-sm text-muted">
       {{ filtered ? t("gateway.logs.emptyFiltered") : t("gateway.logs.empty") }}
     </div>
 
     <div v-for="section in sections" v-else :key="section.key">
       <div
         v-if="section.label"
-        class="flex items-center gap-2 border-b border-line-soft bg-surface-soft px-1 py-1.5 text-[11.5px] font-medium text-ink-soft"
+        class="flex items-center gap-2 border-b border-line-soft bg-surface-soft px-1 py-1.5 text-caption font-medium text-ink-soft"
       >
         <span class="truncate">{{ section.label }}</span>
         <span class="text-muted">{{ t("gateway.logs.groupCount", { count: section.count }) }}</span>
       </div>
       <ul class="divide-y divide-line-soft">
-        <li v-for="entry in section.entries" :key="entry.id" class="py-3 text-[12.5px]">
+        <li v-for="entry in section.entries" :key="entry.id" class="py-3 text-body-sm">
           <div class="flex flex-wrap items-center gap-2">
             <StatusPill :tone="entry.ok ? 'brand' : 'danger'">
               {{
                 entry.ok ? `${entry.status}` : t("gateway.logs.statusFailed", { status: entry.status })
               }}
             </StatusPill>
-            <span class="font-mono text-[12px] text-ink">{{ entry.model }}</span>
+            <span class="font-mono text-body-sm text-ink">{{ entry.model }}</span>
             <StatusPill v-if="entry.stream" tone="info">{{ t("gateway.logs.stream") }}</StatusPill>
-            <span v-if="entry.hops" class="text-[11.5px] text-warn">
+            <span v-if="entry.hops" class="text-caption text-warn">
               {{ t("gateway.logs.hops", { count: entry.hops }) }}
             </span>
-            <span class="ml-auto shrink-0 text-[11.5px] text-muted">
+            <span class="ml-auto shrink-0 text-caption text-muted">
               {{ formatTime(entry.at) }} · {{ entry.durationMs }}ms
             </span>
           </div>
-          <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted">
+          <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
             <span>
               <Network :size="12" :stroke-width="1.9" class="mr-1 inline align-[-1px]" />
               {{ entry.accountName ?? t("gateway.logs.noAccount") }}
@@ -184,17 +184,17 @@ function resetFilters(): void {
               {{ t("gateway.logs.requestedModel", { model: entry.requestedModel }) }}
             </span>
           </div>
-          <div v-if="entry.error" class="mt-1.5 text-[11.5px] text-danger">{{ entry.error }}</div>
+          <div v-if="entry.error" class="mt-1.5 text-caption text-danger">{{ entry.error }}</div>
           <div
             v-if="entry.promptPreview"
-            class="mt-1.5 flex items-start gap-1.5 text-[11.5px] text-muted"
+            class="mt-1.5 flex items-start gap-1.5 text-caption text-muted"
           >
             <MessageSquareText :size="12" :stroke-width="1.9" class="mt-0.5 shrink-0" />
             <span class="min-w-0 break-all" :title="entry.promptPreview">
               {{ entry.promptPreview }}
             </span>
           </div>
-          <div v-if="entry.skipped.length" class="mt-1 text-[11.5px] text-muted">
+          <div v-if="entry.skipped.length" class="mt-1 text-caption text-muted">
             {{ t("gateway.logs.skipped", { items: entry.skipped.join("；") }) }}
           </div>
         </li>

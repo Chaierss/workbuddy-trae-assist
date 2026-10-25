@@ -12,8 +12,8 @@ import {
 /**
  * 设置容器。左栏由壳层渲染（`SettingsRail`），这里只管右侧内容。
  *
- * 形态来自 `route.meta.immersive = 'shell'`，不存本地 state —— 
- * 否则刷新页面布局就丢了。
+ * 形态来自 `route.meta.focus = 'settings'`（子页 ≥ 2 自动进入专注模式），
+ * 不存本地 state —— 否则刷新页面布局就丢了。
  */
 const route = useRoute();
 const router = useRouter();
@@ -43,13 +43,13 @@ watch(
 <template>
   <div class="flex h-full min-h-0 flex-col">
     <header v-if="!selfScroll" class="shrink-0 pb-4">
-      <h2 class="text-[15px] font-semibold tracking-tight text-ink">{{ t(activeTab.labelKey) }}</h2>
-      <p class="mt-0.5 text-[12px] text-muted">{{ t(activeTab.hintKey) }}</p>
+      <h2 class="text-title font-semibold tracking-tight text-ink">{{ t(activeTab.labelKey) }}</h2>
+      <p class="mt-0.5 text-body-sm text-muted">{{ t(activeTab.hintKey) }}</p>
     </header>
 
     <div
       v-if="selfScroll"
-      class="min-h-0 flex-1 overflow-hidden rounded-[12px] border border-line bg-surface"
+      class="min-h-0 flex-1 overflow-hidden rounded-card border border-line bg-surface"
     >
       <KeepAlive>
         <component :is="activeTab.component" />

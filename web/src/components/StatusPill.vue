@@ -22,7 +22,7 @@ const classes = computed(() => TONE[props.tone] ?? TONE.neutral);
 
 <template>
   <span
-    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[12px] leading-none whitespace-nowrap"
+    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-body-sm leading-none whitespace-nowrap"
     :class="classes"
   >
     <span v-if="dot" class="size-1.5 rounded-full bg-current" />

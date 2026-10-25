@@ -60,7 +60,7 @@ from typing import Any
 
 import httpx
 
-from chaierww.domain.accounts.models import Account
+from chaierww.domain.accounts.models import Account, CredentialState
 from chaierww.domain.accounts.repository import AccountNotFound
 from chaierww.domain.platform_api import (
     TIMEOUT_SECONDS,
@@ -829,6 +829,9 @@ class ActivitiesService:
             platform = get_scope(account.scope).platform
         except UnknownScope:
             return self._blank(account, "workbuddy", "未知平台")
+        if account.credential_state is CredentialState.RELOGIN_REQUIRED:
+            # 预检：已确认失效的号不再打上游 —— 只会再拿一次 401，还会加重风控画像。
+            return self._blank(account, platform, "登录已失效，请重新扫码登录")
         try:
             credential = self._repo.current_credential(account.id)
         except AccountNotFound:
@@ -883,6 +886,7 @@ class ActivitiesService:
                 items.append(parse_wb_checkin(data))
             else:
                 message = _message_of(body) or f"HTTP {status_code}"
+                self._note_auth(account, status_code, body, message)
                 items.append(
                     _failed_item(
                         key="workbuddy.daily_checkin",
@@ -894,6 +898,7 @@ class ActivitiesService:
                 )
                 errors.append(message)
         else:
+            self._note_auth(account, status_code, body, error)
             items.append(
                 _failed_item(
                     key="workbuddy.daily_checkin",
@@ -929,6 +934,7 @@ class ActivitiesService:
                 )
         else:
             message = _message_of(body) or error or f"HTTP {status_code}"
+            self._note_auth(account, status_code, body, message)
             items.append(
                 _failed_item(
                     key="workbuddy.growth_tasks",
@@ -957,6 +963,7 @@ class ActivitiesService:
             items.append(parse_wb_streak(streak_data, chances=chances))
         else:
             message = _message_of(body) or error or f"HTTP {status_code}"
+            self._note_auth(account, status_code, body, message)
             items.append(
                 _failed_item(
                     key="workbuddy.streak",
@@ -1025,6 +1032,7 @@ class ActivitiesService:
             )
 
         message = _message_of(body) or error or f"HTTP {status_code}"
+        self._note_auth(account, status_code, body, message)
         return AccountActivities(
             account_id=account.id,
             display_name=account.display_name,
@@ -1095,6 +1103,7 @@ class ActivitiesService:
             # 状态已变，缓存必须失效，否则前端刷新看到的还是旧结论。
             self.invalidate()
 
+        self._record_runs(results)
         summary = _summarize_results(results)
         summary["retried"] = retried
         summary["retryOk"] = retry_ok
@@ -1134,6 +1143,7 @@ class ActivitiesService:
         finally:
             self._run_lock.release()
             self.invalidate()
+        self._record_runs(results)
         return {
             "results": [item.payload() for item in results],
             "summary": _summarize_results(results),
@@ -1185,6 +1195,17 @@ class ActivitiesService:
             platform = get_scope(account.scope).platform
         except UnknownScope:
             return []
+        if account.credential_state is CredentialState.RELOGIN_REQUIRED:
+            # 预检：登录态已失效时任何写请求都会失败，直接列为「待人工处理」。
+            return [
+                self._result(
+                    account,
+                    "account.login",
+                    "登录状态",
+                    RESULT_SKIPPED,
+                    "登录已失效，请重新扫码登录后再执行活动",
+                )
+            ]
         try:
             credential = self._repo.current_credential(account.id)
         except AccountNotFound:
@@ -1223,6 +1244,7 @@ class ActivitiesService:
         data = payload if isinstance(payload, dict) else {}
         if not data or body.get("code") not in (0, 200):
             message = _message_of(body) or error or f"HTTP {status_code}"
+            self._note_auth(account, status_code, body, message)
             results.append(
                 self._result(
                     account,
@@ -1357,6 +1379,7 @@ class ActivitiesService:
         if code == WB_ALREADY_CHECKED_IN or "已签到" in message:
             # 上游说今天已经签过了 —— 这不是失败，是「无事可做」。
             return self._result(account, key, title, RESULT_SKIPPED, message or "今日已签到")
+        self._note_auth(account, status_code, body, message)
         return self._result(
             account,
             key,
@@ -1381,6 +1404,7 @@ class ActivitiesService:
         )
         if not isinstance(body, dict) or body.get("code") not in (0, 200):
             message = _message_of(body) or error or f"HTTP {status_code}"
+            self._note_auth(account, status_code, body, message)
             return [
                 self._result(
                     account,
@@ -1450,6 +1474,7 @@ class ActivitiesService:
                     "签到失败：设备号缺失或不被接受",
                 )
             ]
+        self._note_auth(account, status_code, body, message)
         return [
             self._result(
                 account,
@@ -1460,6 +1485,57 @@ class ActivitiesService:
                 retryable=_retryable_status(status_code),
             )
         ]
+
+    def _note_auth(
+        self, account: Account, status_code: int, body: Any, message: str = ""
+    ) -> None:
+        """令牌真的失效时回写账号状态，保证「活动失败」与「号池显示」是同一份事实。
+
+        判定口径与验活一致：只看 HTTP 401/403；WorkBuddy 的 WAF 指纹拦截
+        （``code=10085``）不是令牌问题，必须排除 —— 否则一次网关抖动会把好号
+        标成需重登，用户白点一遍登录。
+        """
+        if status_code not in (401, 403):
+            return
+        code = body.get("code") if isinstance(body, dict) else None
+        if code == 10085:
+            logger.info("活动请求被 WAF 拦截，不改凭据状态：%s", account.display_name)
+            return
+        try:
+            self._repo.set_credential_state(account.id, CredentialState.RELOGIN_REQUIRED)
+        except AccountNotFound:
+            return
+        except Exception:  # noqa: BLE001 - 状态回写失败不该让本轮活动结论消失
+            logger.exception("回写凭据状态失败：%s", account.id)
+            return
+        logger.info(
+            "活动请求返回 %s，凭据标记为需重新登录：%s", status_code, account.display_name
+        )
+
+    def _record_runs(self, results: list[RunResult]) -> None:
+        """把本轮结论落库，供「今天做了什么 / 为什么失败」回看。
+
+        写失败只降级为日志：流水是观测数据，不该让已经跑完的活动结果丢掉。
+        """
+        if not results:
+            return
+        day = datetime.now(UTC).astimezone().date().isoformat()
+        rows = [
+            {
+                "accountId": item.account_id,
+                "key": item.key,
+                "day": day,
+                "attempt": item.attempt,
+                "status": item.status,
+                "message": item.message,
+                "reward": item.reward,
+            }
+            for item in results
+        ]
+        try:
+            self._repo.record_activity_runs(rows)
+        except Exception:  # noqa: BLE001
+            logger.exception("写入活动执行流水失败")
 
     def _result(
         self,

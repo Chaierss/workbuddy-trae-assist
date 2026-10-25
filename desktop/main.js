@@ -181,10 +181,12 @@ function stopBackend() {
 // ---------------------------------------------------------------------------
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 960,
-    minHeight: 640,
+    // 默认窗口按 1366×768 笔记本可用高度收小：1280×840 在任务栏之后会顶到屏幕外，
+    // 首屏还得用户先拖一下才能看到底部按钮。
+    width: 1080,
+    height: 720,
+    minWidth: 900,
+    minHeight: 600,
     title: 'chaierww',
     autoHideMenuBar: true,
     backgroundColor: '#0B0B0E',

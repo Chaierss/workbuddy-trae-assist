@@ -370,21 +370,21 @@ onMounted(() => {
       :title="t('schedule.title')"
       :subtitle="t('schedule.subtitle')"
     >
-      <p v-if="loading" class="py-6 text-center text-[13px] text-muted">
+      <p v-if="loading" class="py-6 text-center text-body text-muted">
         {{ t("schedule.loading") }}
       </p>
-      <p v-else-if="error" class="py-6 text-center text-[13px] text-rose-500">{{ error }}</p>
+      <p v-else-if="error" class="py-6 text-center text-body text-rose-500">{{ error }}</p>
       <div v-else class="divide-y divide-line-soft">
         <div v-for="task in tasks" :key="task.key" class="space-y-3 py-4">
           <div class="flex items-start gap-3">
             <span
-              class="grid size-9 shrink-0 place-items-center rounded-[10px] bg-brand-soft text-brand-dark"
+              class="grid size-9 shrink-0 place-items-center rounded-control bg-brand-soft text-brand-dark"
             >
               <component :is="metaOf(task.key).icon" :size="17" :stroke-width="1.9" />
             </span>
             <div class="min-w-0 flex-1">
-              <div class="text-[13px] font-medium text-ink">{{ metaOf(task.key).title }}</div>
-              <div class="mt-0.5 text-[12px] text-muted">{{ metaOf(task.key).desc }}</div>
+              <div class="text-body font-medium text-ink">{{ metaOf(task.key).title }}</div>
+              <div class="mt-0.5 text-body-sm text-muted">{{ metaOf(task.key).desc }}</div>
             </div>
             <ToggleSwitch
               class="ml-2"
@@ -394,9 +394,9 @@ onMounted(() => {
             />
           </div>
 
-          <div class="ml-12 space-y-2 rounded-[10px] border border-line-soft bg-line-soft/40 p-2.5">
+          <div class="ml-12 space-y-2 rounded-control border border-line-soft bg-line-soft/40 p-2.5">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center gap-1 text-[12px] text-muted">
+              <span class="inline-flex items-center gap-1 text-body-sm text-muted">
                 <Timer :size="13" :stroke-width="1.9" />{{ t("schedule.times") }}
               </span>
               <span
@@ -407,13 +407,13 @@ onMounted(() => {
                 <input
                   type="time"
                   :value="time"
-                  class="w-[74px] bg-transparent text-[12px] tabular-nums text-ink outline-none"
+                  class="w-[74px] bg-transparent text-body-sm tabular-nums text-ink outline-none"
                   :disabled="busy === task.key"
                   @change="editTime(task, index, ($event.target as HTMLInputElement).value)"
                 />
                 <button
                   type="button"
-                  class="text-[13px] leading-none text-muted hover:text-rose-500"
+                  class="text-body leading-none text-muted hover:text-rose-500"
                   :disabled="busy === task.key"
                   :title="t('schedule.removeTime')"
                   @click="removeTime(task, index)"
@@ -423,13 +423,13 @@ onMounted(() => {
               </span>
               <button
                 type="button"
-                class="rounded-md border border-dashed border-line px-1.5 py-0.5 text-[12px] text-muted hover:border-brand hover:text-brand-dark"
+                class="rounded-md border border-dashed border-line px-1.5 py-0.5 text-body-sm text-muted hover:border-brand hover:text-brand-dark"
                 :disabled="busy === task.key"
                 @click="addTime(task)"
               >
                 {{ t("schedule.addTime") }}
               </button>
-              <span class="ml-2 inline-flex items-center gap-1 text-[12px] text-muted">
+              <span class="ml-2 inline-flex items-center gap-1 text-body-sm text-muted">
                 {{ t("schedule.jitter") }}
                 <SelectMenu
                   :model-value="task.jitterMinutes"
@@ -440,10 +440,10 @@ onMounted(() => {
                   @update:model-value="setJitter(task, $event)"
                 />
               </span>
-              <span class="ml-2 inline-flex items-center gap-2 text-[12px] text-muted">
+              <span class="ml-2 inline-flex items-center gap-2 text-body-sm text-muted">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[12px] text-ink hover:border-brand hover:text-brand-dark"
+                  class="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-body-sm text-ink hover:border-brand hover:text-brand-dark"
                   :disabled="busy === task.key"
                   @click="runNow(task)"
                 >
@@ -454,7 +454,7 @@ onMounted(() => {
 
             <!-- 账号范围：不选任何账号 = 号池全部账号（与后端语义一致） -->
             <div class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-2">
-              <span class="inline-flex items-center gap-1 text-[12px] text-muted">
+              <span class="inline-flex items-center gap-1 text-body-sm text-muted">
                 <Users :size="13" :stroke-width="1.9" />{{ t("schedule.scopeLabel") }}
               </span>
               <AccountScopePicker
@@ -466,7 +466,7 @@ onMounted(() => {
               />
             </div>
 
-            <div class="space-y-1 border-t border-line-soft pt-2 text-[12px] text-muted">
+            <div class="space-y-1 border-t border-line-soft pt-2 text-body-sm text-muted">
               <div>
                 {{
                   t("schedule.nextRun", {
@@ -483,7 +483,7 @@ onMounted(() => {
 
               <!-- 执行日志：后端只保留最近 7 次（scheduler.HISTORY_KEEP） -->
               <div class="pt-1">
-                <div class="mb-1 text-[11.5px] font-medium text-ink-soft">
+                <div class="mb-1 text-caption font-medium text-ink-soft">
                   {{ t("schedule.logTitle", { count: LOG_LIMIT }) }}
                 </div>
                 <div v-if="!task.history.length" class="text-muted">
@@ -516,24 +516,24 @@ onMounted(() => {
       :title="t('schedule.rotationTitle')"
       :subtitle="t('schedule.rotationSubtitle')"
     >
-      <p v-if="rotationError" class="py-6 text-center text-[13px] text-rose-500">
+      <p v-if="rotationError" class="py-6 text-center text-body text-rose-500">
         {{ rotationError }}
       </p>
-      <div v-else-if="!rotation" class="py-6 text-center text-[13px] text-muted">
+      <div v-else-if="!rotation" class="py-6 text-center text-body text-muted">
         {{ t("schedule.rotationLoading") }}
       </div>
       <div v-else class="space-y-4">
         <div class="flex items-start gap-3">
           <span
-            class="grid size-9 shrink-0 place-items-center rounded-[10px] bg-brand-soft text-brand-dark"
+            class="grid size-9 shrink-0 place-items-center rounded-control bg-brand-soft text-brand-dark"
           >
             <RotateCcw :size="17" :stroke-width="1.9" />
           </span>
           <div class="min-w-0 flex-1">
-            <div class="text-[13px] font-medium text-ink">
+            <div class="text-body font-medium text-ink">
               {{ t("schedule.rotationScopeTitle", { scope: rotation.policy.scope }) }}
             </div>
-            <div class="mt-0.5 text-[12px] text-muted">
+            <div class="mt-0.5 text-body-sm text-muted">
               {{ t("schedule.rotationDesc") }}
             </div>
           </div>
@@ -552,18 +552,18 @@ onMounted(() => {
             class="flex items-center justify-between gap-2 rounded-md border border-line-soft px-2 py-1.5"
             :title="t(item.hintKey)"
           >
-            <span class="text-[12px] text-muted">{{ t(item.labelKey) }}</span>
+            <span class="text-body-sm text-muted">{{ t(item.labelKey) }}</span>
             <span class="inline-flex items-center gap-1">
               <input
                 type="number"
                 min="0"
                 step="1"
                 :value="rotation.policy[item.field]"
-                class="w-[70px] rounded-md border border-line-soft bg-surface px-1.5 py-0.5 text-right text-[12px] tabular-nums text-ink outline-none"
+                class="w-[70px] rounded-md border border-line-soft bg-surface px-1.5 py-0.5 text-right text-body-sm tabular-nums text-ink outline-none"
                 :disabled="rotationBusy"
                 @change="setThreshold(item.field, ($event.target as HTMLInputElement).value)"
               />
-              <span class="text-[12px] text-muted">{{ t(item.unitKey) }}</span>
+              <span class="text-body-sm text-muted">{{ t(item.unitKey) }}</span>
             </span>
           </label>
         </div>
@@ -571,7 +571,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[12px] text-ink hover:border-brand hover:text-brand-dark"
+            class="inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-body-sm text-ink hover:border-brand hover:text-brand-dark"
             :disabled="rotationBusy"
             @click="evaluateRotation(false)"
           >
@@ -579,18 +579,18 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="rounded-md border border-dashed border-line px-2 py-0.5 text-[12px] text-muted hover:border-brand hover:text-brand-dark"
+            class="rounded-md border border-dashed border-line px-2 py-0.5 text-body-sm text-muted hover:border-brand hover:text-brand-dark"
             :disabled="rotationBusy"
             @click="evaluateRotation(true)"
           >
             {{ t("schedule.dryRun") }}
           </button>
-          <span v-if="rotationFlash" :class="rotationFlash.tone === 'ok' ? 'text-brand-dark' : 'text-rose-500'" class="text-[12px]">
+          <span v-if="rotationFlash" :class="rotationFlash.tone === 'ok' ? 'text-brand-dark' : 'text-rose-500'" class="text-body-sm">
             {{ rotationFlash.text }}
           </span>
         </div>
 
-        <div class="space-y-1 text-[12px] text-muted">
+        <div class="space-y-1 text-body-sm text-muted">
           <div>
             {{
               t("schedule.rotationLast", {
@@ -623,7 +623,7 @@ onMounted(() => {
       </div>
     </SectionCard>
 
-    <p class="text-[12px] leading-relaxed text-muted">
+    <p class="text-body-sm leading-relaxed text-muted">
       {{ t("schedule.footnoteA")
       }}<strong class="font-medium text-ink">{{ t("schedule.footnoteStrong")
       }}</strong>{{ t("schedule.footnoteB") }}
