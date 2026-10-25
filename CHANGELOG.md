@@ -6,6 +6,24 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.4.1] - 2026-10-25
+
+补一个从 0.3.0 就存在的可见性问题：桌面端能看到本该只在 Web 端出现的开发类页面。
+
+### 修复
+
+- **桌面端设置里能看到「规则」与「组件」。** 这两个分栏是 0.3.0 新增的，但没标
+  `hideOnDesktop`——而这个标记从 0.1.1 起只挂在「接口文档」「Wiki」两项上，
+  于是只有那两项在桌面端隐藏。现在四个开发类分栏统一在桌面端隐藏，
+  浏览器打开时照常可见。`?tab=rules` 这类地址在桌面端会回落到「常规」，
+  不会落到空白页。
+
+### 变更
+
+- 规则页新增 `scope-web-only-pages`：接口文档、Wiki、规则、组件只在 Web 端可见；
+  判断「是不是桌面端」只认 `window.chaierwwDesktop` 一条，不得改用 UA、地址栏参数
+  或环境变量——0.1.2 把桌面端误判成浏览器，就是这么来的。
+
 ## [0.4.0] - 2026-10-25
 
 这一版跟着 WorkBuddy 客户端 5.9.2 走。客户端把登录态从一个 `info` 文件拆成了
@@ -432,7 +450,8 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.0...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.2.0
