@@ -6,6 +6,26 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.4.3] - 2026-10-25
+
+修一个很隐蔽的升级问题：客户端升级后，版本号变了，界面还是旧的。
+
+### 修复
+
+- **升级后客户端仍画上一版的界面。** 后端返回 `index.html` 时没带任何缓存头，
+  Chromium 就把它连同上一版的 `assets/index-*.js` 一起留在磁盘缓存里。装完 0.4.2，
+  左上角已经显示 `v0.4.2`，号池页却还是 0.4.0 的样子（扫码 / 导入 / 回收站还在
+  工具栏里），和浏览器打开同一地址看到的对不上——原因就在这里，既不是版本装错，
+  也不是窗口宽度差异。现在入口页统一带 `Cache-Control: no-store, must-revalidate`；
+  带内容哈希的 `/assets/*` 照旧缓存，不影响加载速度。
+- **桌面端升级后清一次 HTTP 缓存。** 只改响应头救不了**已经存在**的旧缓存，所以主进程
+  在检测到版本号变化时先清一次缓存再建窗口。只清 HTTP 缓存，不动 localStorage、
+  登录态与账号数据。
+
+### 变更
+
+- 新增回归测试：入口页（`/` 与 SPA 兜底路由）必须带 `no-store`。
+
 ## [0.4.2] - 2026-10-25
 
 把号池健康度那组数字的动效收回到规则预算内。
@@ -462,7 +482,8 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.2...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.3
 [0.4.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.2
 [0.4.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.0
