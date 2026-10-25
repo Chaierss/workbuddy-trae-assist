@@ -292,20 +292,20 @@ async function loadGlobalBackups(): Promise<void> {
 
 <template>
   <div>
-    <div class="flex items-start justify-between gap-4">
-      <div>
+    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      <div class="min-w-0">
         <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("nav.overview") }}</h1>
-        <p class="mt-1.5 text-body text-muted">{{ subtitle }}</p>
+        <p class="mt-1.5 max-w-[68ch] text-body leading-relaxed text-muted">{{ subtitle }}</p>
       </div>
       <RouterLink
         :to="navTo('/accounts')"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        class="inline-flex shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
       >
         <Users :size="14" :stroke-width="1.9" /> {{ t("overview.manageAccounts") }}
       </RouterLink>
     </div>
 
-    <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard :label="t('overview.stat.accounts')" :number="accounts.length" :icon="Users" :hint="t('overview.stat.accountsHint')" :to="navTo('/accounts')" />
       <StatCard
         :label="t('overview.stat.credentialIssue')"

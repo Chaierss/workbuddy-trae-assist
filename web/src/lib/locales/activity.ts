@@ -45,7 +45,7 @@ export const activityZh = {
   "activity.scopeSummary": "{accounts} 个账号 · 识别 {items} 项活动",
   "activity.detectingSuffix": " · 正在逐个账号检测…",
   "activity.cachedSuffix": " · 数据缓存 2 分钟，点「重新检测」可绕过",
-  "activity.noAccounts": "号池里还没有账号。先在账号页导入或扫码登录，再回来看活动。",
+  "activity.noAccounts": "号池里还没有账号。去账号页导入或登录后再回来看活动。",
   "activity.detectedAt": " · 检测于 {time}",
   "activity.runAccountCount": "执行该账号 {count} 项",
   "activity.notQueryable": "不可查",
@@ -229,7 +229,7 @@ export const activityEn = {
   "activity.detectingSuffix": " · Checking each account…",
   "activity.cachedSuffix": " · Data is cached for 2 minutes; use Re-detect to bypass",
   "activity.noAccounts":
-    "No accounts in the pool yet. Import or scan a login on the Accounts page, then come back.",
+    "No accounts in the pool yet. Import or sign in on the Accounts page, then come back.",
   "activity.detectedAt": " · Detected at {time}",
   "activity.runAccountCount": "Run {count} items for this account",
   "activity.notQueryable": "Unavailable",

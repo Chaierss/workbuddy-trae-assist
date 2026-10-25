@@ -80,6 +80,13 @@ export interface DesktopBridge {
     /** 订阅「该弹更新弹窗」事件，返回取消订阅函数。 */
     onPrompt: (handler: (payload: { kind: string }) => void) => () => void;
   };
+  /** 内嵌登录窗口：桌面端把官方授权页放进自己的窗口，浏览器端为 null。 */
+  webLogin: {
+    open: (url: string) => Promise<{ ok: boolean; error?: string }>;
+    close: () => Promise<boolean>;
+    /** 打开内置 WorkBuddy 网页版，登录态独立保存，可手动做活动。 */
+    openApp: () => Promise<{ ok: boolean; error?: string }>;
+  };
 }
 
 declare global {

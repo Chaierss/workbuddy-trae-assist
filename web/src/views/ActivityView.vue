@@ -515,14 +515,14 @@ const failedResults = computed(() =>
 
 <template>
   <div>
-    <div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
       <div class="min-w-0">
         <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("activity.title") }}</h1>
-        <p class="mt-1 max-w-[660px] text-body-sm leading-relaxed text-muted">
+        <p class="mt-1.5 max-w-[660px] text-body leading-relaxed text-muted">
           {{ t("activity.subtitle") }}
         </p>
       </div>
-      <div class="flex shrink-0 items-center gap-2">
+      <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
         <button
           type="button"
           class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
@@ -534,7 +534,7 @@ const failedResults = computed(() =>
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-control bg-ink px-3.5 py-2 text-body-sm text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+          class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-40"
           :disabled="!canRun"
           :title="actionable ? t('activity.runAllHint') : t('activity.runNoneHint')"
           @click="execute()"
@@ -553,7 +553,7 @@ const failedResults = computed(() =>
     </div>
 
     <div
-      class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-card border border-line bg-surface px-5 py-3 shadow-card"
+      class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-card border border-line bg-surface px-5 py-3 shadow-card"
     >
       <div class="flex items-baseline gap-1.5">
         <span class="text-metric font-semibold leading-none tabular-nums text-ink">

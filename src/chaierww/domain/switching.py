@@ -221,6 +221,15 @@ class SwitchEngine:
         plan = self._plan(adapter, payload)
         run = _Run()
         run.add("读取凭据", True, f"目标账号 {account.display_name}")
+        if (
+            payload.format == "oauth-token"
+            and account.credential_state is CredentialState.RELOGIN_REQUIRED
+        ):
+            run.add(
+                "凭据状态",
+                False,
+                "目标账号登录已失效，真实切换会被拦下；请先重新登录该账号",
+            )
         for item in plan.files:
             run.add(f"{item.action}:{item.path.name}", True, item.note)
         run.add(
@@ -265,6 +274,30 @@ class SwitchEngine:
             started = now_iso()
 
             self._record_job(job_id, scope, None, account_id, None, "running", False, started)
+
+            # 0. 目标账号的凭据已经失效（活动/巡检返回 401 时会被标记）：
+            #    写进客户端也是「假成功」——客户端启动后会立刻 401，用户看到的就是
+            #    「切了号但界面还是旧账号 / 用不了」。与其切完再回滚，不如原地拦下，
+            #    并明确告诉用户该号需要重新登录。只拦 token 凭据：文件凭据不依赖 token。
+            if (
+                payload.format == "oauth-token"
+                and account.credential_state is CredentialState.RELOGIN_REQUIRED
+            ):
+                detail = (
+                    f"账号「{account.display_name}」的登录已失效（需要重新登录）。"
+                    "即使写入客户端，客户端启动后也会立即返回 401，表现为「切号没生效」。"
+                    "请先重新扫码登录该账号，或改切其他可用账号。"
+                )
+                run.add("凭据状态", False, detail)
+                self._finish_job(job_id, "unsupported", "凭据状态", detail)
+                return SwitchReport(
+                    state="unsupported",
+                    dry_run=False,
+                    scope=scope,
+                    account_id=account_id,
+                    steps=tuple(run.steps),
+                    error=detail,
+                )
 
             # 1. 预检凭据形态：token 账号在部分平台（如 Trae 加密信封）不可切换，
             #     坏账号（设备 ID 误当账号）也要在此拦下。预检**先于**退出客户端，
@@ -323,6 +356,11 @@ class SwitchEngine:
                 run.add("检查客户端", True, "客户端未运行，可直接切换")
 
             source_external_id = self._current_external_id(adapter)
+
+            # 2.2 回写登录态：客户端运行期间会自己刷新 token，刷新后旧 refresh token 作废；
+            #     号池里一直存着导入时那份，切回来就是 401 —— 用户看到的就是「号掉线了」。
+            #     此刻客户端刚退出、登录态文件可读，顺手把最新一份收回号池。失败不阻断切号。
+            self._sync_client_credential(adapter, scope, source_external_id, run)
 
             # 2.5 保存「切走前那个账号」的网页版登录态。
             #     客户端里乐享/文档/频道应用跑在按账号隔离的 Chromium 分区
@@ -554,6 +592,41 @@ class SwitchEngine:
             return adapter.import_current().external_id
         except AdapterError:
             return None
+
+    def _sync_client_credential(
+        self,
+        adapter: PlatformAdapter,
+        scope: str,
+        external_id: str | None,
+        run: _Run,
+    ) -> None:
+        """把客户端里的最新登录态收回号池（切号前的源账号）。
+
+        WorkBuddy 客户端会自己刷新 token，刷新后旧的 refresh token 即作废。号池若一直
+        用导入时那份，切回来写进去就是 401。只回写 raw-file 形态（整份登录态）的账号；
+        oauth-token 账号的续期走另一套链路，不在这里改。任何失败都不阻断切号。
+        """
+        if not external_id or scope != "workbuddy-cn":
+            return
+        try:
+            account = self._repo.get_by_external(scope, external_id)
+            if account is None or account.is_deleted:
+                return
+            kind, current = self._repo.credential_record(account.id)
+            if current.get("format") != "raw-file":
+                return
+            imported = adapter.import_current()
+            if imported.external_id != external_id:
+                return
+            fresh = encode_payload(imported.payload)
+            if fresh == current:
+                return
+            self._repo.replace_credential(
+                account.id, credential=fresh, kind=kind, expires_at=None
+            )
+        except Exception:  # noqa: BLE001 - 回写失败不影响切号
+            return
+        run.add("回写登录态", True, f"已把「{account.display_name}」的最新登录态收回号池")
 
     def _migrate_data(
         self,

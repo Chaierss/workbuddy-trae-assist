@@ -242,6 +242,10 @@ export const settingsZh = {
   "settings.update.status.downloaded": "{version} 已下载完成，重启即可生效",
   "settings.update.status.error": "检查更新失败",
   "settings.update.retry": "重试",
+  "settings.update.errorTitle": "这次没检查成功",
+  "settings.update.errorHint": "多半是网络或代理抖了一下，稍等片刻再试一次即可。",
+  "settings.update.notesExpand": "展开全部说明",
+  "settings.update.notesCollapse": "收起说明",
   "settings.update.unskip": "取消跳过",
   "settings.update.note":
     "更新包从 GitHub Releases 获取并校验完整性。下载完成后选择「稍后」也没关系，下次退出应用时会自动安装。",
@@ -493,6 +497,10 @@ export const settingsEn = {
   "settings.update.status.downloaded": "{version} downloaded — restart to apply",
   "settings.update.status.error": "Failed to check for updates",
   "settings.update.retry": "Retry",
+  "settings.update.errorTitle": "Couldn't check for updates",
+  "settings.update.errorHint": "Usually a brief network or proxy hiccup — try again in a moment.",
+  "settings.update.notesExpand": "Show full notes",
+  "settings.update.notesCollapse": "Show less",
   "settings.update.unskip": "Don't skip",
   "settings.update.note":
     "Packages come from GitHub Releases with integrity checks. If you pick “Later”, the update installs automatically the next time you quit the app.",

@@ -13,7 +13,7 @@
  * 下载完弹窗问重启 → `quitAndInstall`。用户选「稍后」的话，退出应用时自动装上
  * （主进程 `autoInstallOnAppQuit = true`）。
  */
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { AlertCircle, ArrowUpCircle, CheckCircle2, Download, Loader2, RefreshCw } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
@@ -48,6 +48,29 @@ const skipped = computed(() => isSkipped(state.value?.version));
 
 /** 更新说明渲染成 HTML（GitHub 来源是 HTML、yml 来源是 markdown，清洗在 lib 里做）。 */
 const notesHtml = computed(() => renderReleaseNotes(state.value?.releaseNotes));
+
+/** 说明默认收在六行内；只有真的被裁掉时才出现「展开」，短说明不摆多余按钮。 */
+const notesExpanded = ref(false);
+const notesLong = ref(false);
+const notesEl = ref<HTMLElement | null>(null);
+
+watch(
+  [notesHtml, () => state.value?.status],
+  async () => {
+    notesExpanded.value = false;
+    notesLong.value = false;
+    await nextTick();
+    const element = notesEl.value;
+    notesLong.value = element !== null && element.scrollHeight > element.clientHeight + 4;
+  },
+  { immediate: true },
+);
+
+// 按钮样式只写一遍：卡片里三处「下载 / 重启 / 重试」外观必须完全一致。
+const primaryButton =
+  "shrink-0 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50";
+const quietButton =
+  "shrink-0 rounded-control border border-line px-3 py-1.5 text-body-sm text-ink transition-colors hover:bg-line-soft disabled:cursor-not-allowed disabled:opacity-50";
 
 const platformLabel = computed(() => {
   const platform = desktop?.platform;
@@ -170,7 +193,7 @@ async function toggleAuto(): Promise<void> {
 
       <button
         type="button"
-        class="shrink-0 rounded-control border border-line px-3 py-1.5 text-body-sm text-ink transition-colors hover:bg-line-soft disabled:cursor-not-allowed disabled:opacity-50"
+        :class="quietButton"
         :disabled="busy || updating"
         @click="check"
       >
@@ -183,27 +206,68 @@ async function toggleAuto(): Promise<void> {
       </button>
     </div>
 
-    <!-- 有新版本 / 正在下载 / 已下载：一条状态条说清楚下一步点哪 -->
+    <!-- 新版本 / 下载中 / 已下载 / 出错：一条状态条把当前状态和下一步收在一起。
+         出错也走这条分支 —— 以前「重试」按钮写在一个不含 error 的 v-if 里，永远点不到。 -->
     <div
-      v-if="state && ['available', 'downloading', 'downloaded'].includes(state.status)"
+      v-if="state && ['available', 'downloading', 'downloaded', 'error'].includes(state.status)"
       class="mt-3.5 rounded-control border border-line bg-line-soft/60 p-3"
     >
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-body-sm font-medium text-ink">
-            {{ t("settings.update.newVersion", { version: state.version ?? "" }) }}
-          </div>
-          <div
-            v-if="notesHtml"
-            class="release-notes mt-1 max-h-24 overflow-y-auto"
-            v-html="notesHtml"
-          />
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <template v-if="state.status === 'error'">
+            <div class="text-body-sm font-medium text-ink">
+              {{ t("settings.update.errorTitle") }}
+            </div>
+            <div class="mt-0.5 text-body-sm text-muted">{{ t("settings.update.errorHint") }}</div>
+          </template>
+          <template v-else>
+            <div class="text-body-sm font-medium text-ink">
+              {{ t("settings.update.newVersion", { version: state.version ?? "" }) }}
+            </div>
+
+            <!-- 说明默认收在六行：长说明给渐隐和「展开」，短说明不摆按钮 -->
+            <div v-if="notesHtml" class="mt-1.5">
+              <div class="relative">
+                <div
+                  ref="notesEl"
+                  class="release-notes"
+                  :class="notesExpanded ? '' : 'max-h-24 overflow-hidden'"
+                  v-html="notesHtml"
+                />
+                <div
+                  v-if="!notesExpanded && notesLong"
+                  class="pointer-events-none absolute inset-x-0 bottom-0 h-7"
+                  :style="{ background: 'linear-gradient(to top, var(--color-line-soft), transparent)' }"
+                />
+              </div>
+              <button
+                v-if="notesLong"
+                type="button"
+                class="mt-1 text-caption text-muted transition-colors hover:text-ink"
+                @click="notesExpanded = !notesExpanded"
+              >
+                {{
+                  notesExpanded
+                    ? t("settings.update.notesCollapse")
+                    : t("settings.update.notesExpand")
+                }}
+              </button>
+            </div>
+          </template>
         </div>
 
         <button
-          v-if="state.status === 'available'"
+          v-if="state.status === 'error'"
           type="button"
-          class="shrink-0 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
+          :class="quietButton"
+          @click="check"
+        >
+          {{ t("settings.update.retry") }}
+        </button>
+        <button
+          v-else-if="state.status === 'available'"
+          type="button"
+          :class="primaryButton"
           @click="download"
         >
           <Download :size="13" class="mr-1 inline-block align-[-2px]" />
@@ -212,12 +276,12 @@ async function toggleAuto(): Promise<void> {
         <button
           v-else-if="state.status === 'downloaded'"
           type="button"
-          class="shrink-0 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-opacity hover:opacity-90"
+          :class="primaryButton"
           @click="install"
         >
           {{ t("settings.update.restart") }}
         </button>
-        <span v-else class="shrink-0 text-body-sm text-muted">{{ state.percent }}%</span>
+        <span v-else class="shrink-0 text-body-sm tabular-nums text-muted">{{ state.percent }}%</span>
       </div>
 
       <!-- 已跳过这个版本：给一个「取消跳过」的出口，否则用户再也想不起怎么把它找回来 -->
@@ -236,16 +300,6 @@ async function toggleAuto(): Promise<void> {
           :style="{ width: `${state.percent}%` }"
         />
       </div>
-
-      <!-- 出错：给「重试」出口，弹窗里也有更细的归类文案 -->
-      <button
-        v-if="state.status === 'error'"
-        type="button"
-        class="mt-2 text-body-sm text-brand underline-offset-2 hover:underline"
-        @click="check"
-      >
-        {{ t("settings.update.retry") }}
-      </button>
     </div>
 
     <!-- 自动检查开关：放在卡片里而不是另开一页，用户看到「启动时会静默检查一次」

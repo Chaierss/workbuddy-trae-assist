@@ -195,13 +195,32 @@ def test_merge_profile_merges_md_and_json(tmp_path, monkeypatch):
     assert not second.changed
 
 
-def test_merge_profile_skips_security_dir(tmp_path, monkeypatch):
+def test_merge_profile_carries_security_authorizations_only(tmp_path, monkeypatch):
+    """security 里只带走授权记录与规则；账号本位的加密口令库必须留在原处。"""
     _patch_data_dir(monkeypatch, tmp_path)
     from chaierww.domain.profile_migration import merge_profile_files
 
-    _touch(tmp_path / "security" / "src" / "vault.json", "{}")
+    _touch(
+        tmp_path / "security" / "src" / "cipher" / "session-authorizations.jsonl",
+        '{"s":"a"}\n{"s":"b"}\n',
+    )
+    _touch(tmp_path / "security" / "src" / "cipher" / "detect-rules.toml", "rule = 1\n")
+    _touch(tmp_path / "security" / "src" / "cipher" / "entries.json.enc", "ENCRYPTED")
+    _touch(
+        tmp_path / "security" / "dst" / "cipher" / "session-authorizations.jsonl",
+        '{"s":"a"}\n',
+    )
+
     result = merge_profile_files("src", "dst")
-    assert any("security" in note for note in result.skipped)
+
+    merged = (tmp_path / "security" / "dst" / "cipher" / "session-authorizations.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert merged.splitlines() == ['{"s":"a"}', '{"s":"b"}']
+    assert (tmp_path / "security" / "dst" / "cipher" / "detect-rules.toml").is_file()
+    assert not (tmp_path / "security" / "dst" / "cipher" / "entries.json.enc").exists()
+    assert any("entries.json.enc" in note for note in result.skipped)
+    assert any("security/cipher" in where for where in result.merged_files)
 
 
 def test_migrate_account_data_disabled_profile_not_in_report(tmp_path, monkeypatch):

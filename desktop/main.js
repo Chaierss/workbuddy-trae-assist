@@ -42,6 +42,7 @@ if (IS_WIN) app.setAppUserModelId('com.chaierss.chaierww');
 // 后端是否由本进程拉起（用于退出时决定要不要一并回收）。
 let backendProcess = null;
 let mainWindow = null;
+let webLoginWindow = null;
 let tray = null;
 let quitting = false;
 
@@ -77,7 +78,10 @@ function backendExecutable() {
 
 function webuiDir() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'webui');
+    const packaged = path.join(process.resourcesPath, 'webui');
+    // 从 node_modules 里的 electron 二进制直接跑源码时，isPackaged 也可能为
+    // true；此时 resources/webui 并不存在，回落到仓库产物，避免只起 API。
+    if (fs.existsSync(path.join(packaged, 'index.html'))) return packaged;
   }
   // 开发模式：指向仓库的 web/dist
   return path.join(__dirname, '..', 'web', 'dist');
@@ -104,6 +108,28 @@ function isPortOpen(port) {
   });
 }
 
+/**
+ * 开发模式用哪个 python。
+ *
+ * 直接跑源码时，系统 PATH 里的 python 往往没装本项目依赖（`python -m chaierww.main`
+ * 会 ModuleNotFoundError 直接退出，表现为「应用起不来/一闪就没」）。所以优先用仓库
+ * 自己的 venv；环境变量 CHAIERWW_PYTHON 显式指定时以它为准。
+ */
+function devPython() {
+  const fromEnv = process.env.CHAIERWW_PYTHON;
+  if (fromEnv) return fromEnv;
+  const candidates = IS_WIN
+    ? [path.join(__dirname, '..', '.venv', 'Scripts', 'python.exe')]
+    : [
+        path.join(__dirname, '..', '.venv', 'bin', 'python3'),
+        path.join(__dirname, '..', '.venv', 'bin', 'python'),
+      ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return 'python';
+}
+
 function startBackend() {
   const webui = webuiDir();
   const env = {
@@ -125,7 +151,7 @@ function startBackend() {
   } else {
     // 开发模式：python -m chaierww.main
     // detached：起独立进程组，退出时能整组干掉（后端可能还有子进程）。
-    const python = process.env.CHAIERWW_PYTHON || 'python';
+    const python = devPython();
     backendProcess = spawn(python, ['-m', 'chaierww.main'], {
       env,
       cwd: path.join(__dirname, '..'),
@@ -719,6 +745,139 @@ ipcMain.handle('update:unskip', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 内嵌登录窗口
+// ---------------------------------------------------------------------------
+// 只允许打开 WorkBuddy / CodeBuddy 的登录页。这个窗口不挂 preload、不开
+// nodeIntegration，只用来承载官方登录页；登录结果仍由后端 OAuth 轮询领取，
+// 渲染层拿不到任何凭据。
+const WEB_LOGIN_HOSTS = ['codebuddy.cn', 'workbuddy.cn'];
+const WEB_APP_URL = 'https://www.workbuddy.cn/app';
+
+function isWebLoginUrl(raw) {
+  try {
+    const url = new URL(String(raw));
+    if (url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase();
+    return WEB_LOGIN_HOSTS.some((base) => host === base || host.endsWith(`.${base}`));
+  } catch {
+    return false;
+  }
+}
+
+function closeWebLoginWindow() {
+  if (!webLoginWindow) return;
+  const win = webLoginWindow;
+  webLoginWindow = null;
+  if (!win.isDestroyed()) win.close();
+}
+
+ipcMain.handle('web-login:open', (event, rawUrl) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    return { ok: false, error: 'unexpected-sender' };
+  }
+  if (!isWebLoginUrl(rawUrl)) {
+    return { ok: false, error: 'untrusted-url' };
+  }
+
+  closeWebLoginWindow();
+
+  const win = new BrowserWindow({
+    width: 460,
+    height: 720,
+    minWidth: 380,
+    minHeight: 560,
+    title: '登录 WorkBuddy',
+    autoHideMenuBar: true,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      // 每次打开都用新的内存分区：避免上一次登录的 Cookie 影响到换号。
+      partition: `chaierww-web-login-${Date.now()}`,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  webLoginWindow = win;
+  win.setMenuBarVisibility(false);
+  // 登录页会检查 UA，去掉 Electron 标识避免被当成不支持的浏览器。
+  win.webContents.setUserAgent(win.webContents.getUserAgent().replace(/\sElectron\/[\d.]+/i, ''));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isWebLoginUrl(url)) {
+      void win.loadURL(url);
+    }
+    return { action: 'deny' };
+  });
+  win.on('closed', () => {
+    if (webLoginWindow === win) webLoginWindow = null;
+  });
+  win.loadURL(String(rawUrl)).catch(() => {
+    if (!win.isDestroyed()) win.close();
+  });
+  return { ok: true };
+});
+
+ipcMain.handle('web-login:close', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return false;
+  closeWebLoginWindow();
+  return true;
+});
+
+/**
+ * 打开内置的 WorkBuddy 网页版。登录态由独立分区保有，下次打开还在；
+ * 用户在网页里手动做活动，和我们活动页的接口执行互不影响。
+ */
+ipcMain.handle('web-login:open-app', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    return { ok: false, error: 'unexpected-sender' };
+  }
+
+  closeWebLoginWindow();
+
+  const win = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 900,
+    minHeight: 640,
+    title: 'WorkBuddy 网页版',
+    autoHideMenuBar: true,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      partition: 'persist:chaierww-web-app',
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  webLoginWindow = win;
+  win.setMenuBarVisibility(false);
+  win.webContents.setUserAgent(win.webContents.getUserAgent().replace(/\sElectron\/[\d.]+/i, ''));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    let target = null;
+    try {
+      target = new URL(String(url));
+    } catch {
+      return { action: 'deny' };
+    }
+    if (target.protocol !== 'https:' && target.protocol !== 'http:') return { action: 'deny' };
+    if (isWebLoginUrl(url)) {
+      void win.loadURL(url);
+    } else {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+  win.on('closed', () => {
+    if (webLoginWindow === win) webLoginWindow = null;
+  });
+  win.loadURL(WEB_APP_URL).catch(() => {
+    if (!win.isDestroyed()) win.close();
+  });
+  return { ok: true };
+});
+
+// ---------------------------------------------------------------------------
 // 应用生命周期
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
@@ -746,6 +905,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  closeWebLoginWindow();
 });
 
 app.on('will-quit', () => {

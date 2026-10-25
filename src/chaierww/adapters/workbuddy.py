@@ -11,10 +11,20 @@
 因此这里的策略是：把整个文件当作不透明凭据原样保存、原样写回。
 好处是既不需要了解平台的加密方案，也不会因为解析而破坏字段。
 代价是显示名拿不到明文昵称——平台没提供，只能先用账号号段标识，由用户自己加备注。
+
+2026-10-25 客户端升级到 5.9.2（品牌 CodeBuddy → WorkBuddy）后，登录态判定多了一层：
+
+    <info>.logged-out                             存在即「用户显式登出」，客户端**完全不读** info；
+    <info>.<sha256(origin)[:16]>.observation.json 观测账本，记录当前身份 uid 与 active。
+
+于是「只写 info」不再等于「切号成功」：标记还在，客户端就当没登录；账本 uid 与
+info 里的账号对不上，客户端会按 ``unexpected`` 处理并强制重新登录。写回后必须
+删标记、对齐账本，这两步由 :meth:`WorkBuddyAdapter.apply_switch` 统一收口。
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import os
@@ -40,6 +50,12 @@ from chaierww.adapters.base import (
 )
 
 STATE_FILENAME = "workbuddy-desktop.info"
+#: ``~/.workbuddy/keyblob``：包裹 at-rest 主密钥的密钥库，用来判断凭据是否还解得开。
+KEYBLOB_FILENAME = "keyblob"
+#: 客户端「显式登出」标记：存在它，客户端就会跳过整个 info 文件。
+LOGOUT_MARKER_SUFFIX = ".logged-out"
+#: 观测账本后缀。文件名 = ``<info>.<sha256(origin)[:16]>.observation.json``。
+OBSERVATION_SUFFIX = ".observation.json"
 # 只按可执行文件名匹配客户端主程序，禁止用子串匹配整条路径：
 # `~/.workbuddy/binaries/python/...` 这类运行时路径同样含 "workbuddy"，
 # 子串判断会把 chaierww 自身后端等无关进程一并杀掉。
@@ -103,6 +119,87 @@ def credential_gaps(account: dict) -> list[str]:
     return gaps
 
 
+def _workbuddy_home() -> Path:
+    """``~/.workbuddy``：客户端 5.9.2 起的用户级数据根。"""
+    raw = os.environ.get("USERPROFILE")
+    return (Path(raw) if raw else Path.home()) / ".workbuddy"
+
+
+def _keyblob_key_ids(path: Path | None = None) -> set[str]:
+    """本机 keyblob 里出现过的密钥 id 集合；读不到就返回空集（视为「无法判断」）。"""
+    target = path or _workbuddy_home() / KEYBLOB_FILENAME
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+
+    ids: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {"keyId", "protectorKeyId"} and isinstance(value, str) and value.strip():
+                    ids.add(value.strip())
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    return ids
+
+
+def _envelope_key_id(value: object) -> str | None:
+    """``{$wbEncrypted: 1, envelope: <base64 JSON>}`` 里的 keyId。"""
+    if not isinstance(value, dict):
+        return None
+    envelope = value.get("envelope")
+    if not isinstance(envelope, str) or not envelope.strip():
+        return None
+    try:
+        body = json.loads(base64.b64decode(envelope, validate=True).decode("utf-8", "replace"))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    key_id = body.get("keyId") if isinstance(body, dict) else None
+    return key_id.strip() if isinstance(key_id, str) and key_id.strip() else None
+
+
+def credential_key_id(raw: bytes) -> str | None:
+    """凭据里令牌信封使用的密钥 id；没有信封（旧版明文）返回 None。"""
+    body = raw[3:] if raw.startswith(_BOM) else raw
+    try:
+        data = json.loads(body.decode("utf-8", "replace"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    auth = data.get("auth") if isinstance(data, dict) else None
+    if not isinstance(auth, dict):
+        return None
+    return _envelope_key_id(auth.get("accessToken")) or _envelope_key_id(auth.get("refreshToken"))
+
+
+def stale_reason(raw: bytes, key_ids: set[str] | None = None) -> str | None:
+    """凭据是不是本机当前密钥能解开的；能解开或无法判断时返回 None。
+
+    5.9.2 起 token 全部是 ``$wbEncrypted`` 信封，能不能解只取决于信封里的 keyId
+    是否还在本机 keyblob 里。客户端换过密钥后，旧号「切过去还是登录页」是最难查的
+    故障之一，所以在切号前就把结论说出来。
+    """
+    key_id = credential_key_id(raw)
+    if key_id is None:
+        return None
+    known = key_ids if key_ids is not None else _keyblob_key_ids()
+    if not known:
+        # 读不到 keyblob（没装新版客户端/权限不足）时不做判断，避免误报吓人。
+        return None
+    if key_id in known:
+        return None
+    return (
+        f"这份凭据的令牌由另一套密钥加密（keyId={key_id}），当前客户端的 keyblob 解不开，"
+        "切换后大概率仍停在登录页；建议先在客户端登录该账号，再重新导入"
+    )
+
+
 def _local_appdata() -> Path:
     raw = os.environ.get("LOCALAPPDATA")
     if not raw:
@@ -117,6 +214,61 @@ class WorkBuddyPaths:
     app_candidates: tuple[Path, ...]
 
 
+def _registry_app_candidates() -> tuple[Path, ...]:
+    """从卸载项里找客户端 exe。
+
+    装到自定义盘符（例如 ``C:\\CBRoad\\WorkBuddy``）时，固定路径一个都猜不中；
+    但安装程序一定会把真实路径登记到 ``DisplayIcon`` / ``InstallLocation``。
+    找不到就让调用方回落固定路径，不要让异常冒出去。
+    """
+    if os.name != "nt":
+        return ()
+    import winreg
+
+    roots = (
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        ),
+    )
+    found: list[Path] = []
+    for root, subkey in roots:
+        try:
+            parent = winreg.OpenKey(root, subkey)
+        except OSError:
+            continue
+        with parent:
+            for index in range(winreg.QueryInfoKey(parent)[0]):
+                try:
+                    with winreg.OpenKey(parent, winreg.EnumKey(parent, index)) as item:
+                        display = str(winreg.QueryValueEx(item, "DisplayName")[0]).lower()
+                        if "workbuddy" not in display and "codebuddy" not in display:
+                            continue
+                        values = {}
+                        for name in ("DisplayIcon", "InstallLocation"):
+                            try:
+                                values[name] = str(winreg.QueryValueEx(item, name)[0])
+                            except OSError:
+                                values[name] = ""
+                except OSError:
+                    continue
+                icon = values["DisplayIcon"].split(",")[0].strip().strip('"')
+                location = values["InstallLocation"].strip().strip('"')
+                for candidate in (
+                    Path(icon) if icon else None,
+                    Path(location) / "WorkBuddy.exe" if location else None,
+                ):
+                    if (
+                        candidate is not None
+                        and candidate.suffix.lower() == ".exe"
+                        and candidate not in found
+                    ):
+                        found.append(candidate)
+    return tuple(found)
+
+
 def default_paths() -> WorkBuddyPaths:
     state_dir = _local_appdata() / "CodeBuddyExtension" / "Data" / "Public" / "auth"
     # 装在非默认位置（比如自选盘符）的用户用这个变量指定，比猜路径可靠。
@@ -125,6 +277,7 @@ def default_paths() -> WorkBuddyPaths:
         c
         for c in (
             Path(override) if override else None,
+            *_registry_app_candidates(),
             _local_appdata() / "Programs" / "WorkBuddy" / "WorkBuddy.exe",
             (
                 Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
@@ -183,6 +336,26 @@ def parse_identity(raw: bytes) -> tuple[str, str, dict[str, str]]:
     return external_id, display_name, detail
 
 
+def _uid_of(raw: bytes) -> str | None:
+    """尽力取出 info 里的 uid，结构不认识就返回 None（不抛错）。
+
+    与 :func:`parse_identity` 的区别：这里只是「写回之后顺手对齐账本」的辅助信息，
+    拿不到最多是少做一步对齐，不该让已经成功的写回变成失败。
+    """
+    body = raw[3:] if raw.startswith(_BOM) else raw
+    try:
+        data = json.loads(body.decode("utf-8", "replace"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    account = data.get("account")
+    if not isinstance(account, dict):
+        return None
+    uid = str(account.get("uid") or "").strip()
+    return uid or None
+
+
 class WorkBuddyAdapter:
     scope = "workbuddy-cn"
 
@@ -193,6 +366,60 @@ class WorkBuddyAdapter:
 
     def state_dir(self) -> Path:
         return self._paths.state_dir
+
+    # ---------- 登录态文件族（5.9.2 起由一个文件变成「文件 + 标记 + 账本」） ----------
+
+    def _logout_marker(self) -> Path:
+        state_file = self._paths.state_file
+        return state_file.with_name(state_file.name + LOGOUT_MARKER_SUFFIX)
+
+    def _observation_files(self) -> list[Path]:
+        state_file = self._paths.state_file
+        if not state_file.parent.is_dir():
+            return []
+        return sorted(state_file.parent.glob(f"{state_file.name}.*{OBSERVATION_SUFFIX}"))
+
+    def _clear_logout_marker(self) -> bool:
+        """删掉「显式登出」标记；返回是否真的删掉了一个。
+
+        删不掉必须抛错而不是忽略：标记还在，客户端就完全不读我们刚写的登录态，
+        等于这次切号白做，还会让用户以为「切成功了但界面还是登录页」。
+        """
+        marker = self._logout_marker()
+        try:
+            marker.unlink()
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise StateUnreadable(
+                f"无法删除登出标记 {marker.name}（{exc.strerror or exc}），"
+                "客户端仍会按「已登出」忽略新写入的登录态，请确认客户端已完全退出后重试"
+            ) from exc
+        return True
+
+    def _realign_observation(self, uid: str) -> int:
+        """删掉 uid 对不上的观测账本，让客户端按新身份重建；返回删掉的份数。
+
+        账本里只有身份与活跃标记，不含凭据；留着旧 uid 反而会被客户端判成一次
+        ``unexpected`` 身份变更并强制重新登录。
+        """
+        removed = 0
+        for path in self._observation_files():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                # 读不懂就不动它：破坏一份看不懂的文件，比少对齐一次更糟。
+                continue
+            identity = data.get("identity") if isinstance(data, dict) else None
+            ledger_uid = ""
+            if isinstance(identity, dict):
+                ledger_uid = str(identity.get("userId") or "").strip()
+            if ledger_uid == uid:
+                continue
+            with contextlib.suppress(OSError):
+                path.unlink()
+                removed += 1
+        return removed
 
     def app_path(self) -> Path | None:
         for candidate in self._paths.app_candidates:
@@ -229,7 +456,10 @@ class WorkBuddyAdapter:
         logged_in = False
         current_external_id: str | None = None
         message = ""
-        if state_file.exists():
+        if self._logout_marker().exists():
+            # 5.9.2 起：标记存在 = 用户显式登出，客户端根本不读 info，不能再按「已登录」报。
+            message = "客户端已退出登录（.logged-out 标记存在），请先在客户端登录"
+        elif state_file.exists():
             try:
                 current_external_id, _, _ = parse_identity(state_file.read_bytes())
                 logged_in = True
@@ -292,6 +522,11 @@ class WorkBuddyAdapter:
 
     def import_current(self) -> ImportedAccount:
         state_file = self._paths.state_file
+        if self._logout_marker().exists():
+            # 标记存在时客户端不会使用 info，导出的会是一份「已失效」的凭据。
+            raise NotLoggedIn(
+                "客户端已退出登录（存在 .logged-out 标记），请先在客户端重新登录再导入"
+            )
         if not state_file.is_file():
             if self.app_path() is None:
                 raise NotInstalled("未找到客户端，请先安装并登录")
@@ -361,20 +596,56 @@ class WorkBuddyAdapter:
                 ),
             )
 
+        marker = self._logout_marker()
+        if marker.exists():
+            warnings.append("客户端当前处于「已登出」状态，切换时会一并清除 .logged-out 标记")
+        issue = stale_reason(payload)
+        if issue:
+            warnings.append(issue)
+        files += self._auxiliary_plan()
+
         return SwitchPlan(
             files=files,
             requires_app_exit=self.is_running(),
             warnings=tuple(warnings),
         )
 
+    def _auxiliary_plan(self) -> tuple[PlannedFile, ...]:
+        """登录态文件之外、但同属「5.9.2 登录态」的几份文件：登出标记与观测账本。"""
+        items: list[PlannedFile] = []
+        marker = self._logout_marker()
+        if marker.exists():
+            items.append(
+                PlannedFile(
+                    path=marker,
+                    action="delete",
+                    size=marker.stat().st_size,
+                    note="登出标记，不删客户端就不会读新写入的登录态",
+                )
+            )
+        for ledger in self._observation_files():
+            items.append(
+                PlannedFile(
+                    path=ledger,
+                    action="realign",
+                    size=ledger.stat().st_size,
+                    note="观测账本，切号后按目标账号重建",
+                )
+            )
+        return tuple(items)
+
     def _history_files(self) -> list[Path]:
         if not self._paths.state_dir.is_dir():
             return []
         current = self._paths.state_file.name
+        marker = self._logout_marker().name
         return sorted(
             p
             for p in self._paths.state_dir.glob(f"{current.split('.')[0]}.*")
-            if p.is_file() and p.name != current
+            if p.is_file()
+            and p.name != current
+            and p.name != marker
+            and not p.name.endswith(OBSERVATION_SUFFIX)
         )
 
     def apply_switch(self, payload: bytes) -> None:
@@ -400,6 +671,14 @@ class WorkBuddyAdapter:
                 if tmp.exists():
                     tmp.unlink()
 
+        # 写入成功后还有两件必做的事，缺一件这次切号就是「假的」：
+        # 1. 删 .logged-out：5.9.2 起标记存在时客户端完全不读 info；
+        # 2. 对齐观测账本：账本 uid 与 info 不一致会被判成 unexpected 身份变更。
+        self._clear_logout_marker()
+        uid = _uid_of(payload)
+        if uid:
+            self._realign_observation(uid)
+
     # ---------- token 凭据切换（扫码采集的账号） ----------
 
     def plan_token_switch(self, account: dict) -> SwitchPlan:
@@ -416,8 +695,10 @@ class WorkBuddyAdapter:
         )
         if not state_file.parent.exists():
             warnings.append(f"目录不存在，将创建：{state_file.parent}")
+        if self._logout_marker().exists():
+            warnings.append("客户端当前处于「已登出」状态，切换时会一并清除 .logged-out 标记")
         return SwitchPlan(
-            files=files,
+            files=(*files, *self._auxiliary_plan()),
             requires_app_exit=self.is_running(),
             warnings=tuple(warnings),
         )
@@ -537,12 +818,23 @@ class WorkBuddyAdapter:
             return {}
 
     def verify_switch(self, expected_external_id: str) -> bool:
+        # 标记还在 = 客户端会忽略 info，即使文件内容对也不能算切换成功。
+        if self._logout_marker().exists():
+            return False
         try:
             raw = self._paths.state_file.read_bytes()
             external_id, _, _ = parse_identity(raw)
         except (OSError, StateUnreadable, NotLoggedIn):
             return False
         return external_id == expected_external_id
+
+    def credential_issue(self, payload: bytes) -> str | None:
+        """切号前体检：这份凭据为什么可能用不了；没问题返回 None。
+
+        目前只覆盖「密钥换代」这一种：信封 keyId 不在本机 keyblob 里。
+        其余缺口由 :func:`credential_gaps` 在导入侧报告。
+        """
+        return stale_reason(payload)
 
     def launch(self) -> bool:
         app = self.app_path()

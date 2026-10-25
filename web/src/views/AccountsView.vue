@@ -1220,27 +1220,66 @@ const confirmText = computed(() => {
 
 <template>
   <div>
-    <!-- 客户端扫描入池：已登录的客户端账号不在号池时提示 -->
-    <div
-      v-if="pendingPool"
-      class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-brand-soft px-4 py-3 text-body-sm text-brand-dark"
-    >
-      <UserPlus :size="15" :stroke-width="1.9" class="shrink-0" />
-      <span class="flex-1">{{ t("accounts.pendingPoolHint") }}</span>
-      <button
-        type="button"
-        class="inline-flex shrink-0 items-center gap-1.5 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
-        :disabled="importing"
-        @click="onImport"
-      >
-        {{ importing ? t("accounts.importing") : t("accounts.poolIn") }}
-      </button>
+    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      <div class="min-w-0">
+        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("accounts.title") }}</h1>
+        <p class="mt-1.5 max-w-[62ch] text-body leading-relaxed text-muted">{{ subtitle }}</p>
+      </div>
+      <!-- 加号类操作统一收在页头：工具栏只负责「筛」和「批量」，不再和导入入口混在一起 -->
+      <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark"
+          @click="oauthPlatform = 'workbuddy'; oauthOpen = true"
+        >
+          <QrCode :size="14" :stroke-width="1.9" />
+          {{ t("accounts.scanWorkbuddy") }}
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          @click="oauthPlatform = 'trae'; oauthOpen = true"
+        >
+          <QrCode :size="14" :stroke-width="1.9" />
+          {{ t("accounts.scanTrae") }}
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+          :disabled="jsonDialog.busy"
+          @click="openJsonImport"
+        >
+          <ClipboardPaste :size="14" :stroke-width="1.9" />
+          {{ t("accounts.jsonImport") }}
+        </button>
+        <!-- 删除确认框承诺「保留 30 天可恢复」，这里就是那个恢复入口 -->
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control px-2.5 py-2 text-body-sm transition-colors hover:text-ink"
+          :class="recycle.items.length ? 'text-ink-soft' : 'text-muted'"
+          :title="
+            recycle.items.length
+              ? t('accounts.recycle.countHint', { count: recycle.items.length })
+              : t('accounts.recycle.openHint')
+          "
+          @click="openRecycle"
+        >
+          <History :size="14" :stroke-width="1.9" />
+          {{ t("accounts.recycle.open") }}
+          <span
+            v-if="recycle.items.length"
+            class="rounded-full bg-line-soft px-1.5 py-px text-caption text-ink-soft"
+          >
+            {{ recycle.items.length }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <!-- 登录失效：活动/签到遇 401 已回写到账号状态，续期救不回来，只能重新扫码 -->
     <div
       v-if="reloginAccounts.length"
-      class="mb-3 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm leading-relaxed text-danger-dark"
+      class="mt-4 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm leading-relaxed text-danger-dark"
     >
       <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
       <div class="min-w-0 flex-1">
@@ -1261,7 +1300,7 @@ const confirmText = computed(() => {
     <!-- 凭据缺口：能切号但 token 一过期就要重登。早说清楚，别等用户撞上 -->
     <div
       v-if="gapOnlyAccounts.length"
-      class="mb-3 flex items-start gap-2 rounded-card border border-warn/30 bg-warn-soft px-4 py-2.5 text-body-sm leading-relaxed text-warn"
+      class="mt-3 flex items-start gap-2 rounded-card border border-warn/30 bg-warn-soft px-4 py-2.5 text-body-sm leading-relaxed text-warn"
     >
       <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
       <div class="min-w-0 flex-1">
@@ -1272,22 +1311,32 @@ const confirmText = computed(() => {
       </div>
     </div>
 
-    <div class="flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("accounts.title") }}</h1>
-        <p class="mt-1.5 text-body text-muted">{{ subtitle }}</p>
-      </div>
+    <!-- 客户端扫描入池：已登录的客户端账号不在号池时提示 -->
+    <div
+      v-if="pendingPool"
+      class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-brand-soft px-4 py-3 text-body-sm text-brand-dark"
+    >
+      <UserPlus :size="15" :stroke-width="1.9" class="shrink-0" />
+      <span class="flex-1">{{ t("accounts.pendingPoolHint") }}</span>
+      <button
+        type="button"
+        class="inline-flex shrink-0 items-center gap-1.5 rounded-control border border-brand/40 bg-surface px-3 py-1.5 text-body-sm font-medium text-brand-dark transition-colors hover:border-brand"
+        :disabled="importing"
+        @click="onImport"
+      >
+        {{ importing ? t("accounts.importing") : t("accounts.poolIn") }}
+      </button>
     </div>
 
     <!-- 号池健康度：一眼看清可用/异常/到期/低积分/今日待做；能筛的整块可点
          数字是异步到的，用 AnimatedNumber 滚动 + 跳动，异常项点一颗呼吸圆点 -->
-    <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+    <div class="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
       <component
         :is="stat.risk ? 'button' : 'div'"
         v-for="(stat, index) in health"
         :key="stat.key"
         :type="stat.risk ? 'button' : undefined"
-        class="stat-tile min-w-0 rounded-control border px-3 py-2 text-left transition-[border-color,box-shadow,background-color,transform] duration-200"
+        class="stat-tile min-w-0 rounded-control border px-3.5 py-2.5 text-left transition-[border-color,box-shadow,background-color,transform] duration-200"
         :class="[
           stat.risk
             ? 'hover:-translate-y-px hover:border-line-strong hover:shadow-card-hover'
@@ -1523,55 +1572,6 @@ const confirmText = computed(() => {
         {{ t("accounts.credits") }}
       </button>
 
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-        @click="oauthPlatform = 'workbuddy'; oauthOpen = true"
-      >
-        <QrCode :size="14" :stroke-width="1.9" />
-        {{ t("accounts.scanWorkbuddy") }}
-      </button>
-
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-        @click="oauthPlatform = 'trae'; oauthOpen = true"
-      >
-        <QrCode :size="14" :stroke-width="1.9" />
-        {{ t("accounts.scanTrae") }}
-      </button>
-
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-        :disabled="jsonDialog.busy"
-        @click="openJsonImport"
-      >
-        <ClipboardPaste :size="14" :stroke-width="1.9" />
-        {{ t("accounts.jsonImport") }}
-      </button>
-
-      <!-- 删除确认框承诺「保留 30 天可恢复」，这里就是那个恢复入口 -->
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3.5 py-2 text-body transition-colors hover:border-line-strong hover:text-ink"
-        :class="recycle.items.length ? 'text-ink-soft' : 'text-muted hover:text-ink-soft'"
-        :title="
-          recycle.items.length
-            ? t('accounts.recycle.countHint', { count: recycle.items.length })
-            : t('accounts.recycle.openHint')
-        "
-        @click="openRecycle"
-      >
-        <History :size="14" :stroke-width="1.9" />
-        {{ t("accounts.recycle.open") }}
-        <span
-          v-if="recycle.items.length"
-          class="rounded-full bg-line-soft px-1.5 py-px text-caption text-ink-soft"
-        >
-          {{ recycle.items.length }}
-        </span>
-      </button>
     </div>
 
     <div v-if="riskFilter" class="mt-3 flex items-center gap-2 text-body-sm text-ink-soft">
@@ -1595,7 +1595,7 @@ const confirmText = computed(() => {
       </p>
     </div>
 
-    <div v-else class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+    <div v-else class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
       <AccountCard
         v-for="account in shown"
         :key="account.id"

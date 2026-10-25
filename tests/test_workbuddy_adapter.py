@@ -283,3 +283,149 @@ def test_detect_treats_locked_file_as_logged_in(adapter, monkeypatch):
     assert result.logged_in is True
 
 
+# ---------- 5.9.2：登出标记 + 观测账本 ----------
+
+
+def marker_path(adapter):
+    return adapter._paths.state_dir / f"{STATE_FILENAME}.logged-out"
+
+
+def ledger_path(adapter):
+    return adapter._paths.state_dir / f"{STATE_FILENAME}.5d63bdd69323e571.observation.json"
+
+
+def write_ledger(path, uid: str) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "identity": {"userId": uid, "accountType": "personal"},
+                "sessionId": "s-1",
+                "active": True,
+                "facts": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_apply_switch_removes_logout_marker(adapter):
+    """标记还在，客户端就完全不读 info —— 写完必须删掉，否则这次切号是假的。"""
+    adapter._paths.state_file.write_bytes(payload(UID_A))
+    marker_path(adapter).write_bytes(b"")
+
+    adapter.apply_switch(payload(UID_A))
+
+    assert not marker_path(adapter).exists()
+    assert adapter.verify_switch(UID_A) is True
+
+
+def test_verify_switch_fails_while_marker_present(adapter):
+    adapter._paths.state_file.write_bytes(payload(UID_A))
+    marker_path(adapter).write_bytes(b"")
+
+    assert adapter.verify_switch(UID_A) is False
+
+
+def test_detect_reports_logged_out_when_marker_present(adapter):
+    """info 还在但标记也还在：客户端实际显示的是登录页，不能报「已登录」。"""
+    adapter._paths.state_file.write_bytes(payload(UID_A))
+    marker_path(adapter).write_bytes(b"")
+
+    result = adapter.detect()
+
+    assert result.logged_in is False
+    assert result.current_external_id is None
+    assert "logged-out" in result.message
+
+
+def test_import_current_rejects_logged_out(adapter):
+    adapter._paths.state_file.write_bytes(payload(UID_A))
+    marker_path(adapter).write_bytes(b"")
+
+    with pytest.raises(NotLoggedIn):
+        adapter.import_current()
+
+
+def test_apply_switch_drops_ledger_of_previous_account(adapter):
+    """账本 uid 与 info 不一致会被客户端判成异常身份变更，切号时必须对齐。"""
+    ledger = ledger_path(adapter)
+    write_ledger(ledger, UID_A)
+    adapter._paths.state_file.write_bytes(payload(UID_A))
+
+    adapter.apply_switch(payload("uid-B"))
+
+    assert not ledger.exists()
+    assert adapter.verify_switch("uid-B") is True
+
+
+def test_apply_switch_keeps_ledger_of_same_account(adapter):
+    ledger = ledger_path(adapter)
+    write_ledger(ledger, UID_A)
+
+    adapter.apply_switch(payload(UID_A))
+
+    assert ledger.exists()
+
+
+def test_plan_switch_lists_marker_and_ledger_changes(adapter):
+    adapter._paths.state_file.write_bytes(payload(UID_A))
+    marker_path(adapter).write_bytes(b"")
+    write_ledger(ledger_path(adapter), UID_A)
+
+    plan = adapter.plan_switch(payload("uid-B"))
+
+    actions = {item.path.name: item.action for item in plan.files}
+    assert actions[f"{STATE_FILENAME}.logged-out"] == "delete"
+    assert actions[f"{STATE_FILENAME}.5d63bdd69323e571.observation.json"] == "realign"
+    assert any("已登出" in warning for warning in plan.warnings)
+
+
+# ---------- 5.9.2：密钥换代（stale 预检） ----------
+
+
+def keyed_payload(uid: str, key_id: str) -> bytes:
+    """把 accessToken 的信封装成真实形态：base64(JSON{suit,keyId,...})。"""
+    import base64
+
+    envelope = base64.b64encode(
+        json.dumps({"suite": 1, "keyId": key_id, "nonce": "n", "authTag": "t"}).encode("utf-8")
+    ).decode("ascii")
+    body = json.loads(payload(uid))
+    body["auth"]["accessToken"] = {"$wbEncrypted": 1, "envelope": envelope}
+    return json.dumps(body, ensure_ascii=False).encode("utf-8")
+
+
+def test_stale_reason_flags_foreign_key():
+    from chaierww.adapters.workbuddy import stale_reason
+
+    raw = keyed_payload(UID_A, "old-key")
+    assert stale_reason(raw, {"current-key"}) is not None
+
+
+def test_stale_reason_accepts_known_key():
+    from chaierww.adapters.workbuddy import stale_reason
+
+    assert stale_reason(keyed_payload(UID_A, "current-key"), {"current-key"}) is None
+
+
+def test_stale_reason_ignores_plaintext_credential():
+    """没有信封的旧凭据不做判断，避免把能用的号误标成需重登。"""
+    from chaierww.adapters.workbuddy import stale_reason
+
+    assert stale_reason(payload(UID_A), {"current-key"}) is None
+
+
+def test_plan_switch_warns_when_key_mismatch(adapter, tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "keyblob").write_text(
+        json.dumps({"version": 1, "keyId": "current-key", "slots": []}), encoding="utf-8"
+    )
+    monkeypatch.setattr("chaierww.adapters.workbuddy._workbuddy_home", lambda: home)
+
+    plan = adapter.plan_switch(keyed_payload("uid-B", "old-key"))
+
+    assert any("解不开" in warning for warning in plan.warnings)
+
+

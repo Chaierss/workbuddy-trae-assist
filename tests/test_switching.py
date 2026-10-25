@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import shutil
@@ -15,6 +16,7 @@ from chaierww.adapters.base import (
     PlannedFile,
     SwitchPlan,
 )
+from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountRepository
 from chaierww.domain.backup import BackupService
 from chaierww.domain.switching import SwitchEngine, encode_payload, encode_token_payload
@@ -236,6 +238,26 @@ def test_switch_replaces_state_and_records_snapshot(world):
     assert jobs[0]["state"] == "succeeded"
 
 
+def test_switch_writes_client_refreshed_credential_back_to_pool(world):
+    """切走前把客户端刷新后的登录态收回号池。
+
+    客户端会自己刷新 token，旧的 refresh token 随即作废；号池若一直用导入时那份，
+    切回来写入就是 401（看起来像「这个号掉线了」）。这里验证源账号那份会被更新。
+    """
+    source = world["add"]("uid-A")
+    target = world["add"]("uid-B")
+    # 模拟客户端在运行期间刷新过凭据：文件里的 uin 与号池导入时那份不同。
+    (world["root"] / INFO).write_bytes(info_bytes("uid-A", uin="20002"))
+
+    report = world["engine"].execute(SCOPE, target.id)
+
+    assert report.state == "succeeded"
+    assert any(step.step == "回写登录态" and step.ok for step in report.steps)
+    _, payload = world["repo"].credential_record(source.id)
+    refreshed = json.loads(base64.b64decode(payload["data"]).decode("utf-8"))
+    assert refreshed["account"]["uin"] == "20002"
+
+
 def test_switch_updates_last_used(world):
     account = world["add"]("uid-B")
     world["engine"].execute(SCOPE, account.id)
@@ -330,6 +352,28 @@ def test_deleted_account_cannot_be_switched_to(world):
 
     with pytest.raises(Exception, match="回收站"):
         world["engine"].execute(SCOPE, account.id)
+
+
+def test_token_account_marked_relogin_is_blocked_before_touching_client(world):
+    """401 标记过的 token 账号不允许切换：切进去客户端也只会 401。
+
+    预检必须发生在「退出客户端」之前——不能为了一个坏号把用户的客户端关掉。
+    """
+    account = world["add_token"]("uid-T")
+    world["repo"].set_credential_state(account.id, CredentialState.RELOGIN_REQUIRED)
+    world["adapter"].running = True
+    before = file_hash(world["root"] / INFO)
+
+    dry = world["engine"].dry_run(SCOPE, account.id)
+    assert any(not step.ok for step in dry.steps)
+
+    report = world["engine"].execute(SCOPE, account.id)
+
+    assert report.state == "unsupported"
+    assert "登录已失效" in (report.error or "")
+    assert file_hash(world["root"] / INFO) == before
+    assert world["adapter"].terminated is False
+    assert world["engine"].history(SCOPE)[0]["state"] == "unsupported"
 
 
 def test_scope_mismatch_rejected(world):

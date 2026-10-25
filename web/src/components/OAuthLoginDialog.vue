@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ExternalLink, QrCode, Loader2 } from "lucide-vue-next";
 import { api } from "../api";
+import { desktop } from "../lib/desktop";
 import { t } from "../lib/i18n";
 
 type Platform = "workbuddy" | "trae";
@@ -51,13 +52,33 @@ async function start(): Promise<void> {
       props.platform === "trae" ? await api.traeOauthStart() : await api.oauthStart();
     state.loginId = res.loginId;
     state.uri = res.verificationUri;
-    // 打开授权页让用户扫码
-    window.open(res.verificationUri, "_blank", "noopener,noreferrer");
+    // 桌面端把授权页放进自己的窗口；浏览器端才新开标签页。
+    await openAuthPage(res.verificationUri);
     poll();
   } catch (error) {
     state.error = (error as Error).message;
   } finally {
     state.busy = false;
+  }
+}
+
+/** WorkBuddy 在桌面端用内嵌窗口，避免用户跳出应用后回不来。 */
+async function openAuthPage(uri: string): Promise<void> {
+  if (props.platform === "workbuddy" && desktop?.webLogin) {
+    const res = await desktop.webLogin.open(uri);
+    if (res.ok) return;
+  }
+  window.open(uri, "_blank", "noopener,noreferrer");
+}
+
+async function reopen(): Promise<void> {
+  if (!state.uri) return;
+  await openAuthPage(state.uri);
+}
+
+function closeEmbedded(): void {
+  if (props.platform === "workbuddy" && desktop?.webLogin) {
+    void desktop.webLogin.close().catch(() => {});
   }
 }
 
@@ -72,6 +93,7 @@ async function poll(): Promise<void> {
       if (res.result) {
         state.done = true;
         state.accountName = res.result.account.displayName;
+        closeEmbedded();
       } else if (res.error) {
         state.error = res.error;
       }
@@ -85,6 +107,7 @@ async function poll(): Promise<void> {
 
 function close(): void {
   clearTimer();
+  closeEmbedded();
   const imported = state.done;
   const loginId = state.loginId;
   // 取消未完成的 Trae 登录，释放 17388 回调端口。
@@ -100,11 +123,17 @@ watch(
   () => props.open,
   (open) => {
     if (open) reset();
-    else clearTimer();
+    else {
+      clearTimer();
+      closeEmbedded();
+    }
   },
 );
 
-onBeforeUnmount(clearTimer);
+onBeforeUnmount(() => {
+  clearTimer();
+  closeEmbedded();
+});
 </script>
 
 <template>
@@ -150,6 +179,7 @@ onBeforeUnmount(clearTimer);
               target="_blank"
               rel="noopener noreferrer"
               class="mt-2 flex items-center gap-1.5 break-all text-body-sm text-brand underline-offset-2 hover:underline"
+              @click.prevent="reopen"
             >
               <ExternalLink :size="13" :stroke-width="1.9" />
               {{ t("dialog.oauth.reopen") }}

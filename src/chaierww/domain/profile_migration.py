@@ -9,7 +9,10 @@
      按行去重合并；``*.json``（如 ``workspace-state.json``）JSON 深合并；
    - ``{uid}/``：客户端界面状态（``sidebar-list-snapshot.json`` / ``startup-route.json``）深合并；
    - ``storage/user-{uid}/``、``storage/user-{uid}-personal/``：目录内 ``*.json`` 深合并；
-   - ``security/{uid}/``：**明确跳过**（加密口令库，抄过去无意义，报告里列出原因）。
+   - ``security/{uid}/cipher/``：``session-authorizations.jsonl`` 按行并集、
+     ``detect-rules.toml`` 缺则复制；``entries.json.enc`` 与 ``data.lock*`` **跳过**
+     （前者的条目按账号本位加密，抄进别的账号等于把 A 的口令交给 B，且可能与
+     B 自己的库冲突；后者是运行期锁文件）。
 2. **工作区与项目元数据 `workspaces`**
    - 源账号的 ``user-{uid}-personal/workspace-state.json`` → 根级活动
      ``workspace-state.json``（JSON 并集深合并）：切换后目标账号能看到源账号的工作区列表。
@@ -32,6 +35,9 @@ from chaierww.domain.sessions import workbuddy_data_dir
 
 #: 源账号个人目录里、需要并集进根级工作区元数据的文件名。
 WORKSPACE_SOURCE_FILES = ("workspace-state.json", "workspace-display-names.json")
+
+#: ``security/{uid}/cipher/`` 里可以带走的两个文件（加密口令库 entries.json.enc 不在其列）。
+SECURITY_CARRY_FILES = ("session-authorizations.jsonl", "detect-rules.toml")
 
 
 # ---------- 路径 ----------
@@ -62,7 +68,7 @@ def security_dir(uid: str) -> Path:
 
 @dataclass
 class MergePlanItem:
-    kind: str  # "text" | "json" | "copy"
+    kind: str  # "text" | "json" | "jsonl" | "copy"
     src: Path
     dst: Path
     where: str  # 给人看的相对位置，如 ``user-*-personal/SOUL.md``
@@ -149,6 +155,27 @@ def _backup_text(path: Path, original: str, backup_dir: Path) -> None:
         return
 
 
+def _merge_jsonl(target_text: str, source_text: str) -> tuple[str, bool]:
+    """JSONL 按行并集：目标行保序在前，源里多出来的行追加在后。
+
+    一行一条记录，行内是完整 JSON，所以「按行去重」就是安全的最小合并；
+    不做 JSON 解析是因为这些记录可能是加密片段，解析失败没意义。
+    """
+    merged_lines: list[str] = []
+    seen: set[str] = set()
+    for text in (target_text, source_text):
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped in seen:
+                continue
+            seen.add(stripped)
+            merged_lines.append(stripped)
+    merged = "\n".join(merged_lines)
+    if merged_lines:
+        merged += "\n"
+    return merged, merged != target_text
+
+
 def _item_plan_result(item: MergePlanItem) -> tuple[bool, str | None]:
     """纯计算：返回 ``(是否会改动, 合并后文本)``；不改任何文件。"""
     source_text = item.src.read_text(encoding="utf-8", errors="replace")
@@ -164,6 +191,9 @@ def _item_plan_result(item: MergePlanItem) -> tuple[bool, str | None]:
         except MigrationError as exc:
             raise MigrationError(f"{item.where}：{exc}") from exc
         return outcome.changed, merged
+    if item.kind == "jsonl":
+        merged, changed = _merge_jsonl(target_text, source_text)
+        return changed, merged
     # copy：目标不存在才复制
     if item.dst.is_file():
         return False, None
@@ -213,6 +243,26 @@ def _plan_profile(source_uid: str, target_uid: str) -> list[MergePlanItem]:
             items.append(
                 MergePlanItem("json", src, dst_dir / src.name, f"{src.parent.name}/{src.name}")
             )
+    items.extend(_security_items(source_uid, target_uid))
+    return items
+
+
+def _security_items(source_uid: str, target_uid: str) -> list[MergePlanItem]:
+    """``security/{uid}/cipher/`` 里能安全带走的文件。
+
+    只取「授权记录」和「检测规则」：前者决定网页版会话授权，属于切号要同步的会话状态；
+    后者是纯规则文本，目标没有才补。``entries.json.enc`` 故意不带——它是账号本位的
+    加密口令库，抄过去既会串号，也可能覆盖目标自己的条目。
+    """
+    src_cipher = security_dir(source_uid) / "cipher"
+    dst_cipher = security_dir(target_uid) / "cipher"
+    items: list[MergePlanItem] = []
+    for name in SECURITY_CARRY_FILES:
+        src = src_cipher / name
+        if not src.is_file():
+            continue
+        kind = "jsonl" if src.suffix.lower() == ".jsonl" else "copy"
+        items.append(MergePlanItem(kind, src, dst_cipher / name, f"security/cipher/{name}"))
     return items
 
 
@@ -236,8 +286,8 @@ def preview_profile(source_uid: str, target_uid: str) -> dict[str, object]:
 
 
 def _security_skip_note(source_uid: str) -> list[str]:
-    if security_dir(source_uid).is_dir():
-        return ["security/{uid}（加密口令库，刻意不迁移）"]
+    if (security_dir(source_uid) / "cipher" / "entries.json.enc").is_file():
+        return ["security/{uid}/cipher/entries.json.enc（账号本位的加密口令库，刻意不迁移）"]
     return []
 
 

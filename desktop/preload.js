@@ -58,4 +58,15 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
       return () => ipcRenderer.removeListener('update:prompt', listener);
     },
   },
+
+  /**
+   * 内嵌登录窗口：把官方授权页放进我们自己的窗口里，用户不离开应用就能登录。
+   * 只接受 WorkBuddy / CodeBuddy 的登录地址，主进程会再校验一次。
+   */
+  webLogin: {
+    open: (url) => ipcRenderer.invoke('web-login:open', url),
+    close: () => ipcRenderer.invoke('web-login:close'),
+    /** 打开内置 WorkBuddy 网页版，登录态独立保存，可手动做活动。 */
+    openApp: () => ipcRenderer.invoke('web-login:open-app'),
+  },
 });
