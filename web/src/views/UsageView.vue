@@ -17,6 +17,7 @@
  *      conversationRequestId 对得上才展示正文；对不上就如实说「本机无记录」。
  */
 import { computed, onMounted, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import {
   AlertTriangle,
   BarChart3,
@@ -28,13 +29,15 @@ import {
   Loader2,
   MessageSquare,
   RefreshCw,
-  Search,
   TrendingDown,
   TrendingUp,
   X,
   Zap,
 } from "lucide-vue-next";
 import SectionCard from "../components/SectionCard.vue";
+import PageHeader from "../components/PageHeader.vue";
+import Skeleton from "../components/Skeleton.vue";
+import SearchInput from "../components/SearchInput.vue";
 import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -52,6 +55,7 @@ import {
   type UsageTurnBrief,
 } from "../api";
 import { localeTag, t, type MessageKey } from "../lib/i18n";
+import { scopedPath } from "../stores/app";
 
 const PLATFORM_LABEL: Record<string, string> = {
   workbuddy: "WorkBuddy",
@@ -920,14 +924,11 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("usage.title") }}</h1>
-        <p class="mt-1 max-w-[680px] text-body-sm leading-relaxed text-muted">
-          {{ t("usage.subtitleLead") }}<span class="text-ink-soft">{{ t("usage.subtitleKey") }}</span>{{ t("usage.subtitleTail") }}
-        </p>
-      </div>
-      <div class="flex shrink-0 items-center gap-2">
+    <PageHeader :title="t('usage.title')">
+      <template #subtitle>
+        {{ t("usage.subtitleLead") }}<span class="text-ink-soft">{{ t("usage.subtitleKey") }}</span>{{ t("usage.subtitleTail") }}
+      </template>
+      <template #actions>
         <SegmentedControl
           :model-value="view"
           :options="viewOptions"
@@ -943,8 +944,8 @@ onMounted(() => {
           <RefreshCw :size="14" :stroke-width="1.9" :class="busy ? 'animate-spin' : ''" />
           {{ t("common.refresh") }}
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div v-if="view === 'overview'" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <StatCard
@@ -1003,16 +1004,27 @@ onMounted(() => {
       <span class="text-body-sm text-muted">{{ t("usage.accountCount", { count: visibleAccounts.length }) }}</span>
     </div>
 
-    <div
-      v-if="busy && !pool.length"
-      class="mt-4 flex items-center gap-2 px-5 py-10 text-body text-muted"
-    >
-      <Loader2 :size="15" class="animate-spin" /> {{ t("usage.loading") }}
+    <div v-if="busy && !pool.length" class="mt-4">
+      <div class="mb-3 flex items-center gap-2 text-body-sm text-muted">
+        <Loader2 :size="14" class="animate-spin" /> {{ t("usage.loading") }}
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Skeleton v-for="index in 3" :key="index" variant="card" />
+      </div>
     </div>
 
     <div v-else-if="!visibleAccounts.length" class="mt-4">
       <SectionCard>
-        <EmptyState :title="t('usage.noAccounts')" />
+        <EmptyState :title="t('usage.noAccounts')" :hint="t('usage.noAccountsHint')">
+          <template #action>
+            <RouterLink
+              :to="scopedPath('/accounts')"
+              class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark"
+            >
+              {{ t("usage.goAccounts") }}
+            </RouterLink>
+          </template>
+        </EmptyState>
       </SectionCard>
     </div>
 
@@ -1616,12 +1628,11 @@ onMounted(() => {
         </template>
 
         <div class="flex items-center gap-2 px-4 pb-3">
-          <Search :size="14" class="text-muted" />
-          <input
+          <SearchInput
             v-model="convQuery"
-            type="text"
             :placeholder="t('usage.conv.search')"
-            class="h-8 w-full max-w-[360px] rounded-control border border-line bg-surface px-3 text-body-sm text-ink placeholder:text-muted focus:border-line-strong focus:outline-none"
+            size="sm"
+            class="w-full max-w-[360px]"
           />
         </div>
 
@@ -1758,15 +1769,12 @@ onMounted(() => {
             size="sm"
             class="w-[112px]"
           />
-          <div class="flex items-center gap-1.5 rounded-control border border-line bg-surface px-2">
-            <Search :size="13" class="text-muted" />
-            <input
-              v-model="detailKeyword"
-              type="text"
-              :placeholder="t('usage.detail.keyword')"
-              class="h-8 w-48 bg-transparent text-body-sm text-ink placeholder:text-muted focus:outline-none"
-            />
-          </div>
+          <SearchInput
+            v-model="detailKeyword"
+            :placeholder="t('usage.detail.keyword')"
+            size="sm"
+            class="w-48"
+          />
           <span class="ml-auto text-caption text-muted">
             {{ t("usage.detail.showing", { count: detailRows.length }) }}
           </span>

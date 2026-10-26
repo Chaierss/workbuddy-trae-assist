@@ -13,7 +13,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,15 @@ from chaierww.infra.fsutil import read_json_or_default, write_json_atomic
 logger = logging.getLogger("chaierww")
 
 FILENAME = "preferences.json"
+
+#: 首启引导的步骤 id。前端据此推进清单，后端只负责持久化与白名单校验。
+#: ``retention`` 是可选项（开自动签到 / 签发网关 Key），前 3 步完成后才出现。
+ONBOARDING_STEPS: tuple[str, ...] = (
+    "install",
+    "signin",
+    "first_switch",
+    "retention",
+)
 
 #: 自动备份的默认分区，与 backup.DEFAULT_GLOBAL_PARTS 保持一致（只有不含凭据的 config）。
 #: 这里用字面量而不是从 backup 导入，是为了避开 backup↔preferences 的循环导入：
@@ -53,6 +63,19 @@ DEFAULTS: dict[str, Any] = {
     # 用户手动勾选含凭据分区（gateway / accounts）并确认后，这里跟着更新，
     # 之后自动备份也把它们纳入 —— 「勾选即确认」，不再每次弹二次确认。
     "autoGlobalParts": list(_DEFAULT_PARTS),
+    # ---------- 首启引导（0.8.0） ----------
+    #: 引导状态机的版本。0 = 还没判定过；首次读取时由前端/后端据号池判定：
+    #: 有账号 = 老用户（直接视为完成），无账号 = 新用户（展示清单）。
+    "onboardingVersion": 0,
+    #: 已完成的步骤 id（白名单内，去重保序）。
+    "onboardingCompleted": [],
+    #: 用户点过「跳过 / 收起」的时间；非空表示不再自动展示。
+    "onboardingDismissedAt": None,
+    #: 第一次成功切换的时间（只写一次）。首次换号率的唯一本地依据。
+    "firstSwitchAt": None,
+    # ---------- 本地体验数据（0.8.0） ----------
+    #: 本地漏斗事件开关。只写本机 NDJSON，不上传；关掉后不再产生新事件。
+    "localMetricsEnabled": True,
 }
 
 
@@ -68,6 +91,11 @@ class Preferences:
     auto_backup: bool = True
     auto_global_backup: bool = True
     auto_global_parts: tuple[str, ...] = _DEFAULT_PARTS
+    onboarding_version: int = 0
+    onboarding_completed: tuple[str, ...] = ()
+    onboarding_dismissed_at: str | None = None
+    first_switch_at: str | None = None
+    local_metrics_enabled: bool = True
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -81,6 +109,11 @@ class Preferences:
             "autoBackup": self.auto_backup,
             "autoGlobalBackup": self.auto_global_backup,
             "autoGlobalParts": list(self.auto_global_parts),
+            "onboardingVersion": self.onboarding_version,
+            "onboardingCompleted": list(self.onboarding_completed),
+            "onboardingDismissedAt": self.onboarding_dismissed_at,
+            "firstSwitchAt": self.first_switch_at,
+            "localMetricsEnabled": self.local_metrics_enabled,
         }
 
 
@@ -111,7 +144,24 @@ class PreferencesStore:
             auto_backup=True,
             auto_global_backup=flag("autoGlobalBackup"),
             auto_global_parts=clean_global_parts(data.get("autoGlobalParts")),
+            onboarding_version=clean_version(data.get("onboardingVersion")),
+            onboarding_completed=clean_onboarding_steps(data.get("onboardingCompleted")),
+            onboarding_dismissed_at=_optional_iso(data.get("onboardingDismissedAt")),
+            first_switch_at=_optional_iso(data.get("firstSwitchAt")),
+            local_metrics_enabled=flag("localMetricsEnabled"),
         )
+
+    def mark_first_switch(self, at: str | None = None) -> bool:
+        """记录「第一次成功切换」的时间；已有值时不覆盖。
+
+        返回是否真的写入。切换流程成功后会调用一次，重复调用无副作用。
+        """
+        current = self.load()
+        if current.first_switch_at:
+            return False
+        stamp = at or datetime.now(UTC).astimezone().isoformat(timespec="seconds")
+        self.save(replace(current, first_switch_at=stamp))
+        return True
 
     def save(self, prefs: Preferences) -> Preferences:
         write_json_atomic(self._file, prefs.payload())
@@ -132,3 +182,25 @@ def clean_global_parts(raw: Any) -> tuple[str, ...]:
         return DEFAULT_GLOBAL_PARTS
     cleaned = tuple(dict.fromkeys(item for item in raw if item in GLOBAL_PARTS))
     return cleaned if cleaned else DEFAULT_GLOBAL_PARTS
+
+
+def clean_onboarding_steps(raw: Any) -> tuple[str, ...]:
+    """只保留白名单内的步骤 id，去重且保序；非法输入当作「没有完成任何一步」。"""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(dict.fromkeys(item for item in raw if item in ONBOARDING_STEPS))
+
+
+def clean_version(raw: Any) -> int:
+    """引导版本号：只接受非负整数，其余一律按 0（未初始化）处理。"""
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return 0
+    return raw
+
+
+def _optional_iso(raw: Any) -> str | None:
+    """ISO 时间字符串原样保留，其余（数字/空串/对象）当作 null。"""
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    return text or None

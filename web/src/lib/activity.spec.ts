@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTrend,
   campaignPercent,
+  CAMPAIGN_THEME,
   pickHighlights,
   safeActivityUrl,
   sortCampaigns,
@@ -104,6 +105,18 @@ describe("pickHighlights", () => {
       3,
     );
     expect(picked.map((item) => item.key)).toEqual(["d"]);
+  });
+});
+
+describe("CAMPAIGN_THEME", () => {
+  it("只用语义色 token，深浅两套主题自动跟着切换", () => {
+    for (const theme of Object.values(CAMPAIGN_THEME)) {
+      for (const classes of [theme.icon, theme.bar, theme.hover]) {
+        // 写死十六进制/白黑的类名在深色主题下不会翻面，是这条规则要防的回归。
+        expect(classes).not.toMatch(/#[0-9a-f]{3,8}|bg-white|text-black/i);
+        expect(classes).toMatch(/^(bg-|text-|hover:)/);
+      }
+    }
   });
 });
 

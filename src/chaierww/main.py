@@ -40,6 +40,7 @@ from chaierww.domain.credential_lifecycle import MODE_DUE, CredentialLifecycleSe
 from chaierww.domain.credits import CreditsService
 from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewayStore
 from chaierww.domain.gateway_relay import GatewayRelay
+from chaierww.domain.metrics import MetricsStore
 from chaierww.domain.oauth import build_oauth
 from chaierww.domain.preferences import PreferencesStore
 from chaierww.domain.restore import apply_pending_restore
@@ -100,6 +101,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     adapters = build_adapters()
     sync_repository = SyncRepository(conn, repository.lock)
     sync_engine = SyncEngine(repository, sync_repository, resolved.home, adapters)
+    preferences = PreferencesStore(resolved.home)
+    metrics = MetricsStore(resolved.home)
     engine = SwitchEngine(
         repository,
         backups,
@@ -107,6 +110,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conn,
         keep_snapshots=resolved.snapshot_keep,
         sync=sync_engine,
+        # 记「第一次成功换号」的时间：本地漏斗只用它算激活与 TTFV。
+        on_success=lambda _scope, _account_id: preferences.mark_first_switch(),
     )
     # 额度网关：配置/Key/日志落盘，真正的转发由 gateway_relay + api/gateway 完成。
     # 选号器同时接两个只读数据源：排除集（持久化）与积分缓存（判断「积分耗尽」）。
@@ -117,7 +122,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     gateway_runtime = GatewayRuntime(gateway)
 
-    preferences = PreferencesStore(resolved.home)
     activities = ActivitiesService(repository, growth_runner=GrowthTaskRunner())
     # 凭据生命周期：过期判断 / 续期 / 验活。路由与计划任务共用同一实例，
     # 这样手动点的「验活」结果与定时巡检的结论不会各说各话（缓存也才生效）。
@@ -408,6 +412,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.gateway_relay = gateway_relay
     app.state.gateway_runtime = gateway_runtime
     app.state.preferences = preferences
+    app.state.metrics = metrics
     app.state.oauth = build_oauth()
     app.state.trae_oauth = build_trae_oauth()
     app.state.credits = credits

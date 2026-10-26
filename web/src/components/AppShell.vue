@@ -3,11 +3,21 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import CommandPalette from "./CommandPalette.vue";
 import SidebarRail from "./SidebarRail.vue";
+import ToastHost from "./ToastHost.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { initUpdateStore } from "../stores/update";
 import { resolveFocusModule } from "../lib/focusMode";
 import { NAV_DESTINATIONS } from "../lib/nav";
-import { changeScope, isImplementedScope, scope, scopedPath } from "../stores/app";
+import {
+  changeScope,
+  clientDetections,
+  isImplementedScope,
+  scope,
+  scopedPath,
+} from "../stores/app";
+import { api } from "../api";
+import { setMetricsEnabled, track } from "../lib/metrics";
+import { ensureOnboarding } from "../lib/onboarding";
 
 /**
  * 唯一的壳层，承载三种布局形态：
@@ -112,8 +122,49 @@ onMounted(() => {
   // 更新 store 要尽早初始化：先订阅主进程的 update:state / update:prompt，再拉初值，
   // 否则启动 8 秒后那次自动检查推来的「发现新版本」会没人接。
   initUpdateStore();
+  void initTelemetry();
 });
 onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
+
+// ---------- 本地体验数据 + 首启引导 ----------
+
+const OPENED_KEY = "chaierww.opened";
+/** 本次会话已上报过的客户端，避免检测轮询把它刷成几十条事件。 */
+const reportedClients = new Set<string>();
+
+async function initTelemetry(): Promise<void> {
+  try {
+    const prefs = await api.preferences();
+    setMetricsEnabled(prefs.localMetricsEnabled);
+  } catch {
+    // 读不到偏好就先按默认开启处理；后端仍会按它自己的开关丢弃事件。
+  }
+  const first = !localStorage.getItem(OPENED_KEY);
+  localStorage.setItem(OPENED_KEY, "1");
+  track("app_open", { first });
+  void ensureOnboarding();
+}
+
+/** 客户端检测结果变化时上报一次「装了 / 登了 / 在跑」。只有状态词，没有路径。 */
+watch(
+  clientDetections,
+  (list) => {
+    for (const client of list) {
+      const status = !client.installed
+        ? "missing"
+        : client.loggedIn
+          ? client.running
+            ? "running"
+            : "logged_in"
+          : "installed";
+      const key = `${client.scope}:${status}`;
+      if (reportedClients.has(key)) continue;
+      reportedClients.add(key);
+      track("client_detected", { platform: client.scope, status });
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -140,5 +191,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
     <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
     <!-- 更新弹窗挂在壳层：不依赖任何路由，主进程一推 update:prompt 就能弹 -->
     <UpdateDialog />
+    <!-- 全局轻提示：所有页面的成功/失败反馈都走这一个容器 -->
+    <ToastHost />
   </div>
 </template>

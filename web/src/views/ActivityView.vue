@@ -30,6 +30,7 @@ import {
   Wand2,
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import SelectMenu from "../components/SelectMenu.vue";
@@ -587,14 +588,8 @@ const failedResults = computed(() =>
 
 <template>
   <div>
-    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-      <div class="min-w-0">
-        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("activity.title") }}</h1>
-        <p class="mt-1.5 max-w-[660px] text-body leading-relaxed text-muted">
-          {{ t("activity.subtitle") }}
-        </p>
-      </div>
-      <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+    <PageHeader :title="t('activity.title')" :subtitle="t('activity.subtitle')">
+      <template #actions>
         <button
           type="button"
           class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
@@ -621,8 +616,8 @@ const failedResults = computed(() =>
                 : t("activity.runAll")
           }}
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div
       class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-card border border-line bg-surface px-5 py-3 shadow-card"

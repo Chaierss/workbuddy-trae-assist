@@ -264,6 +264,42 @@ def test_switch_updates_last_used(world):
     assert world["repo"].get(account.id).last_used_at is not None
 
 
+def test_success_callback_fires_once_after_switch(world):
+    account = world["add"]("uid-B")
+    calls: list[tuple[str, str]] = []
+    engine = SwitchEngine(
+        world["repo"],
+        world["backups"],
+        {SCOPE: world["adapter"]},
+        world["conn"],
+        on_success=lambda scope, account_id: calls.append((scope, account_id)),
+    )
+
+    engine.execute(SCOPE, account.id)
+    engine.dry_run(SCOPE, account.id)
+
+    assert calls == [(SCOPE, account.id)]
+
+
+def test_success_callback_failure_does_not_break_switch(world):
+    account = world["add"]("uid-B")
+
+    def boom(_scope: str, _account_id: str) -> None:
+        raise RuntimeError("统计挂了")
+
+    engine = SwitchEngine(
+        world["repo"],
+        world["backups"],
+        {SCOPE: world["adapter"]},
+        world["conn"],
+        on_success=boom,
+    )
+
+    report = engine.execute(SCOPE, account.id)
+
+    assert report.state == "succeeded"
+
+
 def test_switch_can_relaunch(world):
     account = world["add"]("uid-B")
     world["engine"].execute(SCOPE, account.id, relaunch=True)

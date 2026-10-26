@@ -49,6 +49,8 @@ const props = defineProps<{
   preview?: MigrationPreview | "loading" | "none" | null;
   /** 会话同步状态：没采过 / 无镜像时不显示徽标。 */
   sync?: SyncAccountStatus | null;
+  /** 卡片密度：compact 只留身份 + 主状态，次级信息收进舒适视图。 */
+  density?: "compact" | "comfortable";
 }>();
 
 const emit = defineEmits<{
@@ -283,9 +285,13 @@ const credentialExpired = computed(() => {
   return !Number.isNaN(at.getTime()) && at.getTime() <= Date.now();
 });
 
+/** compact 下收起次级行；凭据已过期、同步冲突这类异常仍然保留。 */
+const showSecondary = computed(() => props.density !== "compact");
+
 /** 悬浮卡片时才拉预检，避免进页面就把所有账号的库都打开。 */
 function requestPreview(): void {
   if (props.isCurrent) return;
+  if (!showSecondary.value) return;
   if (!props.preview) emit("preview", props.account);
 }
 
@@ -396,7 +402,7 @@ function formatCredits(value: number | null): string {
 
     <!-- 凭据：到期时间 + 可否自动续期；信封凭据没有过期时间，整行不显示 -->
     <div
-      v-if="credentialExpiryLabel || account.credentialRefreshable"
+      v-if="(credentialExpiryLabel || account.credentialRefreshable) && (showSecondary || credentialExpired)"
       class="mt-1 flex items-center gap-1 text-micro leading-none text-muted"
     >
       <Clock :size="9" :stroke-width="2" class="shrink-0" />
@@ -513,7 +519,7 @@ function formatCredits(value: number | null): string {
     </div>
 
     <!-- 积分包 / 套餐明细（可展开） -->
-    <div v-if="hasPackages" class="mt-0.5">
+    <div v-if="hasPackages && showSecondary" class="mt-0.5">
       <button
         type="button"
         class="flex w-full items-center justify-between rounded-control px-0.5 py-0 text-micro leading-relaxed text-muted transition-colors hover:text-ink-soft"
@@ -577,7 +583,7 @@ function formatCredits(value: number | null): string {
 
     <!-- 会话同步：只在有镜像 / 有待应用 / 有冲突时占一行，平时不干扰 -->
     <div
-      v-if="syncLabel"
+      v-if="syncLabel && (showSecondary || Boolean(sync?.conflicts))"
       class="mt-1 flex items-center gap-1 truncate text-micro leading-none text-muted"
       :title="syncTooltip"
     >
@@ -587,7 +593,7 @@ function formatCredits(value: number | null): string {
 
     <!-- 切换预检：悬停卡片时按需拉取，直接显示会迁移多少 -->
     <div
-      v-if="previewText"
+      v-if="previewText && showSecondary"
       class="mt-1 flex items-center gap-1 truncate text-micro leading-none text-muted"
       :title="previewText"
     >

@@ -664,7 +664,7 @@ def test_api_activities_catalog_is_static_no_network(client, monkeypatch):
     monkeypatch.setattr(mod, "_call", boom)
     body = client.get("/api/activities/catalog").json()
     keys = [entry["key"] for entry in body["entries"]]
-    assert keys == [entry["key"] for entry in mod.ACTIVITY_CATALOG]
+    assert keys == [entry["key"] for entry in mod.available_catalog()]
     assert "workbuddy.daily_checkin" in keys
 
 

@@ -29,6 +29,8 @@ export const usageZh = {
   "usage.accountCount": "{count} 个账号",
   "usage.loading": "正在拉取用量…",
   "usage.noAccounts": "号池里还没有账号。先在账号页导入或扫码登录，再回来看用量。",
+  "usage.noAccountsHint": "导入后这里会显示每个账号的积分、配额与调用趋势。",
+  "usage.goAccounts": "去号池",
   "usage.modelAgg.title": "跨账号按模型聚合",
   "usage.modelAgg.subtitle": "各账号 models[] 按模型名合并，近 31 天",
   "usage.modelAgg.empty": "暂时没有可聚合的按模型数据（Trae 不提供按模型消耗）。",
@@ -272,6 +274,9 @@ export const usageEn = {
   "usage.accountCount": "{count} accounts",
   "usage.loading": "Loading usage…",
   "usage.noAccounts": "No accounts in the pool yet. Import or scan a login on the Accounts page, then come back.",
+  "usage.noAccountsHint":
+    "Once imported, credits, quota and usage trends for every account show up here.",
+  "usage.goAccounts": "Go to Accounts",
   "usage.modelAgg.title": "Per-model totals across accounts",
   "usage.modelAgg.subtitle": "Each account's models[] merged by model name, last 31 days",
   "usage.modelAgg.empty": "No per-model data to aggregate yet (Trae reports no per-model spend).",

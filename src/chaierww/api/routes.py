@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from chaierww import __version__
@@ -23,6 +23,9 @@ from chaierww.domain.activities import (
     OFFICIAL_CATALOG_VERSION,
     OFFICIAL_DISCLAIMER,
     ActivityBusyError,
+    available_catalog,
+    available_keys,
+    drop_ended,
     summarize,
     summarize_campaigns,
 )
@@ -45,7 +48,11 @@ from chaierww.domain.credential_lifecycle import (
     parse_expiry,
     refreshable,
 )
-from chaierww.domain.preferences import clean_global_parts
+from chaierww.domain.preferences import (
+    clean_global_parts,
+    clean_onboarding_steps,
+    clean_version,
+)
 from chaierww.domain.restore import (
     RestoreError,
     cancel_pending,
@@ -274,6 +281,13 @@ class PreferencesRequest(BaseModel):
     autoGlobalBackup: bool | None = None
     #: 自动备份收录的分区（含凭据分区需在前端勾选确认后传）。省略 = 不修改。
     autoGlobalParts: list[str] | None = None
+    #: 首启引导状态。省略 = 不修改；`onboardingCompleted` 只接受白名单步骤 id。
+    onboardingVersion: int | None = None
+    onboardingCompleted: list[str] | None = None
+    #: 传值表示「用户跳过/收起引导」；传 null 不会清空（跳过是一次性动作）。
+    onboardingDismissedAt: str | None = None
+    #: 本地体验数据开关。
+    localMetricsEnabled: bool | None = None
 
 
 class ActivityRunRequest(BaseModel):
@@ -1040,11 +1054,12 @@ def account_credits(
 def list_activity_catalog() -> dict[str, Any]:
     """返回本工具**认识**的全部活动项，不访问上游、不读账号。
 
-    页面先用它渲染骨架卡片（状态「未检测」），随后被真实检测结果按 key 覆盖，
-    这样冷启动时不会先看到一片空白。``key`` 与检测结果的 key 一一对应。
+    已结束的活动（``endsAt`` 已过）不会出现在这里：页面骨架按同一份清单渲染，
+    不该再铺出「开学季」这种已经结束的卡片。历史运行记录仍按库里的 key 展示标题。
     """
+    entries = available_catalog()
     return {
-        "entries": [dict(entry) for entry in ACTIVITY_CATALOG],
+        "entries": [dict(entry) for entry in entries],
         "version": OFFICIAL_CATALOG_VERSION,
         "updatedAt": OFFICIAL_CATALOG_UPDATED_AT,
         "disclaimer": OFFICIAL_DISCLAIMER,
@@ -1064,7 +1079,7 @@ def list_activities(
     """
     try:
         accounts = _activities_accounts(request, accountIds)
-        detected = request.app.state.activities.detect(accounts, force=refresh)
+        detected = drop_ended(request.app.state.activities.detect(accounts, force=refresh))
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
     return {
@@ -1076,7 +1091,11 @@ def list_activities(
 
 
 def _activity_key_filter(payload: ActivityRunRequest | None) -> set[str] | None:
-    """把请求里的 ``keys`` 收敛成白名单集合；空列表/未知 key 直接 400。"""
+    """把请求里的 ``keys`` 收敛成白名单集合；空列表/未知 key 直接 400。
+
+    已结束的活动同样拒绝执行：``endsAt`` 过了以后上游不再发奖励，继续代做
+    只会得到一串业务失败，还会让它继续出现在页面上。
+    """
     if payload is None or payload.keys is None:
         return None
     if not payload.keys:
@@ -1084,6 +1103,11 @@ def _activity_key_filter(payload: ActivityRunRequest | None) -> set[str] | None:
     unknown = sorted(set(payload.keys) - ACTIVITY_KEYS)
     if unknown:
         raise HTTPException(status_code=400, detail=f"未知活动 key：{'、'.join(unknown)}")
+    ended = sorted(set(payload.keys) - available_keys())
+    if ended:
+        raise HTTPException(
+            status_code=400, detail=f"活动已结束，不再提供运行：{'、'.join(ended)}"
+        )
     return set(payload.keys)
 
 
@@ -1099,12 +1123,14 @@ def run_activities(
     ``keys`` 只执行指定活动（活动详情里的「执行本活动」）；省略则全量执行。
     """
     keys = _activity_key_filter(payload)
+    # 全量执行 = 当前可用的全部活动。已结束的条目即使上游还返回数据，也不再代做。
+    run_keys = keys if keys is not None else set(available_keys())
     try:
         accounts = _activities_accounts(request, None)
         if payload and payload.accountIds:
             wanted = set(payload.accountIds)
             accounts = [item for item in accounts if item.id in wanted]
-        report = request.app.state.activities.run(accounts, keys=keys)
+        report = request.app.state.activities.run(accounts, keys=run_keys)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
     summary = report.get("summary", {})
@@ -1135,6 +1161,14 @@ def list_activity_runs(request: Request, days: int = 7, limit: int = 500) -> dic
         rows = repository.activity_runs(since, limit=max(1, min(int(limit), 2000)))
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
+    # 流水里的 key 可能是已下架的活动：目录条目仍然保留，用来显示标题 + 「已结束」标记，
+    # 否则用户看到的就是一串裸 key，或者一个点不进去的空卡片。
+    titles = {entry["key"]: entry["title"] for entry in ACTIVITY_CATALOG}
+    ended = ACTIVITY_KEYS - available_keys()
+    for row in rows:
+        key = str(row.get("key") or "")
+        row["title"] = titles.get(key, key)
+        row["ended"] = key in ended
     return {"since": since, "runs": rows}
 
 
@@ -1161,7 +1195,7 @@ def activity_history(
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 
-    wanted = [key] if key else [entry["key"] for entry in ACTIVITY_CATALOG]
+    wanted = [key] if key else [entry["key"] for entry in available_catalog()]
     buckets: dict[str, dict[str, dict[str, float]]] = {
         item: {} for item in wanted
     }
@@ -1895,12 +1929,75 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
             if body.autoGlobalParts is None
             else clean_global_parts(body.autoGlobalParts)
         ),
+        onboarding_version=(
+            current.onboarding_version
+            if body.onboardingVersion is None
+            else clean_version(body.onboardingVersion)
+        ),
+        onboarding_completed=(
+            current.onboarding_completed
+            if body.onboardingCompleted is None
+            else clean_onboarding_steps(body.onboardingCompleted)
+        ),
+        onboarding_dismissed_at=(
+            current.onboarding_dismissed_at or body.onboardingDismissedAt
+        ),
+        first_switch_at=current.first_switch_at,
+        local_metrics_enabled=pick(
+            body.localMetricsEnabled, current.local_metrics_enabled
+        ),
     )
     try:
         saved = request.app.state.preferences.save(updated)
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"偏好写入失败：{exc}") from exc
     return saved.payload()
+
+
+# ---------- 本地体验数据（只在本机，不上传） ----------
+
+
+class MetricsEventRequest(BaseModel):
+    """一条本地事件。事件名与属性都在 domain/metrics 的双白名单里校验。"""
+
+    name: str = Field(min_length=1, max_length=64)
+    props: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post(
+    "/metrics/events",
+    status_code=204,
+    summary="记录一条本地体验事件（关闭时静默丢弃）",
+    tags=["设置"],
+)
+def record_metric_event(request: Request, body: MetricsEventRequest) -> Response:
+    """写入本机 NDJSON。开关关闭、事件名非法、属性含未知键时一律 204 静默丢弃。
+
+    永远返回 204：前端把上报当「尽力而为」，不该因为它弹任何错误。
+    """
+    if not request.app.state.preferences.load().local_metrics_enabled:
+        return Response(status_code=204)
+    request.app.state.metrics.record(body.name, body.props)
+    return Response(status_code=204)
+
+
+@router.get("/metrics/funnel", summary="本地漏斗摘要（近 N 天）", tags=["设置"])
+def metrics_funnel(request: Request, days: int = 14) -> dict[str, Any]:
+    payload = request.app.state.metrics.funnel(days)
+    payload["enabled"] = request.app.state.preferences.load().local_metrics_enabled
+    return payload
+
+
+@router.get("/metrics/export", summary="导出本地体验数据 JSON", tags=["设置"])
+def metrics_export(request: Request) -> dict[str, Any]:
+    return request.app.state.metrics.export_payload()
+
+
+@router.delete("/metrics", summary="清空本地体验数据", tags=["设置"])
+def metrics_clear(request: Request) -> dict[str, Any]:
+    removed = request.app.state.metrics.clear()
+    logger.info("已清空本地体验数据：删除 %s 个文件", removed)
+    return {"removed": removed}
 
 
 # ---------- 计划任务（设置 → 计划任务） ----------

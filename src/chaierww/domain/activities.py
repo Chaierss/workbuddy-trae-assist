@@ -55,7 +55,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -303,6 +303,9 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         ),
         "rewards": ("任务奖励", "转盘抽奖"),
         "periodNote": "活动期内",
+        # 开学季在 2026-09-30 结束。上游不再发奖励，目录里保留条目只是为了
+        # 「历史运行记录还能显示标题」，不再出现在目录/活动页、也不允许执行。
+        "endsAt": "2026-09-30",
         "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
         "officialLabel": "WorkBuddy 官网",
         "featured": True,
@@ -335,7 +338,7 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
 )
 
 #: 官方活动目录版本。每次增删活动或修改规则/入口时同步更新，页面会展示。
-OFFICIAL_CATALOG_VERSION = "2026.10.1"
+OFFICIAL_CATALOG_VERSION = "2026.10.2"
 OFFICIAL_CATALOG_UPDATED_AT = "2026-10-26"
 OFFICIAL_DISCLAIMER = (
     "活动信息整理自官方客户端/官网公开内容。本工具与平台无隶属、合作或授权关系；"
@@ -343,6 +346,63 @@ OFFICIAL_DISCLAIMER = (
 )
 
 ACTIVITY_KEYS = frozenset(entry["key"] for entry in ACTIVITY_CATALOG)
+
+
+def _today() -> date:
+    """活动日期用**本地日期**判断：活动是按用户时区的自然日发放的。"""
+    return datetime.now(UTC).astimezone().date()
+
+
+def _parse_day(value: Any) -> date | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
+
+
+def is_available(entry: dict[str, Any], today: date | None = None) -> bool:
+    """条目当前是否还在活动期内。
+
+    没有 ``endsAt`` = 长期开放；有 ``endsAt`` 且今天**晚于**结束日即下架
+    （结束日当天仍可运行）。无法解析日期按「开放」处理：宁可多显示一天，
+    也不要因为目录写错日期把一个仍在进行的活动藏起来。
+    """
+    ends = _parse_day(entry.get("endsAt"))
+    if ends is None:
+        return True
+    return (today or _today()) <= ends
+
+
+def available_catalog(today: date | None = None) -> tuple[dict[str, Any], ...]:
+    """当前可用的目录条目（页面骨架、计划任务白名单都用它）。"""
+    return tuple(entry for entry in ACTIVITY_CATALOG if is_available(entry, today))
+
+
+def available_keys(today: date | None = None) -> frozenset[str]:
+    return frozenset(entry["key"] for entry in available_catalog(today))
+
+
+def drop_ended(
+    accounts: list[AccountActivities], today: date | None = None
+) -> list[AccountActivities]:
+    """把已下架活动从检测结果里摘掉。
+
+    上游可能还在返回旧活动的数据；继续展示会让「活动页还有开学季」这件事
+    永远修不掉。历史执行流水不受影响（它读的是库里的记录，不是这里）。
+    """
+    kept = available_keys(today)
+    ended = ACTIVITY_KEYS - kept
+    if not ended:
+        return accounts
+    return [
+        replace(
+            account,
+            items=tuple(item for item in account.items if item.key not in ended),
+        )
+        for account in accounts
+    ]
 
 #: 卡片主题与图标都走白名单，前端只认这些值，避免目录里写错字符串后静默降级。
 CAMPAIGN_THEMES = frozenset({"green", "blue", "amber", "violet", "teal", "rose"})
@@ -377,6 +437,13 @@ def validate_official_catalog() -> None:
             raise ValueError(f"活动主题非法：{key} -> {entry['theme']}")
         if entry["icon"] not in CAMPAIGN_ICONS:
             raise ValueError(f"活动图标非法：{key} -> {entry['icon']}")
+        starts = entry.get("startsAt")
+        ends = entry.get("endsAt")
+        for label, value in (("startsAt", starts), ("endsAt", ends)):
+            if value is not None and _parse_day(value) is None:
+                raise ValueError(f"活动日期格式非法（{label}，需 YYYY-MM-DD）：{key} -> {value}")
+        if starts is not None and ends is not None and _parse_day(starts) > _parse_day(ends):
+            raise ValueError(f"活动开始日晚于结束日：{key} -> {starts} > {ends}")
         parsed = urlsplit(entry["officialUrl"])
         host = (parsed.hostname or "").lower()
         if parsed.scheme != "https" or not host:
@@ -1236,6 +1303,9 @@ class ActivitiesService:
         """
         if not self._run_lock.acquire(blocking=False):
             raise ActivityBusyError("上一次一键执行还没结束，请稍等")
+        # 已结束的活动一律不执行：上游不再发奖励，代做只会得到一串业务失败。
+        # 这里统一收口，计划任务、全量执行、单活动执行都受益。
+        keys = available_keys() if keys is None else keys & available_keys()
         retried = 0
         retry_ok = 0
         try:
@@ -1872,7 +1942,7 @@ def summarize_campaigns(accounts: list[AccountActivities]) -> list[dict[str, Any
         platform_counts[platform] = platform_counts.get(platform, 0) + 1
 
     campaigns: list[dict[str, Any]] = []
-    for entry in sorted(ACTIVITY_CATALOG, key=lambda item: item["sortOrder"]):
+    for entry in sorted(available_catalog(), key=lambda item: item["sortOrder"]):
         key = entry["key"]
         platform = entry["platform"]
         accounts_total = platform_counts.get(platform, 0)

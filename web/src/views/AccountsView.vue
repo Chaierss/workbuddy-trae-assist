@@ -9,11 +9,13 @@ import {
   Download,
   FileUp,
   History,
+  LayoutGrid,
   Loader2,
   MinusSquare,
   QrCode,
   RefreshCw,
   RotateCcw,
+  Rows3,
   Search,
   ShieldCheck,
   Shuffle,
@@ -26,7 +28,9 @@ import {
 import AccountCard from "../components/AccountCard.vue";
 import AnimatedNumber from "../components/AnimatedNumber.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import EmptyState from "../components/EmptyState.vue";
 import NoteDialog from "../components/NoteDialog.vue";
+import PageHeader from "../components/PageHeader.vue";
 import OAuthLoginDialog from "../components/OAuthLoginDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import SwitchDialog from "../components/SwitchDialog.vue";
@@ -56,6 +60,8 @@ import {
   refreshAll,
   switchBlockedReason,
 } from "../stores/app";
+import { refreshOnboarding } from "../lib/onboarding";
+import { track } from "../lib/metrics";
 import { localeTag, t, type MessageKey } from "../lib/i18n";
 
 const keyword = ref("");
@@ -799,6 +805,19 @@ const totalCredits = computed(() => {
   return formatAmount(sum);
 });
 
+/** 未安装客户端时的下载入口：优先用检测接口给出的官方地址，没有就不显示。 */
+const installUrl = computed(
+  () =>
+    clientDetections.value.find((item) => !item.installed && item.downloadUrl)?.downloadUrl ??
+    "",
+);
+
+/** 空态里的「清除筛选」：把搜索与健康筛选一起还原，而不是只清其中一个。 */
+function resetFilters(): void {
+  keyword.value = "";
+  riskFilter.value = "";
+}
+
 /** 客户端扫描：已登录但不在号池 → 提示入池（按平台分别判定）。 */
 const pendingPool = computed(() => {
   const clients = clientDetections.value.filter(
@@ -821,6 +840,20 @@ const refreshOptions = computed(() => [
   { value: 300, label: t("accounts.refresh300") },
 ]);
 const refreshSeconds = ref(Number(localStorage.getItem(REFRESH_KEY) ?? 0));
+
+/**
+ * 卡片密度：默认紧凑，只留身份 + 积分 + 今日活动；凭据、同步、预检这些
+ * 次级信息留给宽松视图。存 sessionStorage，本次会话内记住，下次启动回到紧凑。
+ */
+const DENSITY_KEY = "chaierww.pool-density";
+const density = ref<"compact" | "comfortable">(
+  sessionStorage.getItem(DENSITY_KEY) === "comfortable" ? "comfortable" : "compact",
+);
+function toggleDensity(): void {
+  density.value = density.value === "compact" ? "comfortable" : "compact";
+  sessionStorage.setItem(DENSITY_KEY, density.value);
+}
+
 const sortOptions = computed<Array<{ value: "recent" | "credits" | "expiry" | "name"; label: string }>>(
   () => [
     { value: "recent", label: t("accounts.sort.recent") },
@@ -1001,6 +1034,7 @@ async function onImport(): Promise<void> {
     // 统一号池：点「导入」就是导入当前登录的号，平台由后端自动探测。
     const result = await api.importAccount();
     showToast(result.created ? t("accounts.importedNew") : result.restored ? t("accounts.importedRestored") : t("accounts.importedUpdated"));
+    track("account_imported", { method: "scan" });
     await refreshAll();
     void loadCredentialHealth();
   } catch (error) {
@@ -1030,11 +1064,13 @@ async function onJsonImport(): Promise<void> {
       await refreshAll();
       // 新导进来的号凭据是否完整，只有体检接口知道；立刻刷一次别让用户等。
       void loadCredentialHealth();
+      track("account_imported", { method: "bundle" });
       return;
     }
     const result = await api.importJsonAccount(content);
     showToast(result.created ? t("accounts.importedNew") : result.restored ? t("accounts.importedRestored") : t("accounts.importedUpdated"));
     jsonDialog.open = false;
+    track("account_imported", { method: "json" });
     await refreshAll();
     void loadCredentialHealth();
   } catch (error) {
@@ -1061,6 +1097,7 @@ async function askSwitch(account: Account): Promise<void> {
   dialog.busy = true;
   try {
     dialog.preview = await api.migrationPreview(account.id, account.scope);
+    track("switch_previewed", { platform: account.platform, method: "manual" });
   } catch (error) {
     dialog.error = (error as Error).message;
   } finally {
@@ -1167,6 +1204,11 @@ async function onSwitchConfirm(): Promise<void> {
   dialog.error = null;
   try {
     dialog.report = await api.switchAccount(account.id, undefined, true, dialog.slot || undefined);
+    if (dialog.report?.succeeded) {
+      track("switch_completed", { platform: account.platform, method: "manual" });
+      // firstSwitchAt 由切换引擎写入，本地快照要跟上，清单才会打勾。
+      void refreshOnboarding();
+    }
     await refreshAll();
   } catch (error) {
     dialog.error = (error as Error).message;
@@ -1244,13 +1286,8 @@ const confirmText = computed(() => {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-      <div class="min-w-0">
-        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("accounts.title") }}</h1>
-        <p class="mt-1.5 max-w-[62ch] text-body leading-relaxed text-muted">{{ subtitle }}</p>
-      </div>
-      <!-- 加号类操作统一收在页头：工具栏只负责「筛」和「批量」，不再和导入入口混在一起 -->
-      <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+    <PageHeader :title="t('accounts.title')" :subtitle="subtitle">
+      <template #actions>
         <button
           type="button"
           class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark"
@@ -1297,8 +1334,8 @@ const confirmText = computed(() => {
             {{ recycle.items.length }}
           </span>
         </button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <!-- 登录失效：活动/签到遇 401 已回写到账号状态，续期救不回来，只能重新扫码 -->
     <div
@@ -1552,6 +1589,19 @@ const confirmText = computed(() => {
         class="w-[132px]"
       />
 
+      <!-- 密度切换：紧凑只留身份/积分/今日活动，宽松补回凭据、同步与预检 -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        :title="density === 'compact' ? t('accounts.density.toComfortable') : t('accounts.density.toCompact')"
+        :aria-pressed="density === 'comfortable'"
+        :aria-label="t('accounts.density.label')"
+        @click="toggleDensity"
+      >
+        <LayoutGrid v-if="density === 'compact'" :size="14" :stroke-width="1.9" />
+        <Rows3 v-else :size="14" :stroke-width="1.9" />
+      </button>
+
       <!-- 全选常驻：选中后不搬走，否则按钮会在眼前消失又从别处冒出来 -->
       <button
         type="button"
@@ -1610,14 +1660,63 @@ const confirmText = computed(() => {
       </button>
     </div>
 
-    <div v-if="!visible.length" class="mt-6 rounded-card border border-dashed border-line bg-surface px-6 py-14 text-center">
-      <p class="text-body text-ink-soft">
-        {{ accounts.length ? t("accounts.noMatch") : t("accounts.empty") }}
-      </p>
-      <p class="mt-1.5 text-body-sm text-muted">
-        {{ accounts.length ? t("accounts.noMatchHint") : t("accounts.emptyHint") }}
-      </p>
-    </div>
+    <EmptyState
+      v-if="!visible.length"
+      class="mt-6 rounded-card border border-dashed border-line bg-surface"
+      :icon="accounts.length ? Search : UserPlus"
+      :title="accounts.length ? t('accounts.noMatch') : t('accounts.empty')"
+      :hint="accounts.length ? t('accounts.noMatchHint') : t('accounts.emptyHint')"
+    >
+      <template #action>
+        <template v-if="accounts.length">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-control border border-line px-3 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            @click="resetFilters"
+          >
+            <X :size="13" :stroke-width="2" />
+            {{ t("accounts.emptyClearFilters") }}
+          </button>
+        </template>
+        <template v-else>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark"
+            @click="oauthPlatform = 'workbuddy'; oauthOpen = true"
+          >
+            <QrCode :size="13" :stroke-width="1.9" />
+            {{ t("accounts.scanWorkbuddy") }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-control border border-line px-3 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            @click="oauthPlatform = 'trae'; oauthOpen = true"
+          >
+            <QrCode :size="13" :stroke-width="1.9" />
+            {{ t("accounts.scanTrae") }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-control border border-line px-3 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+            :disabled="jsonDialog.busy"
+            @click="openJsonImport"
+          >
+            <ClipboardPaste :size="13" :stroke-width="1.9" />
+            {{ t("accounts.jsonImport") }}
+          </button>
+          <a
+            v-if="installUrl"
+            :href="installUrl"
+            target="_blank"
+            rel="noreferrer"
+            class="inline-flex items-center gap-1.5 rounded-control px-2.5 py-1.5 text-body-sm text-brand transition-colors hover:bg-brand-soft"
+          >
+            <Download :size="13" :stroke-width="1.9" />
+            {{ t("detect.download") }}
+          </a>
+        </template>
+      </template>
+    </EmptyState>
 
     <div v-else class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
       <AccountCard
@@ -1632,6 +1731,7 @@ const confirmText = computed(() => {
         :selected="selectedIds.has(account.id)"
         :preview="previews[account.id] ?? null"
         :sync="syncRows[account.id] ?? null"
+        :density="density"
         @switch="askSwitch"
         @remove="askDelete"
         @toggle="toggleSelect"

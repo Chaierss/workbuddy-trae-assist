@@ -52,7 +52,9 @@ function dayLabel(value: string): string {
         class="rounded-control border border-line bg-surface px-2 py-1 text-caption text-ink-soft"
       >
         <option value="all">{{ t("activity.officialRunsAll") }}</option>
-        <option v-for="key in keys" :key="key" :value="key">{{ key }}</option>
+        <option v-for="key in keys" :key="key" :value="key">
+          {{ props.runs.find((run) => run.key === key)?.title || key }}
+        </option>
       </select>
     </template>
 
@@ -67,7 +69,8 @@ function dayLabel(value: string): string {
         class="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-caption"
       >
         <span class="shrink-0 tabular-nums text-muted">{{ dayLabel(run.at) }}</span>
-        <span class="shrink-0 text-ink-soft">{{ run.key }}</span>
+        <span class="shrink-0 text-ink-soft">{{ run.title || run.key }}</span>
+        <StatusPill v-if="run.ended" tone="neutral">{{ t("activity.ended") }}</StatusPill>
         <StatusPill
           :tone="run.status === 'ok' ? 'brand' : run.status === 'failed' ? 'danger' : 'neutral'"
         >

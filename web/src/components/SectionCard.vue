@@ -1,10 +1,28 @@
 <script setup lang="ts">
-defineProps<{ title?: string; subtitle?: string; flush?: boolean }>();
+/**
+ * `interactive` 只给**整卡可点**的场景用（活动卡、账号卡之外的跳转卡）：
+ * hover 时抬 1px + 阴影加深，鼠标移上去就知道能点。
+ * 信息型卡片不要开，否则会把「可以点」这件事变成假话。
+ */
+withDefaults(
+  defineProps<{
+    title?: string;
+    subtitle?: string;
+    flush?: boolean;
+    interactive?: boolean;
+  }>(),
+  { interactive: false },
+);
 </script>
 
 <template>
   <section
     class="overflow-hidden rounded-card border border-line bg-surface shadow-card"
+    :class="
+      interactive
+        ? 'transition-[box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-card-hover'
+        : ''
+    "
   >
     <header
       v-if="title || $slots.actions"

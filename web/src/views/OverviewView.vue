@@ -15,9 +15,11 @@ import {
   Users,
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
+import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
 import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type ActivityCampaign, type OverviewPulse, type Snapshot } from "../api";
 import { accounts, attentionCount, clientDetections, detection, scopedPath } from "../stores/app";
@@ -62,44 +64,8 @@ const busy = ref<string | null>(null);
 /** 客户端登录态目录默认收成一行，点开才铺完整路径 —— 它不是常用信息。 */
 const expandedClients = ref<Set<string>>(new Set());
 
-/** 页面本地的引导态：这些不属于「号池待处理」，但同样挡着用户。 */
-const onboarding = computed<ActionableItem[]>(() => {
-  const list: ActionableItem[] = [];
-  const detect = detection.value;
-  if (detect && !detect.installed) {
-    list.push({
-      kind: "onboarding",
-      severity: "info",
-      title: t("state.clientMissing"),
-      detail: t("overview.onboarding.clientDetail"),
-      accountId: null,
-      action: { type: "navigate", to: "/accounts" },
-    });
-  }
-  if (detect?.installed && !detect.loggedIn) {
-    list.push({
-      kind: "onboarding",
-      severity: "info",
-      title: t("overview.clientLoggedOut"),
-      detail: t("overview.onboarding.loggedOutDetail"),
-      accountId: null,
-      action: { type: "navigate", to: "/accounts" },
-    });
-  }
-  if (!accounts.value.length) {
-    list.push({
-      kind: "onboarding",
-      severity: "info",
-      title: t("overview.onboarding.noAccounts"),
-      detail: t("overview.onboarding.noAccountsDetail"),
-      accountId: null,
-      action: { type: "navigate", to: "/accounts" },
-    });
-  }
-  return list;
-});
-
-const items = computed<ActionableItem[]>(() => [...onboarding.value, ...actionables.value]);
+/** 页面本地的引导态已由首启清单（`OnboardingChecklist`）承载，不再进待处理组。 */
+const items = computed<ActionableItem[]>(() => actionables.value);
 
 /**
  * 待处理按 `kind` 聚合成组。
@@ -296,18 +262,18 @@ async function loadGlobalBackups(): Promise<void> {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-      <div class="min-w-0">
-        <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ t("nav.overview") }}</h1>
-        <p class="mt-1.5 max-w-[68ch] text-body leading-relaxed text-muted">{{ subtitle }}</p>
-      </div>
-      <RouterLink
-        :to="navTo('/accounts')"
-        class="inline-flex shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-      >
-        <Users :size="14" :stroke-width="1.9" /> {{ t("overview.manageAccounts") }}
-      </RouterLink>
-    </div>
+    <PageHeader :title="t('nav.overview')" :subtitle="subtitle">
+      <template #actions>
+        <RouterLink
+          :to="navTo('/accounts')"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        >
+          <Users :size="14" :stroke-width="1.9" /> {{ t("overview.manageAccounts") }}
+        </RouterLink>
+      </template>
+    </PageHeader>
+
+    <OnboardingChecklist class="mt-4" />
 
     <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard :label="t('overview.stat.accounts')" :number="accounts.length" :icon="Users" :hint="t('overview.stat.accountsHint')" :to="navTo('/accounts')" />

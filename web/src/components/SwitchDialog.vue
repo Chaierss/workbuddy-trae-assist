@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { AlertTriangle, Check, Copy, Info, X } from "lucide-vue-next";
+import { computed, ref } from "vue";
+import { RouterLink } from "vue-router";
+import { AlertTriangle, ArrowRight, Check, Copy, Info, X } from "lucide-vue-next";
 import type { MigrationPreview, SwitchReport } from "../api";
+import { onboardingPrefs } from "../lib/onboarding";
+import { scopedPath } from "../stores/app";
 import { t } from "../lib/i18n";
 
 const props = defineProps<{
@@ -109,6 +112,26 @@ const duplicateGroups = computed(() => props.preview?.duplicates ?? []);
 const duplicateCount = computed(() =>
   duplicateGroups.value.reduce((sum, group) => sum + group.dups.length, 0),
 );
+
+/**
+ * 第一次成功换号后的「下一步」：只出现一次，点任意一个入口或「知道了」即消失。
+ * 不新开引导页 —— 换号本身已经完成价值，这里只把下一个高价值动作递到手边。
+ */
+const HINT_SEEN_KEY = "chaierww.switchNextHintSeen";
+const hintSeen = ref(localStorage.getItem(HINT_SEEN_KEY) === "1");
+
+const showNextStep = computed(
+  () =>
+    !hintSeen.value &&
+    Boolean(props.report?.succeeded) &&
+    !props.report?.dryRun &&
+    Boolean(onboardingPrefs.value?.firstSwitchAt),
+);
+
+function dismissNextStep(): void {
+  hintSeen.value = true;
+  localStorage.setItem(HINT_SEEN_KEY, "1");
+}
 </script>
 
 <template>
@@ -260,6 +283,38 @@ const duplicateCount = computed(() =>
               <AlertTriangle :size="14" class="mt-0.5 shrink-0" />
               <div class="min-w-0 flex-1 space-y-1">
                 <p v-for="(warning, index) in warnings" :key="index">{{ warning }}</p>
+              </div>
+            </div>
+
+            <!-- 首次成功换号：把下一个高价值动作递到手边，只出现一次 -->
+            <div v-if="showNextStep && !busy" class="mt-4 rounded-control border border-brand/30 bg-brand-soft px-3 py-2.5">
+              <p class="text-body-sm font-medium text-brand-dark">{{ t("switch.nextStep.title") }}</p>
+              <p class="mt-0.5 text-caption leading-relaxed text-ink-soft">
+                {{ t("switch.nextStep.hint") }}
+              </p>
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <RouterLink
+                  :to="{ path: scopedPath('/settings'), query: { tab: 'schedule' } }"
+                  class="inline-flex items-center gap-1 rounded-control bg-brand px-2.5 py-1.5 text-caption font-medium text-white transition-colors hover:bg-brand-dark"
+                  @click="dismissNextStep"
+                >
+                  {{ t("switch.nextStep.schedule") }}
+                  <ArrowRight :size="11" :stroke-width="2.2" />
+                </RouterLink>
+                <RouterLink
+                  :to="scopedPath('/gateway')"
+                  class="inline-flex items-center gap-1 rounded-control border border-brand/40 px-2.5 py-1.5 text-caption text-brand-dark transition-colors hover:bg-surface"
+                  @click="dismissNextStep"
+                >
+                  {{ t("switch.nextStep.gateway") }}
+                </RouterLink>
+                <button
+                  type="button"
+                  class="rounded-control px-2 py-1.5 text-caption text-muted transition-colors hover:text-ink"
+                  @click="dismissNextStep"
+                >
+                  {{ t("switch.nextStep.dismiss") }}
+                </button>
               </div>
             </div>
           </template>

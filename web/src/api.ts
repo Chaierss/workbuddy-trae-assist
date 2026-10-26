@@ -151,6 +151,10 @@ export interface CredentialGap {
 export interface ActivityRun {
   accountId: string;
   key: string;
+  /** 后端按目录解析出的标题；活动已下架也仍能显示名称。 */
+  title: string;
+  /** 该活动已结束：流水保留，但不再提供运行。 */
+  ended: boolean;
   day: string;
   attempt: number;
   status: string;
@@ -769,6 +773,31 @@ export interface Preferences {
   autoGlobalBackup: boolean;
   /** 自动备份收录的分区；勾选含凭据分区并确认后会随之更新。 */
   autoGlobalParts: string[];
+  /** 首启引导版本：0 = 还没判定过，1 = 已初始化（老用户会自动置为完成）。 */
+  onboardingVersion: number;
+  /** 已完成的引导步骤 id（后端白名单：install / signin / first_switch / retention）。 */
+  onboardingCompleted: string[];
+  /** 用户跳过/收起引导的时间；非空 = 不再自动展示。 */
+  onboardingDismissedAt: string | null;
+  /** 第一次成功切换的时间（只写一次，由切换引擎写入）。 */
+  firstSwitchAt: string | null;
+  /** 本地体验数据开关：只写本机 NDJSON，不上传。 */
+  localMetricsEnabled: boolean;
+}
+
+/** 本地漏斗摘要（近 N 天）。 */
+export interface MetricsFunnel {
+  enabled: boolean;
+  windowDays: number;
+  since: string;
+  counts: Record<string, number>;
+  perDay: { day: string; opens: number; switches: number; imports: number }[];
+  onboarding: { step: string; status: string; count: number }[];
+  firstOpenAt: string | null;
+  firstSwitchAt: string | null;
+  firstSwitchSeconds: number | null;
+  ttfvMedianSeconds: number | null;
+  activated: boolean | null;
 }
 
 /**
@@ -1286,6 +1315,33 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  /**
+   * 记录一条本地体验事件。后端永远 204，失败也不抛错（度量不能打断交互）。
+   * 事件名与属性都受后端白名单约束，调用方不传任何自由文本。
+   */
+  recordMetric: (name: string, props?: Record<string, unknown>) =>
+    request<void>("/api/metrics/events", {
+      method: "POST",
+      body: JSON.stringify({ name, props: props ?? {} }),
+    }),
+
+  /** 本地漏斗摘要。 */
+  metricsFunnel: (days = 14) =>
+    request<MetricsFunnel>(`/api/metrics/funnel?days=${days}`),
+
+  /** 导出本地体验数据（用户主动保存的 JSON）。 */
+  metricsExport: () =>
+    request<{
+      format: string;
+      version: number;
+      generatedAt: string;
+      note: string;
+      events: Array<{ ts: string; name: string; props: Record<string, unknown> }>;
+    }>("/api/metrics/export"),
+
+  /** 清空本地体验数据，返回删除的文件数。 */
+  clearMetrics: () => request<{ removed: number }>("/api/metrics", { method: "DELETE" }),
 
   /** 计划任务列表（保活 / 签到 / 全部活动），含下次执行时间与上次结果。 */
   schedules: () => request<{ tasks: ScheduleSpec[] }>("/api/schedules"),

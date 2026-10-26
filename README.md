@@ -13,7 +13,9 @@
 </p>
 
 <p align="center">
-  <a href="#安装"><b>下载安装</b></a> ·
+  <a href="docs/QUICKSTART.md"><b>3 分钟上手</b></a> ·
+  <a href="docs/QUICKSTART.en.md">English quick start</a> ·
+  <a href="#安装">下载安装</a> ·
   <a href="#界面">界面</a> ·
   <a href="#功能">功能</a> ·
   <a href="#常见问题">常见问题</a> ·
@@ -119,6 +121,10 @@ Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢�
   正文按内容哈希只存一份，源端续写只追加、删除会跟随，冲突保留本地并可逐条处理。
   Trae 等没有本地会话库的平台会明确标注「不支持」，不跨设备
 - **出问题能自救**：设置 → 环境给出健康度面板与「导出诊断包」，只含版本、计数与脱敏日志
+- **新装不迷路**：首启给一份四步清单（装客户端 → 扫码加号 → 第一次换号 → 留下），
+  可跳过、可折叠；装过号的老用户自动视为已完成，不会被打扰
+- **本地体验数据**：首次成功换号率、TTFV 这类匿名计数只写本机，可在「设置 → 环境 → 体验数据」关闭、导出与清空
+  （[说明](docs/policies/TELEMETRY.md)），不上云、可一键删除
 
 ## 数据与安全
 
@@ -138,7 +144,7 @@ Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢�
 | 云端中转、账号托管、账号分享 | 会让工具变成服务 |
 | 代登录（收集你的密码） | 凭据责任过重，且没必要 |
 | 修改客户端程序本体 | 只读写状态文件，不打补丁 |
-| 上传任何数据到服务器 | 数据只落本机，连匿名遥测都没有 |
+| 上传任何数据到服务器 | 数据只落本机：统计也只有本机匿名计数，不上传、不接第三方 SDK |
 | 绕过平台额度或风控 | 它帮你管自己的号，不帮你薅 |
 
 ## 常见问题
@@ -156,6 +162,12 @@ Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢�
 **备份会占很多磁盘吗？**
 常驻备份固定 7 份，单份约 30 MB，稳态 200 MB 上下。切换前的临时备份在成功后立即删除。
 
+**会用我的数据做统计吗？**
+会，但只在本机。工具记的是 7 个匿名事件（打开应用、检测到客户端、完成引导某一步、加号、预演、换号成功、签发网关 Key），
+属性只有语言、平台、步骤这类枚举值；不记账号名、账号 ID、凭据、对话正文与路径。
+数据写在 `~/.chaierww/metrics/events.ndjson`，不上传，可在「设置 → 环境 → 体验数据」一键关闭、导出或清空。
+详见 **[本地体验数据说明](docs/policies/TELEMETRY.md)**。
+
 **升级会丢数据吗？**
 不会。`~/.chaierww` 和安装目录是分开的，覆盖安装不碰数据；每日自动备份也照常在跑。
 
@@ -172,7 +184,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 python -m chaierww.main               # http://127.0.0.1:57910/
-pytest                                # 635 个用例
+pytest                                # 682 个用例
 ruff check src tests
 ```
 
@@ -199,11 +211,14 @@ tests/         pytest 用例（635 个）
 
 | 文档 | 讲什么 |
 | :-- | :-- |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | 3 分钟上手：安装、加号、预演、切换、常见失败 |
+| [docs/QUICKSTART.en.md](docs/QUICKSTART.en.md) | English quick start |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发约定、提交规范、测试方式 |
 | [SECURITY.md](SECURITY.md) | 安全模型、漏洞报告渠道 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个版本改了什么 |
 | [desktop/README.md](desktop/README.md) | 打包、自动更新、安装包排障 |
 | [docs/policies/DISCLAIMER.md](docs/policies/DISCLAIMER.md) | 免责声明（使用前请读） |
+| [docs/policies/TELEMETRY.md](docs/policies/TELEMETRY.md) | 本地体验数据：记什么、存哪、怎么关 |
 
 ## 许可
 

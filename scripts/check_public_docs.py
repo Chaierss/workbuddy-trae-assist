@@ -25,6 +25,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ALLOWED = {
     "docs/README.md",
     "docs/policies/DISCLAIMER.md",
+    "docs/QUICKSTART.md",
+    "docs/QUICKSTART.en.md",
+    "docs/policies/TELEMETRY.md",
 }
 
 

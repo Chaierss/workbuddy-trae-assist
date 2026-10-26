@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -356,7 +358,7 @@ def test_api_activities_catalog_includes_version_and_disclaimer(client):
     assert body["version"] == mod.OFFICIAL_CATALOG_VERSION
     assert body["updatedAt"] == mod.OFFICIAL_CATALOG_UPDATED_AT
     assert body["disclaimer"] == mod.OFFICIAL_DISCLAIMER
-    assert len(body["entries"]) == 7
+    assert len(body["entries"]) == len(mod.available_catalog())
 
 
 def test_api_activities_includes_campaigns(client, monkeypatch):
@@ -372,7 +374,7 @@ def test_api_activities_includes_campaigns(client, monkeypatch):
     )
     body = client.get("/api/activities").json()
     assert body["campaigns"]
-    assert {item["key"] for item in body["campaigns"]} == set(mod.ACTIVITY_KEYS)
+    assert {item["key"] for item in body["campaigns"]} == set(mod.available_keys())
     assert "detectedAt" in body
     assert body["summary"]["actionable"] == 1
     assert _campaign(body["campaigns"], "workbuddy.daily_checkin")["actionable"] == 1
@@ -400,3 +402,67 @@ def test_api_activities_run_passes_keys_to_service(client, monkeypatch):
     )
     assert response.status_code == 200
     assert seen == [{"workbuddy.daily_checkin"}]
+
+
+# ---------- 活动生命周期（0.8.0） ----------
+
+
+def test_is_available_uses_ends_at():
+    """结束日当天仍可用，次日下架；没有 endsAt = 长期开放。"""
+    assert mod.is_available({"endsAt": "2026-09-30"}, date(2026, 9, 30))
+    assert not mod.is_available({"endsAt": "2026-09-30"}, date(2026, 10, 1))
+    assert mod.is_available({}, date(2030, 1, 1))
+    assert mod.is_available({"startsAt": "2026-09-01"}, date(2030, 1, 1))
+
+
+def test_ended_campaign_is_not_in_catalog_or_campaigns():
+    keys = {entry["key"] for entry in mod.available_catalog()}
+    assert "workbuddy.school" not in keys
+    # 条目本身仍留在目录里，历史流水才能显示标题。
+    assert "workbuddy.school" in mod.ACTIVITY_KEYS
+
+    campaigns = {item["key"] for item in summarize_campaigns([])}
+    assert "workbuddy.school" not in campaigns
+
+
+def test_drop_ended_removes_items_from_detection():
+    account = _account(
+        "a1",
+        items=(
+            _item(),
+            _item(key="workbuddy.school", state=STATE_TODO, automatable=True),
+        ),
+    )
+    kept = mod.drop_ended([account], today=date(2026, 10, 1))
+    assert [item.key for item in kept[0].items] == ["workbuddy.daily_checkin"]
+
+
+def test_api_activities_run_rejects_ended_campaign(client):
+    response = client.post("/api/activities/run", json={"keys": ["workbuddy.school"]})
+    assert response.status_code == 400
+    assert "已结束" in response.json()["detail"]
+
+
+def test_api_activity_runs_keep_ended_title(client):
+    from chaierww.domain.switching import encode_payload
+
+    account = client.app.state.repository.upsert(
+        scope="workbuddy-cn",
+        external_id="ended-1",
+        display_name="历史账号",
+        credential=encode_payload(b'{"login": "fake"}'),
+    ).account
+    today = datetime.now(UTC).astimezone().date().isoformat()
+    client.app.state.repository.record_activity_runs(
+        [
+            {
+                "accountId": account.id,
+                "key": "workbuddy.school",
+                "day": today,
+                "status": "ok",
+            }
+        ]
+    )
+    runs = client.get("/api/activities/runs").json()["runs"]
+    assert runs[0]["title"] == "开学季活动"
+    assert runs[0]["ended"] is True

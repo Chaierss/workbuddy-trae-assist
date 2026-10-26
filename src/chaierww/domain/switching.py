@@ -12,6 +12,7 @@ import contextlib
 import sqlite3
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -144,6 +145,7 @@ class SwitchEngine:
         conn: sqlite3.Connection,
         keep_snapshots: int = 5,
         sync: Any = None,
+        on_success: Callable[[str, str], None] | None = None,
     ) -> None:
         self._repo = repo
         self._backups = backups
@@ -154,6 +156,9 @@ class SwitchEngine:
         #: 会话同步引擎（可选）。为 None 时退回旧的「切号时一次性复制」路径，
         #: 保证既有测试与未启用同步的部署行为完全不变。
         self._sync = sync
+        #: 切换成功后的回调（可选）。目前用于记录「第一次成功换号」的时间。
+        #: 回调失败绝不影响切换结果 —— 它只是统计，不是流程的一步。
+        self._on_success = on_success
 
     def _scope_guard(self, scope: str) -> Any:
         """切号与后台采集共用同一把作用域锁，避免「边切边采」。"""
@@ -576,6 +581,7 @@ class SwitchEngine:
             self._repo.touch_last_used(account_id)
             self._repo.set_credential_state(account_id, CredentialState.USABLE)
             self._finish_job(job_id, "succeeded", None, None, snapshot_id=snapshot.id)
+            self._notify_success(scope, account_id)
             # 切换成功：pre-switch 备份已完成回滚兜底的使命，立即删除，不堆积常驻备份。
             # 常驻备份只由「每日自动 + 手动」承担（7 份滚动），临时备份不占配额。
             self._discard_temporary_snapshot(snapshot)
@@ -644,6 +650,17 @@ class SwitchEngine:
         )
 
     # ---------- 内部 ----------
+
+    def _notify_success(self, scope: str, account_id: str) -> None:
+        """切换成功后通知外部（记录首次成功换号的时间）。失败只记日志。"""
+        if self._on_success is None:
+            return
+        try:
+            self._on_success(scope, account_id)
+        except Exception:  # noqa: BLE001 - 统计回调不该影响已成功的切换
+            import logging
+
+            logging.getLogger(__name__).warning("切换成功回调失败", exc_info=True)
 
     def _discard_temporary_snapshot(self, snapshot: Snapshot) -> None:
         """删除切换前/恢复前的临时快照（目录 + 台账记录）。

@@ -5,6 +5,7 @@
 
 export const activityZh = {
   "activity.title": "活动",
+  "activity.ended": "已结束",
   "activity.subtitle":
     "这里先列出本工具认识的全部活动，再逐个账号检测你做到了哪一步。 自动执行覆盖每日签到，以及有对应动作的成长任务（聊天、模板、画布、灵感、Buddy 等）。 连签里程、专家/技能类任务仍需你在客户端里真实操作。",
   "activity.redetect": "重新检测",
@@ -242,6 +243,7 @@ export const activityZh = {
 
 export const activityEn = {
   "activity.title": "Activity",
+  "activity.ended": "Ended",
   "activity.subtitle":
     "This page lists every activity the tool knows about, then checks how far you've got on each account. Automation covers daily check-ins and growth tasks with a matching action (chat, templates, canvas, inspiration, Buddy and more). Streak milestones and expert or skill tasks still have to be done for real in the client.",
   "activity.redetect": "Re-detect",

@@ -1,4 +1,5 @@
 import { computed, inject, provide, reactive, type InjectionKey } from "vue";
+import { track } from "../../lib/metrics";
 import {
   api,
   type GatewayConfigPatch,
@@ -261,6 +262,7 @@ export function createGatewayStore(): GatewayStore {
         ...cleanLimits(state.newLimits),
       });
       state.issued = result.key;
+      track("gateway_key_created", { method: "manual" });
       state.newLabel = "";
       state.newScope = "all";
       state.newCapabilities = [];

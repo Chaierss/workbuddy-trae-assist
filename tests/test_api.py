@@ -403,6 +403,12 @@ def test_preferences_defaults_and_roundtrip(client):
         "autoGlobalBackup": True,
         # 自动备份收录的分区：默认只有不含凭据的 config。
         "autoGlobalParts": ["config"],
+        # 首启引导与本地体验数据（0.8.0）。
+        "onboardingVersion": 0,
+        "onboardingCompleted": [],
+        "onboardingDismissedAt": None,
+        "firstSwitchAt": None,
+        "localMetricsEnabled": True,
     }
 
     # 局部更新：不传的字段保持原值
@@ -421,6 +427,11 @@ def test_preferences_defaults_and_roundtrip(client):
         "autoBackup": True,
         "autoGlobalBackup": True,
         "autoGlobalParts": ["config"],
+        "onboardingVersion": 0,
+        "onboardingCompleted": [],
+        "onboardingDismissedAt": None,
+        "firstSwitchAt": None,
+        "localMetricsEnabled": True,
     }
 
     # 自动备份开关能单独关掉，且不影响切换迁移那组
@@ -431,6 +442,68 @@ def test_preferences_defaults_and_roundtrip(client):
 
     # 持久化：重新读取一致
     assert client.get("/api/preferences").json() == off.json()
+
+
+def test_preferences_onboarding_state(client):
+    """引导状态与本地体验数据开关：字段白名单校验 + 跳过时间不可被 null 清空。"""
+    saved = client.put(
+        "/api/preferences",
+        json={
+            "onboardingVersion": 1,
+            "onboardingCompleted": ["install", "bogus", "install", "signin"],
+            "onboardingDismissedAt": "2026-10-26T09:00:00+08:00",
+            "localMetricsEnabled": False,
+        },
+    ).json()
+    assert saved["onboardingVersion"] == 1
+    assert saved["onboardingCompleted"] == ["install", "signin"]
+    assert saved["onboardingDismissedAt"] == "2026-10-26T09:00:00+08:00"
+    assert saved["localMetricsEnabled"] is False
+
+    # 跳过是一次性动作：接口传 null 不会把它清空。
+    kept = client.put("/api/preferences", json={"onboardingDismissedAt": None}).json()
+    assert kept["onboardingDismissedAt"] == "2026-10-26T09:00:00+08:00"
+
+    # firstSwitchAt 只由切换流程写入，接口传了也不生效。
+    manual = client.put(
+        "/api/preferences", json={"firstSwitchAt": "2020-01-01T00:00:00+08:00"}
+    ).json()
+    assert manual["firstSwitchAt"] is None
+
+
+def test_preferences_onboarding_version_rejects_invalid(client):
+    body = client.put("/api/preferences", json={"onboardingVersion": -5}).json()
+    assert body["onboardingVersion"] == 0
+
+
+def test_metrics_events_respect_toggle(client):
+    client.put("/api/preferences", json={"localMetricsEnabled": False})
+    assert (
+        client.post(
+            "/api/metrics/events", json={"name": "app_open", "props": {"first": True}}
+        ).status_code
+        == 204
+    )
+    assert client.get("/api/metrics/funnel").json()["counts"]["app_open"] == 0
+
+    client.put("/api/preferences", json={"localMetricsEnabled": True})
+    client.post("/api/metrics/events", json={"name": "app_open", "props": {"first": True}})
+    funnel = client.get("/api/metrics/funnel?days=7").json()
+    assert funnel["enabled"] is True
+    assert funnel["counts"]["app_open"] == 1
+    assert funnel["windowDays"] == 7
+
+    exported = client.get("/api/metrics/export").json()
+    assert exported["format"] == "chaierww.metrics"
+    assert exported["events"][0]["name"] == "app_open"
+
+    assert client.delete("/api/metrics").json()["removed"] >= 1
+    assert client.get("/api/metrics/funnel").json()["counts"]["app_open"] == 0
+
+
+def test_metrics_unknown_event_is_ignored(client):
+    assert client.post("/api/metrics/events", json={"name": "email_sent"}).status_code == 204
+    assert client.get("/api/metrics/export").json()["events"] == []
 
 
 def test_preferences_auto_global_parts_cleaned(client):

@@ -202,7 +202,7 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron
 ## 自动更新发布
 
 1. 改 `desktop/package.json` 的 `version`
-2. 打标签（`git tag v0.7.0 && git push origin v0.7.0`）→ CI 构建并上传 Release
+2. 打标签（`git tag v0.8.0 && git push origin v0.8.0`）→ CI 构建并上传 Release
 3. 旧版客户端启动后自动检查 → 弹窗询问 → 下载 → 重启升级
 
 发布通道配置在 `desktop/package.json` 的 `build.publish`（GitHub: `Chaierss/workbuddy-trae-assist`）。

@@ -41,6 +41,9 @@ docs/_shot-*.png
 /docs/**/*.md
 !/docs/README.md
 !/docs/policies/DISCLAIMER.md
+!/docs/QUICKSTART.md
+!/docs/QUICKSTART.en.md
+!/docs/policies/TELEMETRY.md
 
 # 本地工具与日志
 .idea/
