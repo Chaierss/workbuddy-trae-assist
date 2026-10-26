@@ -83,6 +83,9 @@ RULE_ALLOW: dict[str, set[str]] = {
     "tests/test_trae_oauth.py": {"private-key", "jwt"},
     "tests/test_trae_adapter.py": {"jwt"},
     "tests/test_trae_crypto.py": {"jwt"},
+    # 脱敏用例本身就要拿「该被打码的样本」当输入，命中的是测试数据。
+    "tests/test_log_redaction.py": {"jwt", "user-path"},
+    "tests/test_diagnostics.py": {"user-path"},
 }
 
 
