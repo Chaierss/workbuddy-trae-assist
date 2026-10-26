@@ -70,7 +70,11 @@ VIEWPORT_W = 1440
 SHOTS: list[dict[str, object]] = [
     {"name": "overview", "path": "/overview", "height": 900},
     {"name": "accounts", "path": "/accounts", "height": 1000},
-    {"name": "activity", "path": "/activity", "height": 860},
+    {"name": "activity", "path": "/activity", "height": 900},
+    # 活动页默认落在「官方活动」目录，逐账号任务要显式带 ?tab=accounts，
+    # 两张一起放，README 才能把「目录里有什么」和「我的号做到哪」讲全。
+    {"name": "activity-accounts", "path": "/activity?tab=accounts", "height": 900},
+    {"name": "activity-runs", "path": "/activity?tab=runs", "height": 780},
     {"name": "usage", "path": "/usage", "height": 1000},
     {"name": "gateway-overview", "path": "/gateway?tab=overview", "height": 940},
     {"name": "gateway-keys", "path": "/gateway?tab=keys", "height": 420},

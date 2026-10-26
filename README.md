@@ -74,23 +74,31 @@ Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢�
 | --- | --- |
 | ![号池](docs/images/accounts.png) | ![用量](docs/images/usage.png) |
 
-| 活动 · 签到与成长任务逐账号检测 | 网关 · 额度以 OpenAI / Anthropic 兼容接口开放 |
+| 活动目录 · 平台有哪些活动、规则与奖励 | 按账号 · 每个号做到哪一步、还差什么 |
 | --- | --- |
-| ![活动](docs/images/activity.png) | ![网关](docs/images/gateway-overview.png) |
+| ![官方活动](docs/images/activity.png) | ![按账号](docs/images/activity-accounts.png) |
 
-| 网关 Key · 签发、限模型、随时吊销 | 模型目录 · 可用模型与能力标注 |
+| 网关 · 额度以 OpenAI / Anthropic 兼容接口开放 | 模型目录 · 可用模型与能力标注 |
 | --- | --- |
-| ![API Key](docs/images/gateway-keys.png) | ![模型目录](docs/images/gateway-models.png) |
+| ![网关](docs/images/gateway-overview.png) | ![模型目录](docs/images/gateway-models.png) |
 
-| 计划任务 · 每档只留最近 7 次执行记录 | 备份 · 每日自动一份，按份数滚动保留 7 份 |
+| 网关 Key · 签发、限模型、限额度、随时吊销 | 计划任务 · 一天多个时点，每档只留最近 7 次执行记录 |
 | --- | --- |
-| ![计划任务](docs/images/settings-schedule.png) | ![备份](docs/images/settings-backup.png) |
+| ![API Key](docs/images/gateway-keys.png) | ![计划任务](docs/images/settings-schedule.png) |
 
-| 环境 · 本机路径、客户端状态与能力边界 | 常规 · 换号时迁移哪几类数据，逐项可控 |
+| 备份 · 每日自动一份，可校验、可回到任意一份 | 环境 · 本机路径、客户端状态与诊断包 |
 | --- | --- |
-| ![环境](docs/images/settings-env.png) | ![常规](docs/images/settings-general.png) |
+| ![备份](docs/images/settings-backup.png) | ![环境](docs/images/settings-env.png) |
 
-> 截图是脚本渲染完 DOM 再截的：账号名、账号 ID、本机路径、邮箱、网关 Key、IP
+| 常规 · 换号时迁移哪几类数据，逐项可控 |
+| --- |
+| ![常规](docs/images/settings-general.png) |
+
+| 执行记录 · 每次跑活动都留结论与原因 |
+| --- |
+| ![执行记录](docs/images/activity-runs.png) |
+
+> 截图是脚本渲染完 DOM 再截的：账号名、账号 ID、邮箱、本机路径、网关 Key、IP
 > 在快门按下之前就已经在页面里被替换成圆点或模糊，不是事后按坐标手画的，
 > 所以界面改版也不用重新量坐标。生成方式是 `python scripts/shots.py`。
 
@@ -99,15 +107,22 @@ Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢�
 - **账号状态一屏看全**：凭据是否可用、积分还剩多少、几天后到期
 - **凭据会自己续**：扫码凭据在到期前 30 分钟内自动刷新（默认开启）；客户端信封凭据续不了时如实标注，并给重新登录入口
 - **删错了能捞回来**：删除先进回收站保留 30 天，可恢复，也可提前彻底删除或一键清空
-- **签到与成长任务**逐账号检测，能自动的一键跑完，手动的写明为什么；网络/5xx 失败自动重试一轮
+- **官方活动目录**：签到、成长任务、连签里程、派猫猫旅行、夜猫子、开学季逐条写清规则与奖励，
+  目录随版本发布并在启动时校验；目录外的活动标「未收录」沉底，不会静默消失
+- **按账号看进度**：同一个活动，每个号做到第几步、卡在哪一项、哪几项可自动跑，一屏说清
+- **执行记录与趋势**：每次执行留结论与原因，详情里给 14 天成功 / 跳过 / 失败柱状趋势
 - **用量**按模型、按日归集，谁在烧额度一眼看出
 - **额度能借出去**：以 OpenAI / Anthropic 兼容接口开放给本机其它 AI 工具，Key 可签发可吊销，可按 Key 配每日 Token / 请求数与每分钟上限
-- **计划任务**支持一天多个时点与随机抖动，每个任务可限定账号范围，每档只留最近 7 次执行记录，成功失败都带原因
-- **操作有台账**：不用翻日志文件
+- **计划任务**支持一天多个时点与随机抖动，每个任务可限定账号范围与活动范围，每档只留最近 7 次执行记录，成功失败都带原因
+- **备份能回到过去**：快照可校验，也能选定一份恢复；恢复在下次启动、数据库打开前应用，失败自动回滚
+- **出问题能自救**：设置 → 环境给出健康度面板与「导出诊断包」，只含版本、计数与脱敏日志
 
 ## 数据与安全
 
 - 凭据用 Windows DPAPI 按当前用户加密，密钥不落文件；日志里一律脱敏
+- 本机接口默认带同源守卫：浏览器同源 Cookie 放行，外部脚本用 `~/.chaierww/api-token`；
+  非回环 `Host` / `Origin` 一律拒绝（[细节](docs/README.md)）
+- 配置与数据库写入走原子写：临时文件 + fsync + 替换，损坏的 JSON 隔离留证，不静默覆盖
 - 所有数据在 `~/.chaierww`（可用 `CHAIERWW_HOME` 覆盖），整个目录拷走就是完整迁移
 - 没有服务端。断网、拔网线，切号照样能用
 
@@ -154,7 +169,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 python -m chaierww.main               # http://127.0.0.1:57910/
-pytest                                # 508 个用例
+pytest                                # 635 个用例
 ruff check src tests
 ```
 
@@ -170,7 +185,7 @@ src/chaierww/
 web/           Vue 3 + TypeScript + Tailwind 前端
 desktop/       Electron 壳、托盘、自动更新、PyInstaller 打包
 scripts/       构建、截图脱敏、诊断脚本
-tests/         pytest 用例（508 个）
+tests/         pytest 用例（635 个）
 ```
 
 想接一个新客户端，看 `adapters/base.py` 的 slot 设计——新增一个 adapter 就够，
