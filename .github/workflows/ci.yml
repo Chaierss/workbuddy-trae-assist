@@ -59,6 +59,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # 自带的旧 pip 本身可能命中已披露漏洞，先升到最新再审计。
+      - run: python -m pip install --upgrade pip
       - run: pip install -e . pip-audit
       - run: pip-audit
       - uses: actions/setup-node@v4
@@ -68,6 +70,11 @@ jobs:
         working-directory: web
       - run: npm audit --omit=dev --audit-level=high
         working-directory: web
+      - run: npm ci
+        working-directory: desktop
+      # electron 等打包依赖都在 devDependencies，最终会被打进安装包，不能 omit=dev。
+      - run: npm audit --audit-level=high
+        working-directory: desktop
 
   e2e:
     name: Playwright smoke
