@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+# Windows runner 控制台默认不是 UTF-8，脚本打印中文会抛 UnicodeEncodeError。
+env:
+  PYTHONIOENCODING: utf-8
+
 jobs:
   backend:
     name: Backend tests (Windows)
