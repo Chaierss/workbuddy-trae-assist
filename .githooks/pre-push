@@ -20,6 +20,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       ;;
   esac
 
+  # 删除远端分支 / 标签时 local_sha 是全零，没有新增内容可扫；
+  # 不跳过的话 `git diff <old>..0000` 会直接报错，把合法删除也挡掉。
+  if [ "$local_sha" = "$ZERO" ]; then
+    continue
+  fi
+
   if [ "$remote_sha" = "$ZERO" ]; then
     files=$(git ls-tree -r --name-only "$local_sha")
   else
