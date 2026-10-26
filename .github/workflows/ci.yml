@@ -58,7 +58,9 @@ jobs:
 
   e2e:
     name: Playwright smoke
-    runs-on: ubuntu-latest
+    # 后端凭据加密只有 Windows 实现（DPAPI），非 Windows 会拒绝启动；
+    # 冒烟必须跑在目标平台上，不能用不安全开发占位绕过。
+    runs-on: windows-latest
     defaults:
       run:
         working-directory: web
@@ -75,5 +77,5 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install chromium
       - run: npm run test:e2e
