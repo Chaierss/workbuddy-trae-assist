@@ -21,7 +21,8 @@ export default defineConfig({
       timeout: 60_000,
       env: {
         PYTHONPATH: "src",
-        CHAIERWW_HOME: process.env.CHAIERWW_HOME ?? "../.tmp-e2e",
+        // 相对后端 cwd（仓库根目录），落在仓库内的临时目录里，便于清理。
+        CHAIERWW_HOME: process.env.CHAIERWW_HOME ?? ".tmp-e2e",
       },
     },
     {

@@ -485,8 +485,12 @@ class GatewayStore:
         _write_json(self._keys_file, [record.to_dict() for record in self._keys])
 
     def _today(self) -> str:
-        """本地时区自然日（`YYYY-MM-DD`）—— 与调度器「用户自己的一天」口径一致。"""
-        return self._now().astimezone().date().isoformat()
+        """本地时区自然日（`YYYY-MM-DD`）—— 与调度器「用户自己的一天」口径一致。
+
+        直接取 `now()` 的日期，不再二次 `astimezone()`：默认时钟已带本地时区，
+        注入时钟的时区也应当被尊重，否则测试机与服务机的系统时区不同就会跨错日。
+        """
+        return self._now().date().isoformat()
 
     @staticmethod
     def _roll_day(record: ApiKeyRecord, today: str) -> bool:

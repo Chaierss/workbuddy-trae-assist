@@ -13,7 +13,7 @@ test("概览与活动页可用（API 守卫下自动领取会话）", async ({ p
 });
 
 test("设置页能打开诊断卡片", async ({ page }) => {
-  await page.goto("/settings/environment");
+  await page.goto("/settings?tab=env");
   await expect(page.getByText(/诊断与支持|Diagnostics & support/)).toBeVisible();
   await expect(page.getByText(/导出诊断包|Export diagnostics/)).toBeVisible();
 });
