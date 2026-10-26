@@ -64,6 +64,21 @@ README 里「数据与安全」那张表（不做云端中转、不做账号托�
 
 `docs/images/*.png` 是例外——README 直接引用，可以入库。
 
+## 推送纪律
+
+只往 `origin` 推 `main`（发版时推 `v*` tag）。`master` / `backup/*` 是本地历史备份，
+里面留着早年的内部文档，`git push --all` 会把它们一起推到公开仓库。
+
+仓库自带 `.githooks/pre-push`：拒绝非 main 分支，并在推送前跑一遍
+`scripts/check_secrets.py`（日志、数据库、备份、假密钥都会被拦下）。新克隆的机器
+需要手动接线一次：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+钩子只是本地闸门，能被 `--no-verify` 绕过；CI 里的 `repo-guard` 是第二道。
+
 ## 提交信息
 
 格式 `类型: 摘要`，`feat` / `fix` / `docs` / `chore` / `refactor` / `test`，中英文均可。

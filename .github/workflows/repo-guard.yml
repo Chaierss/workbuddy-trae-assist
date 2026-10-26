@@ -4,6 +4,8 @@
 # 而里面混着商业规划、内部规格、闭源清单。`.gitignore` 挡得住常规操作，
 # 挡不住 `git add -f` 和「顺手改了下 .gitignore」。这个检查跑在每次 push/PR 上，
 # 漏了就红，红了就没人会忽略。
+#
+# 同一个 job 里再跑一遍敏感值扫描：日志、数据库、备份、假密钥被顺手提交时同样要红。
 name: repo-guard
 
 on:
@@ -25,3 +27,6 @@ jobs:
       # 只用标准库 + git，不需要装依赖
       - name: Check docs whitelist
         run: python scripts/check_public_docs.py
+
+      - name: Check secrets and runtime data
+        run: python scripts/check_secrets.py

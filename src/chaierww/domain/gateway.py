@@ -40,6 +40,7 @@ from secrets import token_hex
 from typing import Any
 
 from chaierww.infra.fsutil import read_json_or_default, write_json_atomic
+from chaierww.logging_setup import mask_identity, redact_text
 
 logger = logging.getLogger("chaierww")
 
@@ -98,6 +99,27 @@ class GatewayKeyNotFound(GatewayError):
 
 def _now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _scrub_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """网关日志脱敏：账号名保留可识别形态，正文/错误里的令牌按值打码。
+
+    放在落盘与回读两端：历史日志里可能已有未脱敏的旧记录。
+    """
+    cleaned = dict(entry)
+    name = cleaned.get("accountName")
+    if isinstance(name, str):
+        cleaned["accountName"] = mask_identity(name)
+    for key in ("promptPreview", "error"):
+        value = cleaned.get(key)
+        if isinstance(value, str):
+            cleaned[key] = redact_text(value)
+    skipped = cleaned.get("skipped")
+    if isinstance(skipped, list):
+        cleaned["skipped"] = [
+            redact_text(item) if isinstance(item, str) else item for item in skipped
+        ]
+    return cleaned
 
 
 def capability_matches(model: Any, key: str) -> bool:
@@ -845,7 +867,7 @@ class GatewayStore:
                     except json.JSONDecodeError:
                         continue
                     if isinstance(item, dict):
-                        entries.append(item)
+                        entries.append(_scrub_entry(item))
         except OSError:
             return []
         return entries[-self.log_keep() :]
@@ -855,7 +877,7 @@ class GatewayStore:
         record = {
             "id": uuid.uuid4().hex,
             "at": _now_iso(),
-            **entry,
+            **_scrub_entry(entry),
         }
         with self._lock:
             try:

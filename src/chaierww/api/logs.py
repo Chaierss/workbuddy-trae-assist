@@ -17,6 +17,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from chaierww.logging_setup import redact_text
+
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 200
 MAX_BYTES_PER_FILE = 4 * 1024 * 1024
@@ -30,31 +32,13 @@ _LINE = re.compile(
     r"(?P<logger>\S+)\s(?P<message>.*)$"
 )
 
-_REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # Authorization: Bearer eyJhbGciOi... —— 先打码 token 本体
-    (re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._\-+/=]{8,}"), r"\1 ***"),
-    # token=abc / "access_token": "abc" / password: abc
-    # `(?!bearer)` 是必须的：否则上面刚打好的「Bearer ***」会被当成
-    # authorization 的值再打一遍，结果变成「*** ***」，排查时看不出原貌。
-    (
-        re.compile(
-            r"(?i)\b(password|passwd|token|secret|api[_\-]?key|access[_\-]?token"
-            r"|refresh[_\-]?token|credential|authorization)\b(\s*[=:]\s*)(?!bearer\b)([\"']?)"
-            r"([^\s\"',}]{4,})"
-        ),
-        r"\1\2\3***",
-    ),
-    # 形如 {"$wbEncrypted":1,"envelope":"...."} 的整段密文
-    (re.compile(r"(?i)(\"envelope\"\s*:\s*\")[^\"]{8,}(\")"), r"\1***\2"),
-)
-
 
 def redact_line(text: str) -> str:
-    """把一行日志里可能存在的凭据打码。保留结构，方便排查。"""
-    result = text
-    for pattern, replacement in _REDACTIONS:
-        result = pattern.sub(replacement, result)
-    return result
+    """把一行日志里可能存在的凭据打码。保留结构，方便排查。
+
+    规则统一放在 `logging_setup`：写盘时已经过一遍，这里是读旧文件的第二道。
+    """
+    return redact_text(text)
 
 
 def _log_dir(request: Request) -> Path:

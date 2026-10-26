@@ -306,6 +306,39 @@ def test_store_logs_and_stats(tmp_path):
     assert store.logs(10) == []
 
 
+def test_store_masks_account_identity_and_tokens(tmp_path):
+    """网关日志会跟着诊断/导出外发：账号名与正文里的令牌在落盘时就该打码。"""
+    store = GatewayStore(tmp_path)
+    entry = store.log(
+        {
+            "ok": True,
+            "accountName": "someone@example.com",
+            "promptPreview": "key=sk-" + "a" * 32,
+            "skipped": ["other@example.com（HTTP 429）"],
+            "error": "Bearer abcdefghijklmnop",
+        }
+    )
+    assert entry["accountName"] == "s***@example.com"
+    assert "a" * 32 not in entry["promptPreview"]
+    assert "other@example.com" not in entry["skipped"][0]
+    assert "abcdefghijklmnop" not in entry["error"]
+
+    # 回读历史文件同样打码：旧记录可能写在脱敏上线之前
+    (tmp_path / "gateway-logs.jsonl").write_text(
+        json.dumps(
+            {
+                "id": "old",
+                "at": "2026-10-26T00:00:00+00:00",
+                "accountName": "13800138000",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert GatewayStore(tmp_path).logs(1)[0]["accountName"] == "138****8000"
+
+
 def test_store_logs_filter_by_key_and_session(tmp_path):
     """日志筛选是内存里的等值过滤：先过滤再取末 N 条，返回最近的命中项。"""
     store = GatewayStore(tmp_path)

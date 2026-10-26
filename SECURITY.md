@@ -32,14 +32,15 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | :-- | :-- |
 | **数据只在本机** | 全部落在 `~/.chaierww`（`CHAIERWW_HOME` 可覆盖），没有服务端，不上报任何遥测 |
 | **凭据加密存储** | `infra/secrets.py`：Windows 走 DPAPI，密钥由系统按当前登录用户派生，**不落文件** |
-| **日志脱敏** | 令牌、Cookie、账号 ID 写日志前替换为圆点，日志在 `~/.chaierww/logs/` |
+| **日志脱敏** | `logging_setup.py`：写盘与上屏前对整条消息做值级脱敏——`Bearer` / `sk-` / GitHub / AWS / Slack 令牌、JWT、`token=` 式键值、`envelope` 密文、邮箱（`a***@domain`）、手机号（`138****1234`）、本机用户名路径。新增日志调用点自动生效，无需逐处处理 |
+| **网关日志脱敏** | `domain/gateway.py`：落盘与回读两端都把账号名里的邮箱/手机号打码，prompt 预览与错误文本过值级规则 |
 | **网关只对内** | `domain/gateway.py`：默认 `127.0.0.1:8788`，`loopbackOnly` 生效；对外暴露要显式改配置 |
 | **网关鉴权** | Key 由本机签发、可随时吊销，不落明文到日志 |
 | **本机 API 鉴权** | `api/guard.py`：`/api/*` 要求同源 Cookie 或 `Authorization: Bearer <~/.chaierww/api-token>`；非回环 `Host`/`Origin`、`Sec-Fetch-Site: cross-site` 一律 403；写方法必须带 `X-Chaierww-Client: web`（含 Bearer 调用方） |
 | **配置原子写** | `infra/fsutil.py`：临时文件 + fsync + `os.replace`；损坏 JSON 隔离为 `*.corrupt-<时间戳>`，不静默覆盖用户配置 |
 | **数据库启动保护** | `infra/db.py`：启动/迁移前后 `PRAGMA quick_check`，失败抛 `DatabaseIntegrityError` 并提示可恢复来源；迁移前自动备份到 `backups/pre-migrate/`；关闭前 `wal_checkpoint(TRUNCATE)` |
 | **全局备份可恢复** | `domain/restore.py`：只登记 `restore-pending.json`，下次启动、数据库打开前覆盖；覆盖前留 `backups/restore-safety/`，失败自动回滚 |
-| **诊断包脱敏** | `domain/diagnostics.py`：只含版本、计数、配置健康度与日志尾部；不含凭据、Key、Cookie、账号外部 ID |
+| **诊断包脱敏** | `domain/diagnostics.py`：只含版本、计数、配置健康度与日志尾部；不含凭据、Key、Cookie、账号外部 ID。日志尾部出包前再按值级规则过一遍，覆盖脱敏上线前写下的旧日志 |
 | **崩溃现场落盘** | 后端 `infra/crash.py`（excepthook / 线程 hook / 兜底 handler + `X-Request-Id`）、桌面 `desktop.log`、前端错误上报 `/api/diagnostics/client-error`（20 次/分钟限流） |
 | **SPA 严格 CSP** | SPA 入口响应带 `Content-Security-Policy: script-src 'self'`，主题脚本外置为 `theme-boot.js`；`/docs` 不套 CSP 以免打坏 Swagger UI |
 | **写前有备份** | 切换前强制备份，中途失败自动回滚到切换前快照 |
@@ -51,6 +52,8 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | **网页版登录态也只在本机** | `domain/webview_state.py` 按账号搬客户端的 Chromium 分区，快照落在 `~/.chaierww/webview/`。cookie 由 `Local State` 里的 DPAPI 密钥加密，密钥绑当前 Windows 用户，**换台机器解不开** —— 所以它不进凭据表、不进导出包，跨机也不会跟着账号走 |
 | **内嵌登录窗口只认官方域名** | `desktop/main.js` 的 `WEB_LOGIN_HOSTS`：只接受 `https:`，主机必须精确等于或为 `codebuddy.cn` / `workbuddy.cn` 的子域，其它地址一律拒绝并回落 `window.open`。窗口不挂 preload、`nodeIntegration: false`、`sandbox: true`，每次打开用全新的内存分区；登录结果仍由后端 OAuth 轮询领取，**渲染层拿不到任何凭据** |
 | **IPC 只暴露语义化方法** | `preload.js` 的 `webLogin` 只有 `open` / `close` / `openApp` 三个方法，不透传 `ipcRenderer`。主进程每个 handler 先校验 `event.sender` 是主窗口，再校验 URL 白名单；`web-login:open-app` 只加载固定的 `WEB_APP_URL`，不接受渲染层传地址 |
+| **推送闸门** | `.githooks/pre-push`：拒绝推送 `main` 之外的长期分支（`master` / `backup/*` 留着早年内部文档），并对推送范围复查禁止路径。钩子需 `git config core.hooksPath .githooks` 接线 |
+| **入库敏感值扫描** | `scripts/check_secrets.py`：扫已入库文件的路径（`.env` / `*.db` / `logs` / `backups` / `_shot-*`）与值（JWT / `sk-` / GitHub / AWS / Slack / 私钥 / 本机用户名路径），由 `repo-guard` CI 在每次 push 上执行 |
 
 ## 这些不算漏洞
 
@@ -78,6 +81,17 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
    风险，见[免责声明](docs/policies/DISCLAIMER.md)。
 
 6. **你自己把网关改成 `0.0.0.0`。** 改配置对外暴露是显式操作，风险自负。
+
+7. **Electron 关掉了 Chromium 沙箱。** `desktop/main.js` 全局 `no-sandbox`、主窗口
+   `sandbox: false`：这是为了让打包后的本机后端与更新流程在部分 Windows 上稳定启动。
+   渲染层仍然 `contextIsolation: true` / `nodeIntegration: false`，且只加载本地打包页面
+   （入口有 `script-src 'self'` 的 CSP），攻击面是「本地页面被注入」，不是「访问任意网站」。
+   代价是渲染进程一旦被攻破，纵深防御比默认配置弱——这是已知取舍，不是待修缺陷。
+
+8. **`api-token` 是明文文件，值直接当 Cookie。** Windows 上 `os.open(..., 0o600)` 不改变
+   实际权限，真正生效的是 `~/.chaierww` 继承的用户目录 ACL。能读到它的进程已经拥有
+   当前用户权限，与第 1 条同一威胁模型；换成凭据管理器只会增加启动失败面。
+   Cookie 是 `HttpOnly` + `SameSite=Strict`，只在本机回环端口使用。
 
 ## 不会做的事
 
@@ -119,6 +133,7 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 
 ```bash
 .venv/Scripts/python.exe -m pytest -q          # 后端全量，必须 0 failed
+.venv/Scripts/python.exe scripts/check_secrets.py   # 入库文件里的凭证/运行数据
 cd web && node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
 node node_modules/vite/bin/vite.js build
 node --check desktop/main.js && node --check desktop/preload.js
@@ -205,3 +220,6 @@ G '0\.0\.0\.0'                                            # 监听地址
 | v0.1.2 | 上游请求域名取自凭据里的 `host` 字段，篡改凭据文件可把 JWT 送到任意域 | `platform_api.py` 加 `TRAE_ALLOWED_HOSTS = ("trae.cn",)`，`_safe_trae_origin()` 校验 scheme 必须是 https、主机必须精确匹配或为子域，否则回落官方地址；11 组参数化用例覆盖 `evil.com`、`api.trae.cn.evil.com`、`http://` 等绕过写法 |
 | v0.1.2 | `preload.js` 在渲染进程调用 `require('electron').app`，抛错致桌面能力全线失效 | 主进程经 `webPreferences.additionalArguments` 传 `--chaierww-version=`，preload 从 `process.argv` 读取 |
 | v0.1.6 | 网页版快照把账号 `external_id` 直接拼进路径，`..` 这类形状理论上会让快照读写落到 `~/.chaierww/webview/` 之外 | `webview_state._unsafe_uid()` 拒绝 `.` / `..` / 路径分隔符 / 盘符 / NUL，`snapshot` / `restore` / `has_snapshot` / `snapshot_bytes` / `drop` 五个入口统一拦截；7 组参数化用例验证「拒绝时连快照目录都不创建」 |
+| 未发布 | 日志与网关请求日志会把账号显示名（可能是邮箱/手机号）原样写盘，诊断包又把这些日志交给维护者 | `logging_setup.redact_text` / `RedactingFilter` 在写盘与上屏前做值级脱敏；`diagnostics._log_tail` 出包前再洗一遍历史日志；`gateway._scrub_entry` 在落盘与回读两端处理 `accountName` / `skipped` / `promptPreview` |
+| 未发布 | 敏感值只能靠 `publish_snapshot.sh` 拦截，日常 `git push` 没有闸门；本地 `master` 历史还留着 5 份内部文档 | 新增 `scripts/check_secrets.py` 接入 `repo-guard` CI；新增 `.githooks/pre-push` 拒绝推非 main 分支并复查推送范围 |
+| 未发布 | Swagger UI 开启 `persistAuthorization`，粘贴的 Bearer 会留在 localhost 源的 localStorage | 改为 `false`；本机页面本来就靠同源 Cookie 自动鉴权，不依赖 localStorage |

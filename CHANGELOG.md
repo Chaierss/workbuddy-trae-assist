@@ -6,6 +6,27 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [未发布]
+
+本轮安全自查的收尾：日志与外发材料里的个人标识、仓库侧的推送闸门。
+
+### 修复
+
+- **日志不再留下邮箱与手机号。** 账号显示名、prompt 预览、错误文本在写盘和上屏前
+  统一过值级脱敏（`Bearer`、`sk-`、JWT、邮箱、手机号、本机用户名路径）；
+  诊断包里的日志尾部出包前再洗一遍，旧日志也覆盖。
+- **网关请求日志同步脱敏。** `accountName` / `skipped` / `promptPreview` 在落盘与回读
+  两端打码，历史记录一并处理。
+
+### 变更
+
+- **Swagger UI 不再把授权信息留在浏览器。** `persistAuthorization` 关掉；
+  本机页面本来就靠同源 Cookie 自动鉴权，不依赖 localStorage。
+- **仓库多了两道闸门。** `scripts/check_secrets.py` 接入 `repo-guard` CI，
+  扫已入库文件里的数据库、日志、备份与假密钥；新增 `.githooks/pre-push`
+  只允许推 `main`（`master` / `backup/*` 含早年内部文档）。
+  新克隆的机器需执行一次 `git config core.hooksPath .githooks`。
+
 ## [0.6.1] - 2026-10-26
 
 0.6.0 之后的收尾修复：CI 全绿、跨时区额度边界、文档与截图跟上实际界面。

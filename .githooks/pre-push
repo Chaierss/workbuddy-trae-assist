@@ -1,0 +1,44 @@
+#!/bin/sh
+# 推送闸门：只允许推 main / 发布 tag，并对推送范围再过一遍禁止路径。
+#
+# 为什么需要：本地 master / backup/* 的历史里留着早年的内部文档
+# （PLAN / SPEC / FEATURES / CLOSED-SOURCE），`git push --all` 或顺手
+# `git push origin master` 会直接把这些推到公开仓库。
+set -eu
+
+ZERO=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/tags/*) ;;
+    *)
+      echo "✗ 拒绝推送 $remote_ref：只允许 main 和发布 tag。" >&2
+      echo "  master / backup/* 含内部文档历史，推到公开仓库等于公开。" >&2
+      status=1
+      continue
+      ;;
+  esac
+
+  if [ "$remote_sha" = "$ZERO" ]; then
+    files=$(git ls-tree -r --name-only "$local_sha")
+  else
+    files=$(git diff --name-only "$remote_sha..$local_sha")
+  fi
+
+  bad=$(printf '%s\n' "$files" | grep -E '(^|/)\.env$|\.db(-wal|-shm)?$|(^|/)(api-token|accounts\.json)$|(^|/)logs/|\.log$|(^|/)backups/|^docs/(PLAN|SPEC|FEATURES|CLOSED-SOURCE).*\.md$|(^|/)_shot-' || true)
+  if [ -n "$bad" ]; then
+    echo "✗ 推送内容包含禁止路径：" >&2
+    printf '   %s\n' "$bad" >&2
+    status=1
+  fi
+done
+
+[ "$status" -eq 0 ] || exit 1
+
+if command -v python >/dev/null 2>&1; then
+  python scripts/check_secrets.py || exit 1
+else
+  echo "! 未找到 python，跳过值级扫描（CI 的 repo-guard 仍会检查）" >&2
+fi
+exit 0

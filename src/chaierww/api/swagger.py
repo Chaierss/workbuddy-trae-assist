@@ -100,7 +100,9 @@ _PAGE = """<!doctype html>
         defaultModelsExpandDepth: 0,
         displayRequestDuration: true,
         tryItOutEnabled: true,
-        persistAuthorization: true,
+        // 不留存用户粘贴的 Bearer：本机页面靠同源 Cookie 自动鉴权，
+        // 持久化 token 只会把它留在 localStorage 里。
+        persistAuthorization: false,
         filter: true,
       }});
     }});

@@ -28,6 +28,7 @@ from chaierww.domain.scheduler import FILENAME as SCHEDULES_FILENAME
 from chaierww.infra.db import quick_check
 from chaierww.infra.fsutil import scan_corrupt_files
 from chaierww.infra.startup import read_startup_error
+from chaierww.logging_setup import redact_text
 
 LOG_TAIL_BYTES = 128 * 1024
 MAX_LOG_FILES = 10
@@ -194,7 +195,11 @@ def _log_tail(path: Path) -> bytes:
     with open(path, "rb") as handle:
         if size > LOG_TAIL_BYTES:
             handle.seek(size - LOG_TAIL_BYTES)
-        return handle.read()
+        raw = handle.read()
+    # 旧日志是在写盘脱敏上线前写的，出包前必须再过一遍值级规则。
+    text = raw.decode("utf-8", errors="replace")
+    cleaned = "\n".join(redact_text(line) for line in text.splitlines())
+    return cleaned.encode("utf-8")
 
 
 def build_zip(app: FastAPI) -> bytes:
@@ -215,6 +220,7 @@ def build_zip(app: FastAPI) -> bytes:
         archive.writestr(
             "README.txt",
             "chaierww 诊断包：只含版本、计数、配置健康度与日志尾部；"
-            "不含凭据、API Key、Cookie、账号外部 ID 或对话正文。\n",
+            "不含凭据、API Key、Cookie、账号外部 ID 或对话正文。"
+            "日志尾部按值级规则脱敏（Bearer/Key/邮箱/手机号/本机用户名）。\n",
         )
     return buffer.getvalue()
