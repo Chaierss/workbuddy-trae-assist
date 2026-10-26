@@ -9,7 +9,7 @@
 # 矩阵里加 `macos-latest` / `ubuntu-latest`，其余步骤不用改。
 #
 # 触发：
-#   - 推 v* 标签：构建并上传到 GitHub Releases（electron-builder --publish always）
+#   - 推 v* 标签：构建，然后用 gh release 单点上传（发版）
 #   - 手动触发：只构建，产物作为 workflow artifact 下载，不发版
 name: build-desktop
 
@@ -90,13 +90,64 @@ jobs:
       - name: Build installer
         working-directory: desktop
         env:
-          # 标签触发时才发版；手动触发只产出 artifact
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 安装包未做代码签名，保持自动发现关闭，避免误用 runner 上的临时证书
+          # 发布不在这里做：electron-builder 的 GitHub publisher 不幂等，
+          # 重跑/并发时会为同一个 tag 建出多个 Release，资产被拆散，
+          # electron-updater 按 tag 取到的那份可能只有 blockmap。
+          # 打包只负责出包，上传统一交给下面的 Publish release。
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: >
           npx electron-builder ${{ matrix.builder_args }}
-          --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          --publish never
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+
+          # 先把该 tag 下的 Release 清干净（保留 tag 本身），避免遗留
+          # 上一轮那份「只有 blockmap」的残件继续被 updater 取到。
+          for _ in 1 2 3 4 5; do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              gh release delete "$tag" --yes
+            else
+              break
+            fi
+          done
+
+          gh release create "$tag" --title "${tag#v}" --notes "详见 CHANGELOG.md"
+
+          files=(release/*.exe release/*.blockmap release/latest*.yml)
+          for f in "${files[@]}"; do
+            name="$(basename "$f")"
+            for attempt in 1 2 3; do
+              if gh release upload "$tag" "$f" --clobber; then
+                echo "✓ 上传 $name"
+                break
+              fi
+              echo "上传 $name 失败（第 ${attempt}/3 次），10 秒后重试"
+              sleep 10
+              if [ "$attempt" -eq 3 ]; then
+                echo "✗ $name 三次上传均失败"
+                exit 1
+              fi
+            done
+          done
+
+          # 完整性校验：少一个就让流水线红掉，而不是留一个半残的 Release。
+          assets="$(gh release view "$tag" --json assets -q '.assets[].name')"
+          for f in "${files[@]}"; do
+            name="$(basename "$f")"
+            echo "$assets" | grep -qx "$name" || {
+              echo "✗ Release 缺少资产 $name"
+              exit 1
+            }
+          done
+          echo "✓ 资产齐全：$(echo "$assets" | tr '\n' ' ')"
 
       - name: Upload artifacts
         if: always()
