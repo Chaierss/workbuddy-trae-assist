@@ -22,7 +22,16 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: python scripts/check_activity_catalog.py
-      - run: pytest -q
+      # 失败时把 pytest 尾部输出打成注解：Actions 日志要登录才能看，
+      # 注解走公开 API 就能读，定位 CI-only 失败不用再本地猜。
+      - name: pytest
+        shell: pwsh
+        run: |
+          pytest -q 2>&1 | Tee-Object -FilePath pytest.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content pytest.log -Tail 40 | ForEach-Object { "::error::$_" }
+            exit 1
+          }
       - run: ruff check src tests scripts
 
   web:
