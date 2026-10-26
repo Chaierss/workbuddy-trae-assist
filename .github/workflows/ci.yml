@@ -81,5 +81,6 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npx playwright install chromium
+      # 无头模式跑的是独立的 headless shell，必须显式装；只装 chromium 会缺可执行文件。
+      - run: npx playwright install chromium chromium-headless-shell
       - run: npm run test:e2e

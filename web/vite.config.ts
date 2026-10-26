@@ -6,6 +6,9 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   server: {
+    // 显式绑 IPv4：默认 localhost 在部分 Windows 环境只监听 ::1，
+    // Playwright 用 127.0.0.1 探活会直接连接失败。
+    host: "127.0.0.1",
     port: 57911,
     strictPort: true,
     proxy: {
