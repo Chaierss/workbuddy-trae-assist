@@ -57,6 +57,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -161,6 +162,20 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         "description": "在 WorkBuddy 活动页签到，按当前档位领取当日积分；可纯接口代签。",
         "rewardHint": "每日额度由活动档位决定",
         "automatable": True,
+        "theme": "green",
+        "icon": "calendar-check",
+        "tags": ("每日", "自动"),
+        "rules": (
+            "每天可签到一次",
+            "签到奖励按当前活动档位发放",
+            "已领取的奖励不会因断签回收",
+        ),
+        "rewards": ("每日积分", "连续签到档位奖励"),
+        "periodNote": "长期开放",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": True,
+        "sortOrder": 10,
     },
     {
         "key": "workbuddy.growth_tasks",
@@ -174,6 +189,20 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         ),
         "rewardHint": "每项 reward_credit 不等",
         "automatable": True,
+        "theme": "blue",
+        "icon": "sprout",
+        "tags": ("活动期", "自动+手动"),
+        "rules": (
+            "活动期内完成成长任务后领取奖励",
+            "可纯接口上报的任务由本工具代做",
+            "专家对话、技能使用、小程序任务需在客户端手动完成",
+        ),
+        "rewards": ("每项任务 reward_credit", "活动期累计奖励"),
+        "periodNote": "活动期内",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": False,
+        "sortOrder": 20,
     },
     {
         "key": "workbuddy.streak",
@@ -187,6 +216,20 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         ),
         "rewardHint": "档位奖励以「距下一档还差几天」估算",
         "automatable": True,
+        "theme": "amber",
+        "icon": "flame",
+        "tags": ("活动期", "自动"),
+        "rules": (
+            "连续签到累计达标后可兑换档位奖励",
+            "补签、兑换、抽奖会消耗账号内的补签卡或抽奖次数",
+            "上游已领取或没有次数时只记录跳过",
+        ),
+        "rewards": ("连签档位奖励", "每日礼包/补偿", "抽奖次数"),
+        "periodNote": "活动期内",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": False,
+        "sortOrder": 30,
     },
     {
         "key": "workbuddy.travel",
@@ -197,6 +240,20 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         "description": "按服务端状态机自动处理：已到达就领奖，空闲就派出，旅行中等待。",
         "rewardHint": "到达奖励由上游 reward_credit 决定",
         "automatable": True,
+        "theme": "violet",
+        "icon": "plane",
+        "tags": ("每日", "自动"),
+        "rules": (
+            "派出猫猫后进入旅行状态",
+            "到达后领取奖励，旅行中等待",
+            "旅行中不会重复派出",
+        ),
+        "rewards": ("到达奖励", "旅行里程奖励"),
+        "periodNote": "每日可派",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": True,
+        "sortOrder": 40,
     },
     {
         "key": "workbuddy.black_cat",
@@ -209,6 +266,20 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         ),
         "rewardHint": "达成 3 次后领取任务奖励",
         "automatable": True,
+        "theme": "teal",
+        "icon": "moon",
+        "tags": ("每日", "夜间", "自动"),
+        "rules": (
+            "活动窗口为 23:00–08:00",
+            "使用 GLM-5.2 完成夜间对话",
+            "累计 3 次后领取任务奖励",
+        ),
+        "rewards": ("夜间任务奖励",),
+        "periodNote": "23:00–08:00",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": False,
+        "sortOrder": 50,
     },
     {
         "key": "workbuddy.school",
@@ -222,6 +293,20 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         ),
         "rewardHint": "每项任务奖励以活动页为准",
         "automatable": True,
+        "theme": "rose",
+        "icon": "graduation-cap",
+        "tags": ("活动期", "自动+手动"),
+        "rules": (
+            "完成对话、专家对话、分享、桌面对话等任务",
+            "任务完成后领取对应奖励并抽掉转盘次数",
+            "学生认证需在客户端手动完成",
+        ),
+        "rewards": ("任务奖励", "转盘抽奖"),
+        "periodNote": "活动期内",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": True,
+        "sortOrder": 60,
     },
     {
         "key": "trae.daily_checkin",
@@ -232,8 +317,74 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         "description": "Trae 每日签到领积分；可纯接口代签。",
         "rewardHint": "每日积分由上游 credits 字段决定",
         "automatable": True,
+        "theme": "blue",
+        "icon": "sun",
+        "tags": ("每日", "自动"),
+        "rules": (
+            "每天可签到一次",
+            "签到积分由上游 credits 字段决定",
+            "单设备每日只能被一个账号签到",
+        ),
+        "rewards": ("每日积分",),
+        "periodNote": "长期开放",
+        "officialUrl": "https://www.trae.cn/",
+        "officialLabel": "Trae 官网",
+        "featured": False,
+        "sortOrder": 70,
     },
 )
+
+#: 官方活动目录版本。每次增删活动或修改规则/入口时同步更新，页面会展示。
+OFFICIAL_CATALOG_VERSION = "2026.10.1"
+OFFICIAL_CATALOG_UPDATED_AT = "2026-10-26"
+OFFICIAL_DISCLAIMER = (
+    "活动信息整理自官方客户端/官网公开内容。本工具与平台无隶属、合作或授权关系；"
+    "活动规则、奖励与时间以官方页面为准。"
+)
+
+ACTIVITY_KEYS = frozenset(entry["key"] for entry in ACTIVITY_CATALOG)
+
+#: 卡片主题与图标都走白名单，前端只认这些值，避免目录里写错字符串后静默降级。
+CAMPAIGN_THEMES = frozenset({"green", "blue", "amber", "violet", "teal", "rose"})
+CAMPAIGN_ICONS = frozenset(
+    {"calendar-check", "sprout", "flame", "plane", "moon", "graduation-cap", "sun"}
+)
+OFFICIAL_URL_HOSTS = ("workbuddy.cn", "trae.cn")
+
+
+def validate_official_catalog() -> None:
+    """校验官方活动目录字段与官方入口白名单（测试用，不在 import 时抛错）。"""
+    seen: set[str] = set()
+    for entry in ACTIVITY_CATALOG:
+        key = entry["key"]
+        if key in seen:
+            raise ValueError(f"活动目录 key 重复：{key}")
+        seen.add(key)
+        for field in (
+            "theme",
+            "icon",
+            "tags",
+            "rules",
+            "rewards",
+            "periodNote",
+            "officialUrl",
+            "officialLabel",
+            "sortOrder",
+        ):
+            if not entry.get(field):
+                raise ValueError(f"活动目录缺少字段 {field}：{key}")
+        if entry["theme"] not in CAMPAIGN_THEMES:
+            raise ValueError(f"活动主题非法：{key} -> {entry['theme']}")
+        if entry["icon"] not in CAMPAIGN_ICONS:
+            raise ValueError(f"活动图标非法：{key} -> {entry['icon']}")
+        parsed = urlsplit(entry["officialUrl"])
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not host:
+            raise ValueError(f"活动官方入口必须是 https：{key} -> {entry['officialUrl']}")
+        if not any(
+            host == allowed or host.endswith(f".{allowed}") for allowed in OFFICIAL_URL_HOSTS
+        ):
+            raise ValueError(f"活动官方入口域名不在白名单：{key} -> {host}")
 
 
 # ---------- 数据结构 ----------
@@ -1069,11 +1220,15 @@ class ActivitiesService:
         *,
         include_growth: bool = True,
         retry_failed: bool = False,
+        keys: set[str] | None = None,
     ) -> dict[str, Any]:
         """对每个账号执行**可自动且未完成**的活动；已完成的跳过并说明原因。
 
         ``include_growth=False`` 时只跑每日签到，不跑成长任务 —— 计划任务的
         「签到」与「全部活动」两个档位据此区分。
+
+        ``keys`` 为活动 key 白名单：``None`` 表示全量（保持原有语义），
+        传集合时只跑集合内的活动，供「只执行本活动」使用。
 
         ``retry_failed=True`` 时，首轮结束后只把**可重试的失败账号**再跑一遍
         （网络异常 / 5xx / Trae 9074），401/403/400 与业务拒绝不重试。
@@ -1084,7 +1239,9 @@ class ActivitiesService:
         retried = 0
         retry_ok = 0
         try:
-            results = self._run_accounts(accounts, include_growth=include_growth)
+            results = self._run_accounts(
+                accounts, include_growth=include_growth, keys=keys
+            )
             if retry_failed:
                 retry_targets = _retry_targets(accounts, results)
                 if retry_targets:
@@ -1093,7 +1250,7 @@ class ActivitiesService:
                     second = [
                         replace(item, attempt=2)
                         for item in self._run_accounts(
-                            retry_targets, include_growth=include_growth
+                            retry_targets, include_growth=include_growth, keys=keys
                         )
                     ]
                     retry_ok = sum(1 for item in second if item.status == RESULT_OK)
@@ -1113,14 +1270,20 @@ class ActivitiesService:
         }
 
     def _run_accounts(
-        self, accounts: list[Account], *, include_growth: bool = True
+        self,
+        accounts: list[Account],
+        *,
+        include_growth: bool = True,
+        keys: set[str] | None = None,
     ) -> list[RunResult]:
         results: list[RunResult] = []
         for index, account in enumerate(accounts):
             if index:
                 # 连续打上游容易被风控；账号之间留一点间隔。
                 time.sleep(ACCOUNT_GAP_SECONDS)
-            results.extend(self._run_one(account, include_growth=include_growth))
+            results.extend(
+                self._run_one(account, include_growth=include_growth, keys=keys)
+            )
         return results
 
     def run_travel_stage(self, accounts: list[Account], *, stage: str) -> dict[str, Any]:
@@ -1190,10 +1353,21 @@ class ActivitiesService:
             self._result(account, step.key, step.title, step.status, step.message, step.reward)
         ]
 
-    def _run_one(self, account: Account, *, include_growth: bool = True) -> list[RunResult]:
+    def _run_one(
+        self,
+        account: Account,
+        *,
+        include_growth: bool = True,
+        keys: set[str] | None = None,
+    ) -> list[RunResult]:
         try:
             platform = get_scope(account.scope).platform
         except UnknownScope:
+            return []
+        if keys is not None and not any(
+            key.startswith(f"{platform}.") for key in keys
+        ):
+            # 本活动白名单与这个账号的平台无关：不发任何请求。
             return []
         if account.credential_state is CredentialState.RELOGIN_REQUIRED:
             # 预检：登录态已失效时任何写请求都会失败，直接列为「待人工处理」。
@@ -1211,18 +1385,41 @@ class ActivitiesService:
         except AccountNotFound:
             return []
         if platform == "workbuddy":
-            return self._run_workbuddy(account, credential, include_growth=include_growth)
+            return self._run_workbuddy(
+                account, credential, include_growth=include_growth, keys=keys
+            )
         if platform == "trae":
-            return self._run_trae(account, credential)
+            return self._run_trae(account, credential, keys=keys)
         return []
 
     def _run_workbuddy(
-        self, account: Account, credential: dict[str, Any], *, include_growth: bool = True
+        self,
+        account: Account,
+        credential: dict[str, Any],
+        *,
+        include_growth: bool = True,
+        keys: set[str] | None = None,
     ) -> list[RunResult]:
         key, title = "workbuddy.daily_checkin", "每日签到"
+
+        def want(activity_key: str) -> bool:
+            return keys is None or activity_key in keys
+
         try:
             token, uid, domain = workbuddy_credentials(credential)
         except CredentialError as exc:
+            if not any(
+                want(item)
+                for item in (
+                    key,
+                    "workbuddy.growth_tasks",
+                    "workbuddy.streak",
+                    "workbuddy.travel",
+                    "workbuddy.black_cat",
+                    "workbuddy.school",
+                )
+            ):
+                return []
             return [self._result(account, key, title, RESULT_SKIPPED, str(exc))]
 
         origin = workbuddy_origin(domain)
@@ -1237,46 +1434,52 @@ class ActivitiesService:
         results: list[RunResult] = []
 
         # 先读状态：已签到的直接跳过，不产生任何写请求。
-        status_code, body, error = _call(
-            self._client, "POST", f"{origin}{WB_CHECKIN_STATUS_PATH}", headers, {}
-        )
-        payload = body.get("data") if isinstance(body, dict) else None
-        data = payload if isinstance(payload, dict) else {}
-        if not data or body.get("code") not in (0, 200):
-            message = _message_of(body) or error or f"HTTP {status_code}"
-            self._note_auth(account, status_code, body, message)
-            results.append(
-                self._result(
-                    account,
-                    key,
-                    title,
-                    RESULT_FAILED,
-                    self._explain(status_code, message),
-                    retryable=_retryable_status(status_code),
-                )
+        # 只跑其它活动（例如派猫猫）时跳过这一步，避免多打一次上游。
+        if want(key):
+            status_code, body, error = _call(
+                self._client, "POST", f"{origin}{WB_CHECKIN_STATUS_PATH}", headers, {}
             )
-        else:
-            item = parse_wb_checkin(data)
-            if item.state == STATE_DONE:
+            payload = body.get("data") if isinstance(body, dict) else None
+            data = payload if isinstance(payload, dict) else {}
+            if not data or body.get("code") not in (0, 200):
+                message = _message_of(body) or error or f"HTTP {status_code}"
+                self._note_auth(account, status_code, body, message)
                 results.append(
                     self._result(
-                        account, key, title, RESULT_SKIPPED, item.reward_text or "今日已签到"
+                        account,
+                        key,
+                        title,
+                        RESULT_FAILED,
+                        self._explain(status_code, message),
+                        retryable=_retryable_status(status_code),
                     )
                 )
-            elif item.state == STATE_NOT_STARTED:
-                results.append(
-                    self._result(account, key, title, RESULT_SKIPPED, "当前没有进行中的签到活动")
-                )
             else:
-                status_code, body, error = _call(
-                    self._client, "POST", f"{origin}{WB_CHECKIN_PATH}", headers, {}
-                )
-                results.append(
-                    self._classify_wb_claim(account, key, title, status_code, body, error)
-                )
+                item = parse_wb_checkin(data)
+                if item.state == STATE_DONE:
+                    results.append(
+                        self._result(
+                            account, key, title, RESULT_SKIPPED, item.reward_text or "今日已签到"
+                        )
+                    )
+                elif item.state == STATE_NOT_STARTED:
+                    results.append(
+                        self._result(
+                            account, key, title, RESULT_SKIPPED, "当前没有进行中的签到活动"
+                        )
+                    )
+                else:
+                    status_code, body, error = _call(
+                        self._client, "POST", f"{origin}{WB_CHECKIN_PATH}", headers, {}
+                    )
+                    results.append(
+                        self._classify_wb_claim(account, key, title, status_code, body, error)
+                    )
 
         # 成长任务：有 runner、且本轮允许跑成长任务时才做；结果逐项转成 RunResult。
-        if include_growth and self._growth_runner is not None:
+        if include_growth and self._growth_runner is not None and want(
+            "workbuddy.growth_tasks"
+        ):
             results.extend(self._run_growth_tasks(account, credential))
 
         # 额外活动：连签奖励链 / 派猫猫 / 夜猫子 / 开学季。
@@ -1285,31 +1488,39 @@ class ActivitiesService:
         # 单项失败只记该项，不影响其它项（上游经常单项 500）。
         extras: list[ExtraStep] = []
         if include_growth:
-            try:
-                extras.extend(run_streak_rewards(extra_call, origin, headers, uid))
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("连签奖励链异常：%s", exc)
-                extras.append(ExtraStep("workbuddy.streak", "连签里程", RESULT_FAILED, str(exc)))
-            try:
-                extras.append(run_travel(extra_call, origin, headers))
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("派猫猫旅行异常：%s", exc)
-                extras.append(
-                    ExtraStep("workbuddy.travel", "派猫猫旅行", RESULT_FAILED, str(exc))
-                )
-            try:
-                extras.append(run_black_cat(extra_call, origin, headers, uid))
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("夜猫子异常：%s", exc)
-                extras.append(ExtraStep("workbuddy.black_cat", "夜猫子", RESULT_FAILED, str(exc)))
-            school = school_headers(token, uid, domain, origin)
-            try:
-                extras.append(run_school(extra_call, origin, school, uid))
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("开学季异常：%s", exc)
-                extras.append(
-                    ExtraStep("workbuddy.school", "开学季活动", RESULT_FAILED, str(exc))
-                )
+            if want("workbuddy.streak"):
+                try:
+                    extras.extend(run_streak_rewards(extra_call, origin, headers, uid))
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("连签奖励链异常：%s", exc)
+                    extras.append(
+                        ExtraStep("workbuddy.streak", "连签里程", RESULT_FAILED, str(exc))
+                    )
+            if want("workbuddy.travel"):
+                try:
+                    extras.append(run_travel(extra_call, origin, headers))
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("派猫猫旅行异常：%s", exc)
+                    extras.append(
+                        ExtraStep("workbuddy.travel", "派猫猫旅行", RESULT_FAILED, str(exc))
+                    )
+            if want("workbuddy.black_cat"):
+                try:
+                    extras.append(run_black_cat(extra_call, origin, headers, uid))
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("夜猫子异常：%s", exc)
+                    extras.append(
+                        ExtraStep("workbuddy.black_cat", "夜猫子", RESULT_FAILED, str(exc))
+                    )
+            if want("workbuddy.school"):
+                school = school_headers(token, uid, domain, origin)
+                try:
+                    extras.append(run_school(extra_call, origin, school, uid))
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("开学季异常：%s", exc)
+                    extras.append(
+                        ExtraStep("workbuddy.school", "开学季活动", RESULT_FAILED, str(exc))
+                    )
 
         for step in extras:
             results.append(
@@ -1389,8 +1600,16 @@ class ActivitiesService:
             retryable=_retryable_status(status_code),
         )
 
-    def _run_trae(self, account: Account, credential: dict[str, Any]) -> list[RunResult]:
+    def _run_trae(
+        self,
+        account: Account,
+        credential: dict[str, Any],
+        *,
+        keys: set[str] | None = None,
+    ) -> list[RunResult]:
         key, title = "trae.daily_checkin", "每日签到"
+        if keys is not None and key not in keys:
+            return []
         try:
             jwt, device_id, host = trae_credentials(credential)
         except CredentialError as exc:
@@ -1618,3 +1837,224 @@ def summarize(accounts: list[AccountActivities]) -> dict[str, int]:
         ),
         "unavailable": sum(1 for item in items if item.state == STATE_UNAVAILABLE),
     }
+
+
+#: 活动级状态。与账号级 state 区分：账号级说「这个号这一项怎样」，
+#: 活动级说「这个活动整体对当前号池是什么局面」。
+CAMPAIGN_NO_ACCOUNTS = "no_accounts"
+CAMPAIGN_NOT_DETECTED = "not_detected"
+CAMPAIGN_ACTIVE = "active"
+CAMPAIGN_PARTIAL = "partial"
+CAMPAIGN_DONE = "done"
+CAMPAIGN_UNAVAILABLE = "unavailable"
+#: 检测到了目录里没有的活动 key。不能静默丢弃，否则「新活动上线」在界面上等于消失。
+CAMPAIGN_UNCATALOGUED = "uncatalogued"
+
+
+def _account_platform(account: AccountActivities) -> str:
+    """账号所属平台。优先按 scope 解析，未知 scope 退回检测时记下的平台。"""
+    try:
+        return get_scope(account.scope).platform
+    except UnknownScope:
+        return account.platform
+
+
+def summarize_campaigns(accounts: list[AccountActivities]) -> list[dict[str, Any]]:
+    """把账号明细聚合到每个官方活动上，供活动卡片/概览直接渲染。
+
+    统计口径只在这里算一次：前端不再二次推断，避免「卡片进度」与「按账号明细」
+    对不上。每个账号只会落进一个桶，保证 ``done/todo/inProgress/manual/
+    unavailable/notDetected`` 之和等于 ``accountsTotal``。
+    """
+    platform_counts: dict[str, int] = {}
+    for account in accounts:
+        platform = _account_platform(account)
+        platform_counts[platform] = platform_counts.get(platform, 0) + 1
+
+    campaigns: list[dict[str, Any]] = []
+    for entry in sorted(ACTIVITY_CATALOG, key=lambda item: item["sortOrder"]):
+        key = entry["key"]
+        platform = entry["platform"]
+        accounts_total = platform_counts.get(platform, 0)
+
+        done = todo = in_progress = manual = unavailable = not_detected = 0
+        period_starts: list[str] = []
+        period_ends: list[str] = []
+        for account in accounts:
+            if _account_platform(account) != platform:
+                continue
+            if not account.detectable:
+                not_detected += 1
+                continue
+            item = next(
+                (candidate for candidate in account.items if candidate.key == key), None
+            )
+            if item is None:
+                # 可检测但没返回这一项：算「未检测到」，不冒充不可用。
+                not_detected += 1
+                continue
+            if item.period_start:
+                period_starts.append(item.period_start)
+            if item.period_end:
+                period_ends.append(item.period_end)
+            if item.state == STATE_DONE:
+                done += 1
+            elif item.state in (STATE_UNAVAILABLE, STATE_NOT_STARTED):
+                unavailable += 1
+            elif not item.automatable:
+                manual += 1
+            elif item.state == STATE_TODO:
+                todo += 1
+            elif item.state == STATE_IN_PROGRESS:
+                in_progress += 1
+            else:
+                unavailable += 1
+
+        detectable = accounts_total - not_detected
+        actionable = todo + in_progress
+        all_done = accounts_total > 0 and done == accounts_total
+
+        if accounts_total == 0:
+            status = CAMPAIGN_NO_ACCOUNTS
+        elif not_detected == accounts_total:
+            status = CAMPAIGN_NOT_DETECTED
+        elif all_done:
+            status = CAMPAIGN_DONE
+        elif done and (todo or in_progress or manual or unavailable or not_detected):
+            status = CAMPAIGN_PARTIAL
+        elif todo or in_progress or manual:
+            status = CAMPAIGN_ACTIVE
+        else:
+            status = CAMPAIGN_UNAVAILABLE
+
+        campaigns.append(
+            {
+                "key": key,
+                "platform": platform,
+                "group": entry["group"],
+                "title": entry["title"],
+                "subtitle": entry["subtitle"],
+                "description": entry["description"],
+                "rewardHint": entry["rewardHint"],
+                "automatable": entry["automatable"],
+                "theme": entry["theme"],
+                "icon": entry["icon"],
+                "tags": list(entry["tags"]),
+                "rules": list(entry["rules"]),
+                "rewards": list(entry["rewards"]),
+                "periodNote": entry["periodNote"],
+                "officialUrl": entry["officialUrl"],
+                "officialLabel": entry["officialLabel"],
+                "featured": entry["featured"],
+                "sortOrder": entry["sortOrder"],
+                "accountsTotal": accounts_total,
+                "detectable": detectable,
+                "done": done,
+                "todo": todo,
+                "inProgress": in_progress,
+                "manual": manual,
+                "unavailable": unavailable,
+                "notDetected": not_detected,
+                "actionable": actionable,
+                "allDone": all_done,
+                "status": status,
+                "periodStart": min(period_starts) if period_starts else None,
+                "periodEnd": max(period_ends) if period_ends else None,
+            }
+        )
+    campaigns.extend(_uncatalogued_campaigns(accounts, platform_counts))
+
+    # 未收录活动永远排在已收录活动之后，避免一个上游新 key 抢走主推位。
+    campaigns.sort(key=lambda item: (item["status"] == CAMPAIGN_UNCATALOGUED, item["sortOrder"]))
+    return campaigns
+
+
+def _uncatalogued_campaigns(
+    accounts: list[AccountActivities], platform_counts: dict[str, int]
+) -> list[dict[str, Any]]:
+    """为目录里没有的活动 key 生成兜底卡片。
+
+    「检测到了但目录没收录」不能直接丢掉：新活动上线时用户会以为工具漏了，
+    维护者也失去发现目录过期的信号。这里按 (key, platform) 聚合成一张朴素卡片。
+    """
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    for account in accounts:
+        platform = _account_platform(account)
+        if not account.detectable:
+            continue
+        seen: set[str] = set()
+        for item in account.items:
+            if item.key in ACTIVITY_KEYS or item.key in seen:
+                continue
+            seen.add(item.key)
+            slot = buckets.setdefault(
+                (item.key, platform),
+                {
+                    "key": item.key,
+                    "platform": platform,
+                    "group": item.group,
+                    "title": item.title or item.key,
+                    "subtitle": item.subtitle,
+                    "done": 0,
+                    "todo": 0,
+                    "inProgress": 0,
+                    "manual": 0,
+                    "unavailable": 0,
+                    "detected": 0,
+                },
+            )
+            slot["detected"] += 1
+            if item.state == STATE_DONE:
+                slot["done"] += 1
+            elif item.state in (STATE_UNAVAILABLE, STATE_NOT_STARTED):
+                slot["unavailable"] += 1
+            elif not item.automatable:
+                slot["manual"] += 1
+            elif item.state == STATE_TODO:
+                slot["todo"] += 1
+            elif item.state == STATE_IN_PROGRESS:
+                slot["inProgress"] += 1
+
+    campaigns: list[dict[str, Any]] = []
+    for (key, platform), slot in sorted(buckets.items()):
+        accounts_total = platform_counts.get(platform, 0)
+        not_detected = max(0, accounts_total - int(slot["detected"]))
+        campaigns.append(
+            {
+                "key": key,
+                "platform": platform,
+                "group": slot["group"],
+                "title": slot["title"],
+                "subtitle": slot["subtitle"],
+                "description": (
+                    "检测到了活动目录里尚未收录的活动，这里展示的是上游原始信息。"
+                    "目录会在下次更新时补上规则与官方入口。"
+                ),
+                "rewardHint": "",
+                "automatable": False,
+                "theme": "blue",
+                "icon": "sun",
+                "tags": ["未收录"],
+                "rules": [],
+                "rewards": [],
+                "periodNote": "",
+                "officialUrl": "",
+                "officialLabel": "",
+                "featured": False,
+                "sortOrder": 999,
+                "accountsTotal": accounts_total,
+                "detectable": accounts_total - not_detected,
+                "done": int(slot["done"]),
+                "todo": int(slot["todo"]),
+                "inProgress": int(slot["inProgress"]),
+                "manual": int(slot["manual"]),
+                "unavailable": int(slot["unavailable"]),
+                "notDetected": not_detected,
+                "actionable": int(slot["todo"]) + int(slot["inProgress"]),
+                "allDone": accounts_total > 0 and int(slot["done"]) == accounts_total,
+                "status": CAMPAIGN_UNCATALOGUED,
+                "periodStart": None,
+                "periodEnd": None,
+            }
+        )
+    return campaigns

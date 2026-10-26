@@ -92,6 +92,21 @@ export const currentScope = computed(
 
 export const accountCount = computed(() => accounts.value.length);
 
+/** 侧栏活动角标：有可执行项的活动个数（不是账号数，避免和号池徽标重复）。 */
+export const activityActionable = ref(0);
+
+export async function loadActivityActionable(): Promise<void> {
+  try {
+    const data = await api.overviewActionables();
+    activityActionable.value = (data.campaigns ?? []).filter(
+      (item) => item.actionable > 0,
+    ).length;
+  } catch {
+    // 角标是辅助信息，取不到就不亮，不影响主界面。
+    activityActionable.value = 0;
+  }
+}
+
 export const attentionCount = computed(
   () => accounts.value.filter((item) => item.credentialState !== "usable").length,
 );
@@ -168,7 +183,12 @@ export async function refreshAll(): Promise<void> {
   loading.value = true;
   try {
     await loadDetection();
-    await Promise.all([loadDetections(), loadAccounts(), loadBackups()]);
+    await Promise.all([
+      loadDetections(),
+      loadAccounts(),
+      loadBackups(),
+      loadActivityActionable(),
+    ]);
     // 账号列表就绪后再查积分（需要账号 ID 集合）。
     await loadCredits();
   } finally {

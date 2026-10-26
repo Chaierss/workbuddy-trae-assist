@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生成 README / 官网用的界面截图，并在截图前完成脱敏。
 
 为什么在页面里脱敏，而不是事后按坐标打码：
@@ -119,9 +118,12 @@ REDACT_JS = r"""
       if (secret && text.includes(secret)) text = text.split(secret).join(dots(secret));
     }
     // 路径里的用户名：C:\Users\xxxx / /Users/xxxx / /home/xxxx
-    text = text.replace(/([A-Za-z]:\\Users\\)([^\\\s]+)/g, (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
-    text = text.replace(/(\/Users\/)([^\/\s]+)/g, (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
-    text = text.replace(/(\/home\/)([^\/\s]+)/g, (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
+    text = text.replace(/([A-Za-z]:\\Users\\)([^\\\s]+)/g,
+      (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
+    text = text.replace(/(\/Users\/)([^\/\s]+)/g,
+      (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
+    text = text.replace(/(\/home\/)([^\/\s]+)/g,
+      (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
     // 邮箱
     text = text.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, (m) => dots(m));
     // 网关密钥：界面上本来就是掩码形态（sk-e5a52c••••e8c2），前缀也是真密钥的一部分，一并抹掉
@@ -220,7 +222,8 @@ def collect_secrets(page) -> list[str]:
                 const out = [];
                 for (const scope of scopes) {
                     if (!scope.implemented) continue;
-                    const body = await getJson(`/api/accounts?scope=${encodeURIComponent(scope.key)}`);
+                    const url = `/api/accounts?scope=${encodeURIComponent(scope.key)}`;
+                    const body = await getJson(url);
                     const list = (body && (body.accounts || body.items)) || [];
                     for (const acc of list) {
                         for (const key of ['displayName', 'externalId', 'note']) {
@@ -277,8 +280,8 @@ def main() -> int:
                 )
                 # 主题 / 语言都存 localStorage，必须在首屏脚本前落一次
                 page.add_init_script(
-                    "localStorage.setItem('chaierww.theme', '%s');"
-                    "localStorage.setItem('chaierww.locale', 'zh');" % args.theme
+                    f"localStorage.setItem('chaierww.theme', '{args.theme}');"
+                    "localStorage.setItem('chaierww.locale', 'zh');"
                 )
 
                 url = f"{args.base.rstrip('/')}{shot['path']}"

@@ -17,6 +17,7 @@
  *   3. 一键执行后如实汇报「成功 / 跳过 / 失败」，跳过也要给出原因。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -30,14 +31,19 @@ import {
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import SectionCard from "../components/SectionCard.vue";
+import SegmentedControl from "../components/SegmentedControl.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusPill from "../components/StatusPill.vue";
+import OfficialActivitiesPanel from "../components/activity/OfficialActivitiesPanel.vue";
+import ActivityRunsPanel from "../components/activity/ActivityRunsPanel.vue";
+import { safeActivityUrl } from "../lib/activity";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { t, type MessageKey } from "../lib/i18n";
 import {
   api,
-  formatTime,
   type AccountActivities,
+  type ActivityCampaign,
+  type ActivityCatalog,
   type ActivityCatalogEntry,
   type ActivityItem,
   type ActivityRun,
@@ -45,6 +51,49 @@ import {
   type ActivityState,
   type ActivitySummary,
 } from "../api";
+
+type Tab = "official" | "accounts" | "runs";
+
+const route = useRoute();
+const router = useRouter();
+
+function readTab(raw: unknown): Tab {
+  return raw === "accounts" || raw === "runs" ? raw : "official";
+}
+
+const tab = ref<Tab>(readTab(route.query.tab));
+
+watch(
+  () => route.query.tab,
+  (value) => {
+    tab.value = readTab(value);
+  },
+);
+
+function setTab(next: Tab): void {
+  tab.value = next;
+  const query: Record<string, string> = { tab: next };
+  if (next === "official" && typeof route.query.campaign === "string") {
+    query.campaign = route.query.campaign;
+  }
+  void router.replace({ query });
+}
+
+const initialCampaign = computed(() =>
+  typeof route.query.campaign === "string" ? route.query.campaign : null,
+);
+
+function selectCampaign(key: string | null): void {
+  const query: Record<string, string> = { tab: "official" };
+  if (key) query.campaign = key;
+  void router.replace({ query });
+}
+
+const TAB_OPTIONS = computed(() => [
+  { value: "official", label: t("activity.tabOfficial") },
+  { value: "accounts", label: t("activity.tabAccounts") },
+  { value: "runs", label: t("activity.tabRuns") },
+]);
 
 /** 状态比检测状态多一档「未检测」——目录已铺出、检测还没回来。 */
 type CardState = ActivityState | "undetected";
@@ -153,21 +202,30 @@ interface AccountBase {
 }
 
 const catalog = ref<ActivityCatalogEntry[]>([]);
+const catalogMeta = ref<ActivityCatalog | null>(null);
 const knownAccounts = ref<AccountBase[]>([]);
 const pool = ref<AccountActivities[]>([]);
 const summary = ref<ActivitySummary | null>(null);
+const campaigns = ref<ActivityCampaign[]>([]);
+const detectedAt = ref<string | null>(null);
 const busy = ref(false);
 const running = ref(false);
+/** 正在执行的活动 key（null = 全量或按账号执行）。 */
+const runningKeys = ref<string[] | null>(null);
 const error = ref<string | null>(null);
 const platformFilter = ref<"all" | "workbuddy" | "trae">("all");
 const hideDone = ref(false);
 const runReport = ref<ActivityRunReport | null>(null);
 /** 最近执行流水：落库的是每轮最终结论，用来回看「为什么失败」。 */
 const runs = ref<ActivityRun[]>([]);
-const recentRuns = computed(() => runs.value.slice(0, 8));
 const runningTargets = ref<Set<string>>(new Set());
 const expanded = ref<Set<string>>(new Set());
 const toast = ref<string | null>(null);
+
+/** 官方面板当前执行的活动 key；按账号执行 / 全量执行时为 null。 */
+const activeRunningKey = computed(() =>
+  runningKeys.value?.length === 1 ? runningKeys.value[0] : null,
+);
 
 function percentOf(state: CardState, current: number | null, target: number | null): number {
   if (state === "done") return 100;
@@ -219,8 +277,11 @@ function entryOf(
     progressText: item.progressText,
     note: item.note,
     manualReason: item.manualReason,
-    manualTasks: item.manualTasks ?? [],
-    jumpUrl: item.jumpUrl ?? "",
+    manualTasks: (item.manualTasks ?? []).map((task) => ({
+      ...task,
+      jumpUrl: safeActivityUrl(task.jumpUrl) ?? "",
+    })),
+    jumpUrl: safeActivityUrl(item.jumpUrl) ?? "",
     rewardText: item.rewardText,
     rewardHint: entry?.rewardHint ?? "",
     period: periodOf(item.periodStart, item.periodEnd),
@@ -350,6 +411,7 @@ async function load(refresh = false): Promise<void> {
       api.mergedAccounts(),
     ]);
     catalog.value = catalogResult.entries;
+    catalogMeta.value = catalogResult;
     knownAccounts.value = accountsResult.accounts.map((account) => ({
       id: account.id,
       displayName: account.displayName,
@@ -360,6 +422,8 @@ async function load(refresh = false): Promise<void> {
     const data = await api.activities(refresh);
     pool.value = data.accounts;
     summary.value = data.summary;
+    campaigns.value = data.campaigns ?? [];
+    detectedAt.value = data.detectedAt;
     void loadRuns();
   } catch (cause) {
     error.value = (cause as Error).message;
@@ -378,14 +442,6 @@ async function loadRuns(): Promise<void> {
   }
 }
 
-/** 流水时间戳 → `MM-DD HH:mm`（本地时区）。 */
-function dayLabel(value: string): string {
-  const moment = new Date(value);
-  if (Number.isNaN(moment.getTime())) return value;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(moment.getMonth() + 1)}-${pad(moment.getDate())} ${pad(moment.getHours())}:${pad(moment.getMinutes())}`;
-}
-
 /**
  * 首次点「一键执行」前的风险确认。
  *
@@ -393,44 +449,59 @@ function dayLabel(value: string): string {
  * 所以第一次跑之前必须让用户知道这条（文案见 `activity.noticeBody`）。
  * ack 标记与概览页共用，见 `lib/growthNotice`。
  */
-const pendingTargets = ref<string[] | null>(null);
+interface PendingRun {
+  accountIds: string[];
+  keys: string[] | null;
+}
 
-async function execute(accountIds?: string[]): Promise<void> {
+const pendingRun = ref<PendingRun | null>(null);
+
+/**
+ * @param accountIds 限定账号；省略 = 按当前视图推导。
+ * @param keys 限定活动范围；省略 = 全部活动。
+ */
+async function execute(accountIds?: string[], keys?: string[]): Promise<void> {
   if (running.value) return;
   const targets = accountIds?.length
     ? accountIds
-    : activityGroups.value.flatMap((group) =>
-        group.entries.filter((entry) => entry.actionable).map((entry) => entry.accountId),
-      );
-  if (!targets.length) {
+    : keys?.length
+      ? []
+      : activityGroups.value.flatMap((group) =>
+          group.entries.filter((entry) => entry.actionable).map((entry) => entry.accountId),
+        );
+  if (!targets.length && !keys?.length) {
     showToast(t("activity.toastNothingToRun"));
     return;
   }
   const unique = Array.from(new Set(targets));
   if (!growthNoticeAcknowledged()) {
-    pendingTargets.value = unique;
+    pendingRun.value = { accountIds: unique, keys: keys ?? null };
     return;
   }
-  await runTargets(unique);
+  await runTargets(unique, keys);
 }
 
 function cancelNotice(): void {
-  pendingTargets.value = null;
+  pendingRun.value = null;
 }
 
 async function confirmNotice(): Promise<void> {
-  const targets = pendingTargets.value;
-  pendingTargets.value = null;
-  if (!targets) return;
+  const next = pendingRun.value;
+  pendingRun.value = null;
+  if (!next) return;
   acknowledgeGrowthNotice();
-  await runTargets(targets);
+  await runTargets(next.accountIds, next.keys ?? undefined);
 }
 
-async function runTargets(targets: string[]): Promise<void> {
+async function runTargets(targets: string[], keys?: string[]): Promise<void> {
   running.value = true;
+  runningKeys.value = keys ?? null;
   runningTargets.value = new Set(targets);
   try {
-    const report = await api.runActivities(targets);
+    const report = await api.runActivities(
+      targets.length ? targets : undefined,
+      keys?.length ? keys : undefined,
+    );
     runReport.value = report;
     const { ok, skipped, failed } = report.summary;
     if (!report.summary.total) {
@@ -443,6 +514,7 @@ async function runTargets(targets: string[]): Promise<void> {
     showToast((cause as Error).message);
   } finally {
     running.value = false;
+    runningKeys.value = null;
     runningTargets.value = new Set();
   }
 }
@@ -588,6 +660,50 @@ const failedResults = computed(() =>
       </span>
     </div>
 
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      <SegmentedControl
+        :model-value="tab"
+        :options="TAB_OPTIONS"
+        :label="t('activity.tabsLabel')"
+        @update:model-value="(value) => setTab(value as Tab)"
+      />
+      <span v-if="tab === 'official'" class="text-caption text-muted">
+        {{ t("activity.officialTabHint") }}
+      </span>
+    </div>
+
+    <div
+      v-if="error"
+      class="mt-3 rounded-card border border-line bg-danger-soft px-5 py-3 text-body-sm text-danger"
+    >
+      {{ t("activity.detectFailed", { message: error }) }}
+    </div>
+
+    <template v-if="tab === 'official'">
+      <OfficialActivitiesPanel
+        class="mt-3"
+        :campaigns="campaigns"
+        :accounts="pool"
+        :catalog="catalogMeta"
+        :detected-at="detectedAt"
+        :runs="runs"
+        :busy="busy"
+        :running="running"
+        :running-key="activeRunningKey"
+        :initial-campaign="initialCampaign"
+        @refresh="load(true)"
+        @select="selectCampaign"
+        @run="(accountIds, keys) => execute(accountIds, keys)"
+      />
+    </template>
+
+    <template v-else-if="tab === 'runs'">
+      <div class="mt-3">
+        <ActivityRunsPanel :runs="runs" />
+      </div>
+    </template>
+
+    <template v-else>
     <div class="mt-3 flex flex-wrap items-center gap-3">
       <div class="flex items-center gap-1 rounded-control border border-line bg-surface p-1">
         <button
@@ -621,13 +737,6 @@ const failedResults = computed(() =>
         class="w-[128px]"
       />
       <span class="text-caption text-muted">{{ t("activity.cachedSuffix") }}</span>
-    </div>
-
-    <div
-      v-if="error"
-      class="mt-3 rounded-card border border-line bg-danger-soft px-5 py-3 text-body-sm text-danger"
-    >
-      {{ t("activity.detectFailed", { message: error }) }}
     </div>
 
     <div
@@ -679,40 +788,6 @@ const failedResults = computed(() =>
         </div>
       </div>
     </div>
-
-    <!-- 最近执行流水：只说事实（时间 / 活动 / 结论），不带推断 -->
-    <SectionCard v-if="recentRuns.length" class="mt-3" flush>
-      <div class="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-3 pb-2">
-        <span class="text-body font-medium text-ink">{{ t("activity.recentRuns") }}</span>
-        <span class="text-caption text-muted">{{ t("activity.recentRunsHint") }}</span>
-      </div>
-      <div class="border-t border-line-soft">
-        <div
-          v-for="run in recentRuns"
-          :key="`${run.accountId}-${run.key}-${run.at}`"
-          class="flex items-center gap-2 px-5 py-1.5 text-caption"
-        >
-          <span
-            class="h-1.5 w-1.5 shrink-0 rounded-full"
-            :class="
-              run.status === 'ok'
-                ? 'bg-brand'
-                : run.status === 'failed'
-                  ? 'bg-danger'
-                  : 'bg-line-strong'
-            "
-          />
-          <span class="shrink-0 tabular-nums text-muted">{{ dayLabel(run.at) }}</span>
-          <span class="shrink-0 text-ink-soft">{{ run.key }}</span>
-          <span class="min-w-0 flex-1 truncate text-muted" :title="run.message">
-            {{ run.message }}
-          </span>
-          <span v-if="run.reward" class="shrink-0 tabular-nums text-brand-dark">
-            +{{ run.reward }}
-          </span>
-        </div>
-      </div>
-    </SectionCard>
 
     <div v-if="!visibleAccounts.length" class="mt-4">
       <SectionCard>
@@ -895,6 +970,7 @@ const failedResults = computed(() =>
         </div>
       </article>
     </SectionCard>
+    </template>
 
     <Teleport to="body">
       <div
@@ -906,7 +982,7 @@ const failedResults = computed(() =>
     </Teleport>
 
     <ConfirmDialog
-      :open="pendingTargets !== null"
+      :open="pendingRun !== null"
       :title="t('activity.noticeTitle')"
       :message="t('activity.noticeBody')"
       :confirm-text="t('activity.noticeConfirm')"

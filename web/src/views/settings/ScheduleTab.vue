@@ -18,7 +18,7 @@ import SelectMenu from "../../components/SelectMenu.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
 import AccountScopePicker, { type ScopeAccount } from "./AccountScopePicker.vue";
 import { localeTag, t, type MessageKey } from "../../lib/i18n";
-import { api, type RotationPolicy, type RotationState, type ScheduleSpec } from "../../api";
+import { api, type ActivityCatalogEntry, type RotationPolicy, type RotationState, type ScheduleSpec } from "../../api";
 
 /**
  * 设置 → 计划任务：把「保活 / 自动签到」从布尔开关变成**真的会跑**的调度。
@@ -145,6 +145,7 @@ function ruleLabel(rule: string): string {
 
 const tasks = ref<ScheduleSpec[]>([]);
 const accounts = ref<ScopeAccount[]>([]);
+const catalog = ref<ActivityCatalogEntry[]>([]);
 const loading = ref(true);
 const error = ref("");
 const busy = ref<string | null>(null);
@@ -201,7 +202,9 @@ function replaceTask(updated: ScheduleSpec): void {
 
 async function update(
   task: ScheduleSpec,
-  patch: Partial<Pick<ScheduleSpec, "enabled" | "times" | "jitterMinutes" | "accountIds">>,
+  patch: Partial<
+    Pick<ScheduleSpec, "enabled" | "times" | "jitterMinutes" | "accountIds" | "keys">
+  >,
 ): Promise<void> {
   busy.value = task.key;
   flash.value = null;
@@ -252,6 +255,43 @@ function setJitter(task: ScheduleSpec, value: number): void {
 /** 账号范围即时保存；空数组 = 全部账号（后端同语义）。 */
 function setScope(task: ScheduleSpec, accountIds: string[]): void {
   void update(task, { accountIds });
+}
+
+/**
+ * 哪些任务支持「只跑某些活动」。
+ *
+ * 保活与凭据续期不经过活动执行体，给它们配活动范围只会让用户误以为生效。
+ */
+const KEY_TASK_KINDS: Record<string, (entry: ActivityCatalogEntry) => boolean> = {
+  checkin: (entry) => entry.key.endsWith(".daily_checkin"),
+  activity_run: () => true,
+  travel_depart: (entry) => entry.key === "workbuddy.travel",
+  travel_claim: (entry) => entry.key === "workbuddy.travel",
+};
+
+function keysFor(task: ScheduleSpec): ActivityCatalogEntry[] {
+  const predicate = KEY_TASK_KINDS[task.key];
+  return predicate ? catalog.value.filter(predicate) : [];
+}
+
+function keyTitle(key: string): string {
+  return catalog.value.find((entry) => entry.key === key)?.title ?? key;
+}
+
+function toggleKey(task: ScheduleSpec, key: string): void {
+  const next = task.keys.includes(key)
+    ? task.keys.filter((item) => item !== key)
+    : [...task.keys, key];
+  void update(task, { keys: next });
+}
+
+async function loadCatalog(): Promise<void> {
+  try {
+    catalog.value = (await api.activityCatalog()).entries;
+  } catch {
+    // 目录读不到不影响任务读写；活动范围区会隐藏。
+    catalog.value = [];
+  }
 }
 
 async function loadAccounts(): Promise<void> {
@@ -360,6 +400,7 @@ async function evaluateRotation(dryRun: boolean): Promise<void> {
 onMounted(() => {
   void load();
   void loadAccounts();
+  void loadCatalog();
   void loadRotation();
 });
 </script>
@@ -464,6 +505,51 @@ onMounted(() => {
                 class="w-[176px]"
                 @update:model-value="setScope(task, $event)"
               />
+            </div>
+
+            <!-- 活动范围：不选 = 全部活动；只对真正跑活动的任务显示 -->
+            <div
+              v-if="keysFor(task).length"
+              class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-2"
+            >
+              <span class="inline-flex items-center gap-1 text-body-sm text-muted">
+                {{ t("schedule.activityScopeLabel") }}
+              </span>
+              <button
+                type="button"
+                class="rounded-full border px-2 py-0.5 text-body-sm"
+                :class="
+                  task.keys.length === 0
+                    ? 'border-brand bg-brand-soft text-brand-dark'
+                    : 'border-line text-muted hover:border-brand hover:text-brand-dark'
+                "
+                :disabled="busy === task.key"
+                @click="update(task, { keys: [] })"
+              >
+                {{ t("schedule.activityScopeAll") }}
+              </button>
+              <button
+                v-for="entry in keysFor(task)"
+                :key="`${task.key}-keys-${entry.key}`"
+                type="button"
+                class="rounded-full border px-2 py-0.5 text-body-sm"
+                :class="
+                  task.keys.includes(entry.key)
+                    ? 'border-brand bg-brand-soft text-brand-dark'
+                    : 'border-line text-muted hover:border-brand hover:text-brand-dark'
+                "
+                :disabled="busy === task.key"
+                @click="toggleKey(task, entry.key)"
+              >
+                {{ entry.title }}
+              </button>
+              <span v-if="task.keys.length" class="text-caption text-muted">
+                {{
+                  t("schedule.activityScopeSummary", {
+                    list: task.keys.map(keyTitle).join("、"),
+                  })
+                }}
+              </span>
             </div>
 
             <div class="space-y-1 border-t border-line-soft pt-2 text-body-sm text-muted">

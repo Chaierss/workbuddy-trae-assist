@@ -65,6 +65,8 @@ export interface DesktopBridge {
   isDesktop: true;
   version: string;
   platform: string;
+  /** 备份恢复后由主进程重启应用；浏览器端没有此能力。 */
+  relaunch?: () => Promise<boolean>;
   update: {
     get: () => Promise<DesktopUpdateState>;
     check: () => Promise<DesktopUpdateState>;

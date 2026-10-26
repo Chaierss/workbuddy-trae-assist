@@ -673,7 +673,7 @@ def test_api_activities_run_returns_report(client, monkeypatch):
     monkeypatch.setattr(
         client.app.state.activities,
         "run",
-        lambda accounts: {
+        lambda accounts, keys=None: {
             "results": [
                 {
                     "accountId": accounts[0].id,
@@ -700,7 +700,7 @@ def test_api_activities_run_scope_filter(client, monkeypatch):
     _seed_account(client)
     seen: list[list[str]] = []
 
-    def fake_run(accounts):  # noqa: ANN001
+    def fake_run(accounts, keys=None):  # noqa: ANN001
         seen.append([account.id for account in accounts])
         return {"results": [], "summary": {"total": 0, "ok": 0, "skipped": 0, "failed": 0}}
 

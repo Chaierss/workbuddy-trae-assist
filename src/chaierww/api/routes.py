@@ -16,7 +16,16 @@ from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import Account, CredentialState
 from chaierww.domain.accounts.repository import AccountNotFound, AccountNotInTrash
 from chaierww.domain.accounts.service import AccountBusyError, AccountInUseError, AccountService
-from chaierww.domain.activities import ACTIVITY_CATALOG, ActivityBusyError, summarize
+from chaierww.domain.activities import (
+    ACTIVITY_CATALOG,
+    ACTIVITY_KEYS,
+    OFFICIAL_CATALOG_UPDATED_AT,
+    OFFICIAL_CATALOG_VERSION,
+    OFFICIAL_DISCLAIMER,
+    ActivityBusyError,
+    summarize,
+    summarize_campaigns,
+)
 from chaierww.domain.backup import (
     CREDENTIAL_PARTS,
     DEFAULT_GLOBAL_PARTS,
@@ -37,6 +46,13 @@ from chaierww.domain.credential_lifecycle import (
     refreshable,
 )
 from chaierww.domain.preferences import clean_global_parts
+from chaierww.domain.restore import (
+    RestoreError,
+    cancel_pending,
+    read_pending,
+    read_result,
+    stage_restore,
+)
 from chaierww.domain.rotation import RotationError
 from chaierww.domain.scheduler import SchedulerError
 from chaierww.domain.scopes import (
@@ -256,9 +272,11 @@ class PreferencesRequest(BaseModel):
 
 
 class ActivityRunRequest(BaseModel):
-    """一键执行的账号范围；省略 = 号池里全部可检测账号。"""
+    """一键执行的账号与活动范围；省略 = 号池里全部可检测账号 / 全部活动。"""
 
     accountIds: list[str] | None = None
+    #: 活动 key 白名单；省略 = 全部活动。空列表视为非法（不是「什么都不做」）。
+    keys: list[str] | None = None
 
 
 class ScheduleUpdateRequest(BaseModel):
@@ -268,6 +286,8 @@ class ScheduleUpdateRequest(BaseModel):
     times: list[str] | None = None
     jitterMinutes: int | None = None
     accountIds: list[str] | None = None
+    #: 任务只跑哪些活动 key；省略 = 全部活动。空列表 = 恢复全部活动。
+    keys: list[str] | None = None
 
 
 class CredentialRefreshRequest(BaseModel):
@@ -1018,7 +1038,12 @@ def list_activity_catalog() -> dict[str, Any]:
     页面先用它渲染骨架卡片（状态「未检测」），随后被真实检测结果按 key 覆盖，
     这样冷启动时不会先看到一片空白。``key`` 与检测结果的 key 一一对应。
     """
-    return {"entries": [dict(entry) for entry in ACTIVITY_CATALOG]}
+    return {
+        "entries": [dict(entry) for entry in ACTIVITY_CATALOG],
+        "version": OFFICIAL_CATALOG_VERSION,
+        "updatedAt": OFFICIAL_CATALOG_UPDATED_AT,
+        "disclaimer": OFFICIAL_DISCLAIMER,
+    }
 
 
 @router.get("/activities", summary="检测各账号的活动状态", tags=["活动"])
@@ -1029,6 +1054,8 @@ def list_activities(
 
     ``detectable=False`` 表示这个账号的凭据形态查不了活动（不是「没有活动」）——
     前端要按「不可查」渲染并给出原因，不能显示成「全部完成」。
+
+    ``campaigns`` 是活动级聚合：前端卡片直接渲染，不再自己做二次统计。
     """
     try:
         accounts = _activities_accounts(request, accountIds)
@@ -1038,7 +1065,21 @@ def list_activities(
     return {
         "accounts": [item.payload() for item in detected],
         "summary": summarize(detected),
+        "campaigns": summarize_campaigns(detected),
+        "detectedAt": datetime.now(UTC).isoformat(timespec="seconds"),
     }
+
+
+def _activity_key_filter(payload: ActivityRunRequest | None) -> set[str] | None:
+    """把请求里的 ``keys`` 收敛成白名单集合；空列表/未知 key 直接 400。"""
+    if payload is None or payload.keys is None:
+        return None
+    if not payload.keys:
+        raise HTTPException(status_code=400, detail="keys 不能为空列表；省略表示全部活动")
+    unknown = sorted(set(payload.keys) - ACTIVITY_KEYS)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"未知活动 key：{'、'.join(unknown)}")
+    return set(payload.keys)
 
 
 @router.post("/activities/run", summary="一键执行可自动完成的活动", tags=["活动"])
@@ -1049,13 +1090,16 @@ def run_activities(
 
     每日签到、以及**有动作表覆盖**的成长任务会被代做（纯 API 上报 + 领奖）；
     expert/skill/小程序族等需要真实客户端操作的任务仍标「需手动」，不在范围。
+
+    ``keys`` 只执行指定活动（活动详情里的「执行本活动」）；省略则全量执行。
     """
+    keys = _activity_key_filter(payload)
     try:
         accounts = _activities_accounts(request, None)
         if payload and payload.accountIds:
             wanted = set(payload.accountIds)
             accounts = [item for item in accounts if item.id in wanted]
-        report = request.app.state.activities.run(accounts)
+        report = request.app.state.activities.run(accounts, keys=keys)
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
     summary = report.get("summary", {})
@@ -1087,6 +1131,72 @@ def list_activity_runs(request: Request, days: int = 7, limit: int = 500) -> dic
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
     return {"since": since, "runs": rows}
+
+
+@router.get(
+    "/activities/history",
+    summary="按天聚合的活动执行趋势（默认最近 30 天）",
+    tags=["活动"],
+)
+def activity_history(
+    request: Request, days: int = 30, key: str | None = None
+) -> dict[str, Any]:
+    """给活动详情抽屉画 14/30 天趋势用。
+
+    只返回有记录的组合，缺失的天由前端补零；``key`` 省略时返回目录内全部活动。
+    """
+    span = max(1, min(int(days), 90))
+    if key and key not in ACTIVITY_KEYS:
+        raise HTTPException(status_code=400, detail=f"未知活动 key：{key}")
+    today = datetime.now(UTC).date()
+    since = (today - timedelta(days=span - 1)).isoformat()
+    repository = request.app.state.repository
+    try:
+        rows = repository.activity_history(since, key)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    wanted = [key] if key else [entry["key"] for entry in ACTIVITY_CATALOG]
+    buckets: dict[str, dict[str, dict[str, float]]] = {
+        item: {} for item in wanted
+    }
+    for row in rows:
+        activity_key = str(row["key"])
+        if activity_key not in buckets:
+            buckets[activity_key] = {}
+        day = str(row["day"])
+        slot = buckets[activity_key].setdefault(
+            day, {"ok": 0.0, "skipped": 0.0, "failed": 0.0, "reward": 0.0}
+        )
+        status = str(row["status"])
+        field = status if status in ("ok", "skipped", "failed") else None
+        if field:
+            slot[field] += float(row["count"])
+        slot["reward"] += float(row["reward"] or 0)
+
+    series = []
+    for activity_key in wanted:
+        days_payload = [
+            {
+                "day": day,
+                "ok": int(values["ok"]),
+                "skipped": int(values["skipped"]),
+                "failed": int(values["failed"]),
+                "reward": values["reward"],
+            }
+            for day, values in sorted(buckets.get(activity_key, {}).items())
+        ]
+        series.append(
+            {
+                "key": activity_key,
+                "days": days_payload,
+                "ok": sum(item["ok"] for item in days_payload),
+                "skipped": sum(item["skipped"] for item in days_payload),
+                "failed": sum(item["failed"] for item in days_payload),
+                "reward": sum(item["reward"] for item in days_payload),
+            }
+        )
+    return {"days": span, "since": since, "until": today.isoformat(), "series": series}
 
 
 def _activities_accounts(request: Request, accountIds: str | None) -> list[Account]:
@@ -1588,6 +1698,36 @@ def restore_backup(request: Request, snapshot_id: str) -> dict[str, Any]:
     }
 
 
+@router.post(
+    "/backups/global/{snapshot_id}/restore",
+    summary="准备从全局备份恢复（重启后生效）",
+    tags=["备份"],
+)
+def stage_global_restore(request: Request, snapshot_id: str) -> dict[str, Any]:
+    """只登记恢复意图；真正的覆盖发生在下次启动、数据库打开之前。
+
+    这样避免在进程运行中替换正在使用的 SQLite 文件，也让「失败可回滚」
+    落在启动流程里统一处理。
+    """
+    try:
+        pending = stage_restore(request.app.state.settings.home, snapshot_id)
+    except (RestoreError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"pending": pending, "restartRequired": True}
+
+
+@router.delete("/restore/pending", summary="取消待执行的恢复", tags=["备份"])
+def cancel_restore(request: Request) -> dict[str, bool]:
+    cancel_pending(request.app.state.settings.home)
+    return {"ok": True}
+
+
+@router.get("/restore/status", summary="待执行恢复与上次恢复结果", tags=["备份"])
+def restore_status(request: Request) -> dict[str, Any]:
+    home = request.app.state.settings.home
+    return {"pending": read_pending(home), "result": read_result(home)}
+
+
 @router.get(
     "/backups/global",
     summary="全局备份：可勾选的分区与已有备份点",
@@ -1697,6 +1837,12 @@ def update_schedule(request: Request, key: str, body: ScheduleUpdateRequest) -> 
         unknown = [item for item in body.accountIds if item not in known]
         if unknown:
             raise HTTPException(status_code=400, detail=f"账号不存在：{'、'.join(unknown)}")
+    if body.keys:
+        unknown_keys = sorted(set(body.keys) - ACTIVITY_KEYS)
+        if unknown_keys:
+            raise HTTPException(
+                status_code=400, detail=f"未知活动 key：{'、'.join(unknown_keys)}"
+            )
     try:
         scheduler.update(
             key,
@@ -1704,6 +1850,7 @@ def update_schedule(request: Request, key: str, body: ScheduleUpdateRequest) -> 
             times=body.times,
             jitter_minutes=body.jitterMinutes,
             account_ids=body.accountIds,
+            activity_keys=body.keys,
         )
     except SchedulerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1963,4 +2110,9 @@ def overview_actionables(request: Request) -> dict[str, Any]:
             "activeKeys": gateway_store.active_key_count(),
         },
     }
-    return {"items": items, "pulse": pulse}
+    return {
+        "items": items,
+        "pulse": pulse,
+        # 概览「官方活动速览」直接用这里的聚合，复用了上面同一次检测，不多打上游。
+        "campaigns": summarize_campaigns(detected),
+    }

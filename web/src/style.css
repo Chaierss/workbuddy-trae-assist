@@ -194,6 +194,16 @@ body {
     opacity: 1;
     transform: none;
   }
+
+  /* 全站兜底：任何组件写得再花，系统要求降级时都不做动画。 */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 * {

@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 3
+#: 迁移前备份保留份数（按文件名时间排序滚动）。
+KEEP_PRE_MIGRATE = 5
+
+
+class DatabaseIntegrityError(RuntimeError):
+    """数据库完整性检查失败，或迁移前后结果不可信。
+
+    消息里带路径与可恢复来源提示，直接显示给用户也不会误导。
+    """
 
 
 def now_iso() -> str:
@@ -165,7 +174,79 @@ def migrate(conn: sqlite3.Connection) -> int:
     return SCHEMA_VERSION
 
 
-def open_database(path: Path) -> sqlite3.Connection:
-    conn = connect(path)
-    migrate(conn)
+def open_database(path: Path, *, backup_dir: Path | None = None) -> sqlite3.Connection:
+    """打开并迁移数据库；迁移前先留一份可校验备份。
+
+    - 已有库先 ``PRAGMA quick_check``，坏库直接拒绝启动（带着恢复提示）；
+    - 版本落后且给了 ``backup_dir`` 时，用 SQLite 在线备份写一份 ``v旧版本-时间.db``；
+    - 迁移后再查一次，仍不通过则抛 ``DatabaseIntegrityError``。
+    """
+    existed = path.is_file() and path.stat().st_size > 0
+    try:
+        conn = connect(path)
+    except sqlite3.DatabaseError as exc:
+        raise DatabaseIntegrityError(
+            f"启动时数据库无法打开：{path}（{exc}）。"
+            "可从 backups/global/<id>/chaierww.db 恢复，或先移走该文件后重新启动。"
+        ) from exc
+    try:
+        if existed:
+            _require_integrity(conn, path, stage="启动")
+        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if existed and 0 < version < SCHEMA_VERSION and backup_dir is not None:
+            _backup_before_migrate(conn, backup_dir, version)
+        migrate(conn)
+        _require_integrity(conn, path, stage="迁移后")
+    except BaseException:
+        conn.close()
+        raise
     return conn
+
+
+def quick_check(conn: sqlite3.Connection) -> str:
+    """``PRAGMA quick_check`` 的结果；``ok`` 表示可用。
+
+    文件根本不是 SQLite 库时，PRAGMA 会抛 ``DatabaseError``；把它转成
+    可读字符串，调用方统一按「不通过」处理。
+    """
+    try:
+        row = conn.execute("PRAGMA quick_check").fetchone()
+    except sqlite3.DatabaseError as exc:
+        return f"error: {exc}"
+    return str(row[0]) if row else "unknown"
+
+
+def _require_integrity(conn: sqlite3.Connection, path: Path, *, stage: str) -> None:
+    result = quick_check(conn)
+    if result != "ok":
+        raise DatabaseIntegrityError(
+            f"{stage}时数据库完整性检查未通过：{path}（{result}）。"
+            "可从 backups/global/<id>/chaierww.db 恢复，或先移走该文件后重新启动。"
+        )
+
+
+def _backup_before_migrate(
+    conn: sqlite3.Connection, backup_dir: Path, version: int
+) -> None:
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    target = backup_dir / f"v{version}-{stamp}.db"
+    dest = sqlite3.connect(str(target))
+    try:
+        conn.backup(dest)
+    finally:
+        dest.close()
+    _prune_pre_migrate(backup_dir)
+
+
+def _prune_pre_migrate(backup_dir: Path) -> None:
+    files = sorted(backup_dir.glob("v*.db"))
+    for stale in files[:-KEEP_PRE_MIGRATE]:
+        # 备份清理失败不影响启动；留到下次再删。
+        with suppress(OSError):
+            stale.unlink()
+
+
+def checkpoint(conn: sqlite3.Connection) -> None:
+    """关闭前把 WAL 合并回主库；异常退出后的 ``-wal`` 残留靠这一步回收。"""
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

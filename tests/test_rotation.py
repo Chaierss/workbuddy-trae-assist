@@ -268,7 +268,7 @@ def test_ledger_keeps_only_the_latest_entries(tmp_path):
 
 def test_rotation_section_and_tasks_do_not_clobber_each_other(tmp_path):
     """`schedules.json` 两处写入者共用一把锁：各写各的段，互不覆盖。"""
-    executor = lambda key, ids: "ok"  # noqa: E731 - 单测里只为满足构造签名
+    executor = lambda key, ids, keys: "ok"  # noqa: E731 - 单测里只为满足构造签名
     scheduler = Scheduler(tmp_path, executor=executor)
     scheduler.update("checkin", enabled=True, times=["07:30"], jitter_minutes=0)
 

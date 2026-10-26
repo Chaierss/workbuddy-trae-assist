@@ -166,6 +166,30 @@ export interface CreditInfo {
 
 export type ActivityGroup = "daily" | "seasonal";
 
+/** 官方活动卡片的主题色（前端映射到现有主题 token，不引入新色板）。 */
+export type CampaignTheme = "green" | "blue" | "amber" | "violet" | "teal" | "rose";
+
+/** 活动级状态：描述「这个活动对整个号池」的局面，不等同于单账号 state。 */
+export type CampaignStatus =
+  | "active"
+  | "partial"
+  | "done"
+  | "unavailable"
+  | "not_detected"
+  | "no_accounts"
+  /** 检测到了目录里没有的活动（兜底卡片）。 */
+  | "uncatalogued";
+
+/** 与 `lucide-vue-next` 图标名一一对应，由前端映射成组件。 */
+export type CampaignIcon =
+  | "calendar-check"
+  | "sprout"
+  | "flame"
+  | "plane"
+  | "moon"
+  | "graduation-cap"
+  | "sun";
+
 /** 活动状态。与「能不能自动做」（automatable）是两个维度。 */
 export type ActivityState = "done" | "todo" | "in_progress" | "not_started" | "unavailable";
 
@@ -203,6 +227,68 @@ export interface ActivityCatalogEntry {
   description: string;
   rewardHint: string;
   automatable: boolean;
+  /** 官方活动展示字段（后端目录版本化维护）。 */
+  theme: CampaignTheme;
+  icon: CampaignIcon;
+  tags: string[];
+  rules: string[];
+  rewards: string[];
+  periodNote: string;
+  officialUrl: string;
+  officialLabel: string;
+  featured: boolean;
+  sortOrder: number;
+}
+
+/** 活动级聚合：一张官方活动卡片需要的全部数据。 */
+export interface ActivityCampaign extends ActivityCatalogEntry {
+  accountsTotal: number;
+  detectable: number;
+  done: number;
+  todo: number;
+  inProgress: number;
+  manual: number;
+  unavailable: number;
+  notDetected: number;
+  /** 可自动且待办/进行中的账号数 —— 「执行本活动」实际能推进的量。 */
+  actionable: number;
+  allDone: boolean;
+  status: CampaignStatus;
+  /** 该活动所有账号里最早开始 / 最晚结束的时间。 */
+  periodStart: string | null;
+  periodEnd: string | null;
+}
+
+export interface ActivityCatalog {
+  entries: ActivityCatalogEntry[];
+  version: string;
+  updatedAt: string;
+  disclaimer: string;
+}
+
+/** 活动趋势里的一天：只统计已落库的执行结论。 */
+export interface ActivityHistoryDay {
+  day: string;
+  ok: number;
+  skipped: number;
+  failed: number;
+  reward: number;
+}
+
+export interface ActivityHistorySeries {
+  key: string;
+  days: ActivityHistoryDay[];
+  ok: number;
+  skipped: number;
+  failed: number;
+  reward: number;
+}
+
+export interface ActivityHistory {
+  days: number;
+  since: string;
+  until: string;
+  series: ActivityHistorySeries[];
 }
 
 export interface AccountActivities {
@@ -440,6 +526,24 @@ export interface GlobalBackupOverview {
   snapshots: Snapshot[];
 }
 
+/** 已登记、等待下次启动执行的恢复。 */
+export interface RestorePending {
+  snapshotId: string;
+  directory: string;
+  at: string;
+  files: string[];
+}
+
+/** 启动时执行恢复的结果；失败会带可读原因。 */
+export interface RestoreResult {
+  ok: boolean;
+  snapshotId: string;
+  at: string;
+  files?: string[];
+  safetyDir?: string;
+  error?: string;
+}
+
 export interface StepOutcome {
   step: string;
   ok: boolean;
@@ -637,6 +741,8 @@ export interface ScheduleSpec {
   jitterMinutes: number;
   /** 限定参与的账号；空数组 = 号池里全部账号。 */
   accountIds: string[];
+  /** 任务只跑哪些活动 key；空数组 = 全部活动。 */
+  keys: string[];
   lastRunAt: string | null;
   lastResult: string;
   /** 最近若干次执行记录（时间 + 结果摘要），旧的在前，只保留最近 7 条。 */
@@ -1046,8 +1152,13 @@ export interface LogQuery {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...init,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Chaierww-Client": "web",
+      ...(init.headers as Record<string, string> | undefined),
+    },
   });
   const text = await response.text();
   let payload: unknown = null;
@@ -1065,6 +1176,36 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   health: () => request<HealthInfo>("/api/health"),
+
+  /** 领取本机 API 会话 Cookie；守卫关闭时返回 guard=false。 */
+  authSession: () => request<{ guard: boolean }>("/api/auth/session"),
+
+  /** 运行健康度（版本、数据库、配置、备份、磁盘）。只含计数与状态，不含凭据。 */
+  diagnosticsHealth: () => request<Record<string, unknown>>("/api/diagnostics/health"),
+
+  /** 下载诊断包（zip）。 */
+  diagnosticsBundle: async (): Promise<Blob> => {
+    const response = await fetch("/api/diagnostics/bundle", {
+      credentials: "same-origin",
+      headers: { "X-Chaierww-Client": "web" },
+    });
+    if (!response.ok) {
+      throw new Error(t("api.requestFailed", { status: response.status }));
+    }
+    return response.blob();
+  },
+
+  /** 前端未捕获错误上报（后端限流 20 次/分钟）。 */
+  reportClientError: (payload: {
+    message: string;
+    stack?: string;
+    source?: string;
+    url?: string;
+  }) =>
+    request<{ ok: boolean }>("/api/diagnostics/client-error", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   scopes: () => request<{ scopes: ScopeInfo[] }>("/api/scopes"),
 
@@ -1088,7 +1229,9 @@ export const api = {
   /** 改计划任务：时点 / 抖动 / 启用 / 账号范围，省略的字段保持原值。 */
   updateSchedule: (
     key: string,
-    patch: Partial<Pick<ScheduleSpec, "enabled" | "times" | "jitterMinutes" | "accountIds">>,
+    patch: Partial<
+      Pick<ScheduleSpec, "enabled" | "times" | "jitterMinutes" | "accountIds" | "keys">
+    >,
   ) =>
     request<{ task: ScheduleSpec }>(`/api/schedules/${encodeURIComponent(key)}`, {
       method: "PUT",
@@ -1122,9 +1265,11 @@ export const api = {
       body: JSON.stringify({ backupId }),
     }),
 
-  /** 概览「待处理」清单（只读聚合，四类来源合成一张表）。 */
+  /** 概览「待处理」清单（只读聚合，四类来源合成一张表）+ 官方活动速览。 */
   overviewActionables: () =>
-    request<{ items: ActionableItem[]; pulse: OverviewPulse }>("/api/overview/actionables"),
+    request<{ items: ActionableItem[]; pulse: OverviewPulse; campaigns: ActivityCampaign[] }>(
+      "/api/overview/actionables",
+    ),
 
   /** 自动轮换策略与台账（`schedules.json` 的 rotation 段）。 */
   rotation: () => request<RotationState>("/api/rotation"),
@@ -1189,24 +1334,37 @@ export const api = {
     if (refresh) params.set("refresh", "true");
     if (accountIds?.length) params.set("accountIds", accountIds.join(","));
     const query = params.toString();
-    return request<{ accounts: AccountActivities[]; summary: ActivitySummary }>(
-      `/api/activities${query ? `?${query}` : ""}`,
-    );
+    return request<{
+      accounts: AccountActivities[];
+      summary: ActivitySummary;
+      campaigns: ActivityCampaign[];
+      detectedAt: string | null;
+    }>(`/api/activities${query ? `?${query}` : ""}`);
   },
 
   /** 活动目录：静态清单，零网络。页面先用它渲染骨架卡片，再被检测结果覆盖。 */
-  activityCatalog: () => request<{ entries: ActivityCatalogEntry[] }>("/api/activities/catalog"),
+  activityCatalog: () => request<ActivityCatalog>("/api/activities/catalog"),
 
-  /** 一键执行可自动完成的活动；已完成的后端会自动跳过。 */
-  runActivities: (accountIds?: string[]) =>
+  /**
+   * 执行可自动完成的活动；已完成的后端会自动跳过。
+   * `keys` 只执行指定活动（活动详情里的「执行本活动」），省略 = 全量。
+   */
+  runActivities: (accountIds?: string[], keys?: string[]) =>
     request<ActivityRunReport>("/api/activities/run", {
       method: "POST",
-      body: JSON.stringify({ accountIds: accountIds ?? null }),
+      body: JSON.stringify({ accountIds: accountIds ?? null, keys: keys ?? null }),
     }),
 
   /** 最近几天的活动执行流水（新的在前）。 */
   activityRuns: (days = 7, limit = 500) =>
     request<ActivityRuns>(`/api/activities/runs?days=${days}&limit=${limit}`),
+
+  /** 按天聚合的活动趋势；`key` 省略 = 目录内全部活动。 */
+  activityHistory: (days = 14, key?: string) => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (key) params.set("key", key);
+    return request<ActivityHistory>(`/api/activities/history?${params.toString()}`);
+  },
 
   /** 凭据巡检：due 只续快到期的，force 全部尝试续期，check 只验活。 */
   refreshCredentials: (mode: "due" | "force" | "check", accountIds?: string[]) =>
@@ -1370,6 +1528,22 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ parts, note, confirmCredentials }),
     }),
+
+  /** 登记「下次启动时从全局备份恢复」；不会立即覆盖数据。 */
+  stageGlobalRestore: (snapshotId: string) =>
+    request<{ pending: RestorePending; restartRequired: boolean }>(
+      `/api/backups/global/${snapshotId}/restore`,
+      { method: "POST" },
+    ),
+
+  /** 待执行恢复 + 上次恢复结果（启动后读）。 */
+  restoreStatus: () =>
+    request<{ pending: RestorePending | null; result: RestoreResult | null }>(
+      "/api/restore/status",
+    ),
+
+  cancelRestore: () =>
+    request<{ ok: boolean }>("/api/restore/pending", { method: "DELETE" }),
 
   /** 网关状态：配置 + 是否在监听 + 计数 + 模型目录。 */
   gatewayStatus: () => request<GatewayStatus>("/api/gateway/status"),

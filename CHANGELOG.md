@@ -6,6 +6,80 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.6.0] - 2026-10-26
+
+活动能力继续加深，同时把「本机 API、配置与数据」的可靠性底座补齐。账号检测协议仍无改动。
+
+### 新增
+
+- **计划任务按活动范围执行。** 每个计划任务新增 `keys`：签到 / 旅行 / 全部活动任务可以只跑
+  指定活动。设置页「活动范围」用 chips 勾选，不选即全部；后端对未知 key 返回 400。
+- **活动趋势。** 活动详情抽屉新增 14 天执行柱状趋势（成功 / 跳过 / 失败），数据来自新增的
+  `GET /api/activities/history?days=&key=`，只统计已落库的执行结论。
+- **可参与数进导航。** 侧栏活动徽标改为「可参与活动数」，概览页官方活动速览条显示
+  可参与账号合计，不再只显示活动总数。
+- **未收录活动兜底。** 目录外的新活动不再静默消失，会以「未收录」状态沉底展示，
+  明确标记没有规则与官方入口，避免误以为工具漏掉了。
+- **诊断与支持。** 设置 → 环境新增健康度面板（版本、uptime、数据库计数与完整性、
+  配置隔离情况、备份摘要）与「导出诊断包」（zip，含脱敏报告与日志尾部）。
+- **全局备份可直接恢复。** 快照卡片新增「恢复」：登记后下次启动、数据库打开前应用；
+  覆盖前留 `backups/restore-safety/`，失败自动回滚，桌面端可立即重启生效。
+- **崩溃现场落盘。** 后端 `logs/crash.log`（含 `X-Request-Id`）、桌面端 `desktop.log`、
+  前端未捕获错误上报 `/api/diagnostics/client-error`（限流 20 次/分钟）。
+
+### 变更
+
+- **本机 API 默认启用访问守卫。** `/api/*` 要求同源 HttpOnly Cookie 或
+  `Authorization: Bearer ~/.chaierww/api-token`；非回环 `Host`/`Origin` 与
+  `Sec-Fetch-Site: cross-site` 一律 403；写方法必须带 `X-Chaierww-Client: web`。
+  外部脚本调用方式见 `docs/README.md`；`CHAIERWW_API_GUARD=0` 可关闭。
+- **配置写入改为原子写。** 临时文件 + fsync + `os.replace`；损坏的 JSON 隔离为
+  `*.corrupt-<时间戳>`，不再静默覆盖用户配置。
+- **数据库启动保护。** 启动与迁移前后跑 `PRAGMA quick_check`，失败即拒绝启动并提示恢复来源；
+  迁移前自动备份到 `backups/pre-migrate/`（保留 5 份）；关闭前 `wal_checkpoint(TRUNCATE)`。
+- **启动失败可诊断。** 后端启动异常写入 `startup-error.json`（已脱敏），桌面端弹窗直接带上原因。
+- **SPA 严格 CSP。** 入口响应 `script-src 'self'`，主题初始化脚本外置为 `/theme-boot.js`；
+  接口文档页不套 CSP，避免打坏 Swagger UI。
+- **减少动效偏好全站生效。** `prefers-reduced-motion` 下统一关闭动画与平滑滚动。
+
+### 说明
+
+- 官方活动目录改为版本化维护流程：新增校验脚本 `scripts/check_activity_catalog.py`，
+  启动时也会校验；目录仍**只随版本发布**，不做远程拉取。
+- 新增 GitHub Actions：后端测试、目录校验、前端构建与单测、依赖审计、Playwright 冒烟。
+- 活动规则、奖励与时间以官方页面为准；本工具与平台无隶属、合作或授权关系。
+
+## [0.5.0] - 2026-10-26
+
+活动页从「按账号列任务」升级为「先看官方活动，再看每个账号」。这一版只做展示与执行范围，
+账号级检测协议没有改动。
+
+### 新增
+
+- **官方活动展示。** 活动页新增「官方活动」标签（默认）：主推 Hero + 活动卡片画廊，
+  覆盖 WorkBuddy 每日签到、成长任务、连签里程、派猫猫旅行、夜猫子、开学季与 Trae 每日签到。
+  每个活动展示主题色、规则、奖励说明、周期、官方入口与参与进度。
+- **活动详情抽屉。** 点卡片从右侧打开，展示活动级进度、逐账号状态、最近执行记录与免责声明；
+  抽屉里的「执行本活动」只提交当前活动 key。
+- **活动级聚合接口。** `GET /api/activities` 新增 `campaigns` 与 `detectedAt`；
+  `GET /api/activities/catalog` 新增 `version` / `updatedAt` / `disclaimer`。
+- **按活动执行。** `POST /api/activities/run` 新增 `keys` 白名单；未知 key 或空列表返回 400。
+  省略 `keys` 时行为与旧版一致（全量执行）。
+- **概览页官方活动速览。** 待处理清单下方新增最多 3 张活动小卡，点击深链到
+  `/activity?tab=official&campaign=<key>`。
+- **活动页三标签与深链。** 官方活动 / 按账号 / 执行记录，标签与活动详情可通过 query 直接打开。
+
+### 变更
+
+- 活动页「最近执行」独立为「执行记录」标签，支持按活动过滤。
+- 官方外链统一收敛：只放行 `https://workbuddy.cn`、`https://trae.cn` 及其子域和
+  `workbuddy://` 深链；后端目录校验 + 前端 `safeActivityUrl` 双重拦截。
+
+### 说明
+
+- 活动信息整理自官方客户端/官网公开内容，本工具与平台无隶属、合作或授权关系；
+  规则、奖励与时间以官方页面为准，界面已固定展示该声明。
+
 ## [0.4.3] - 2026-10-25
 
 修一个很隐蔽的升级问题：客户端升级后，版本号变了，界面还是旧的。
@@ -482,7 +556,9 @@
 内部版本，功能与 0.1.1 相同。但文档尚未整理、平台支持描述与实际不符，
 发布后即下架，不提供下载。请使用 0.1.1。
 
-[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.4.3...HEAD
+[未发布]: https://github.com/Chaierss/workbuddy-trae-assist/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.6.0
+[0.5.0]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.5.0
 [0.4.3]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.3
 [0.4.2]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.2
 [0.4.1]: https://github.com/Chaierss/workbuddy-trae-assist/releases/tag/v0.4.1

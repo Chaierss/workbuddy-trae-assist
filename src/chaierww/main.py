@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,10 +14,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from chaierww import __version__
+from chaierww.api.diagnostics import router as diagnostics_router
 from chaierww.api.docs import build_docs_router
 from chaierww.api.gateway import api_router as gateway_api_router
 from chaierww.api.gateway import build_gateway_app, refresh_catalog
 from chaierww.api.gateway import v1_router as gateway_v1_router
+from chaierww.api.guard import (
+    build_auth_router,
+    install_api_guard,
+    install_security_headers,
+)
 from chaierww.api.logs import build_logs_router
 from chaierww.api.routes import router
 from chaierww.api.swagger import mount_swagger
@@ -25,7 +32,7 @@ from chaierww.domain.account_purge import AccountPurger
 from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountRepository
 from chaierww.domain.accounts.service import AccountService
-from chaierww.domain.activities import ActivitiesService
+from chaierww.domain.activities import ActivitiesService, validate_official_catalog
 from chaierww.domain.auto_backup import AutoBackupRunner
 from chaierww.domain.backup import BackupService
 from chaierww.domain.client_settings import ClientSettingsService, default_settings_file
@@ -35,6 +42,7 @@ from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewaySto
 from chaierww.domain.gateway_relay import GatewayRelay
 from chaierww.domain.oauth import build_oauth
 from chaierww.domain.preferences import PreferencesStore
+from chaierww.domain.restore import apply_pending_restore
 from chaierww.domain.rotation import Candidate as RotationCandidate
 from chaierww.domain.rotation import (
     RotationRunner,
@@ -48,9 +56,15 @@ from chaierww.domain.switching import SwitchEngine, build_adapters
 from chaierww.domain.trae_oauth import build_trae_oauth
 from chaierww.domain.usage import UsageService
 from chaierww.domain.wb_tasks import GrowthTaskRunner
-from chaierww.infra.db import open_database
+from chaierww.infra.crash import (
+    install_excepthooks,
+    install_exception_handler,
+    install_request_id,
+)
+from chaierww.infra.db import checkpoint, open_database
 from chaierww.infra.parent_watch import watch_parent
 from chaierww.infra.secrets import default_box
+from chaierww.infra.startup import clear_startup_error, write_startup_error
 from chaierww.logging_setup import setup_logging
 
 
@@ -59,7 +73,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved.ensure_dirs()
     logger = setup_logging(resolved.logs_dir)
 
-    conn = open_database(resolved.db_path)
+    # 目录校验只告警、不阻断启动：单个活动文案写错不该让用户打不开应用。
+    # CI 与 scripts/check_activity_catalog.py 用的是同一份校验，会在合并前拦住。
+    try:
+        validate_official_catalog()
+    except ValueError as exc:
+        logger.warning("官方活动目录校验未通过：%s", exc)
+
+    # 原地恢复必须在打开数据库之前执行：覆盖 .db 时不能有活动连接。
+    restore_result = apply_pending_restore(resolved.home)
+    if restore_result is not None:
+        if restore_result.get("ok"):
+            logger.warning("已完成全局备份恢复：%s", restore_result.get("snapshotId"))
+        else:
+            logger.error("全局备份恢复失败：%s", restore_result.get("error"))
+
+    conn = open_database(
+        resolved.db_path, backup_dir=resolved.pre_migrate_dir
+    )
     box = default_box()
     repository = AccountRepository(conn, box)
     accounts = AccountService(repository)
@@ -91,11 +122,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             found = [item for item in found if item.id in wanted]
         return found
 
-    def run_scheduled(key: str, account_ids: tuple[str, ...]) -> str:
-        """计划任务的执行体：调度器只问「什么时候跑」，这里回答「跑什么」。"""
+    def run_scheduled(
+        key: str, account_ids: tuple[str, ...], activity_keys: tuple[str, ...]
+    ) -> str:
+        """计划任务的执行体：调度器只问「什么时候跑」，这里回答「跑什么」。
+
+        ``activity_keys`` 是任务里配置的活动白名单；空 = 全部活动。
+        """
         targets = scheduled_accounts(account_ids)
         if not targets:
             return "号池里没有可用账号，本轮跳过"
+        keys = set(activity_keys) or None
         if key == "credential_refresh":
             # 只续「有效期已知且到期前 30 分钟」的号；其余轮次是空跑，
             # 所以默认开启也不会给上游增加日常压力。
@@ -109,15 +146,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if key == "checkin":
             # 签到是纯读 + 一次幂等写；失败只重试「网络异常 / 5xx / 9074」的号，
             # 401/403 与业务拒绝不会重试。「全部活动」有更多写动作，保持不重试。
-            report = activities.run(targets, include_growth=False, retry_failed=True)
+            report = activities.run(
+                targets, include_growth=False, retry_failed=True, keys=keys
+            )
         elif key in ("travel_depart", "travel_claim"):
             # 派猫猫旅行拆成两个独立动作：早上派、下午领。两者互不挤占，
             # 同一天能各成功一次 —— 以前挤在一个函数里，一次执行只能做其中一件。
+            wanted = "workbuddy.travel"
+            if keys is not None and wanted not in keys:
+                return "本任务未勾选「派猫猫旅行」，本轮跳过"
             report = activities.run_travel_stage(
                 targets, stage="depart" if key == "travel_depart" else "claim"
             )
         else:
-            report = activities.run(targets)
+            report = activities.run(targets, keys=keys)
         summary = report.get("summary", {})
         line = (
             f"账号 {len(targets)} 个：成功 {summary.get('ok', 0)}，"
@@ -278,6 +320,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             rotation_runner.stop()
             scheduler.stop()
             gateway_runtime.stop()
+            try:
+                checkpoint(conn)
+            except Exception:  # noqa: BLE001 - 关闭前 checkpoint 失败只记日志
+                logger.warning("WAL checkpoint 失败，保留 -wal 文件待下次启动回收")
             conn.close()
             logger.info("chaierww 已停止")
 
@@ -292,6 +338,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
     )
     app.state.settings = resolved
+    app.state.conn = conn
+    app.state.started_at = time.monotonic()
     app.state.box = box
     app.state.accounts = accounts
     app.state.repository = repository
@@ -317,8 +365,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.client_settings = ClientSettingsService(
         default_settings_file(), resolved.home / "client-settings" / "backups"
     )
+    # 中间件顺序：守卫 → 安全头 → request-id（最后添加的最外层）。
+    # 这样 401/403 也带安全头，所有响应（含守卫拒绝）都带 X-Request-Id。
+    token = install_api_guard(app, resolved)
+    install_security_headers(app)
+    install_request_id(app)
+    install_exception_handler(app)
     # 自建的 /docs（同源 iframe 内嵌 Swagger UI）必须排在 SPA 兜底之前，
     # 否则会被 `/{full_path:path}` 抢走。
+    app.include_router(build_auth_router(resolved, token))
+    app.include_router(diagnostics_router)
     app.include_router(router)
     # 网关接口：/api/gateway/*（界面）与 /v1/*（OpenAI 兼容客户端）。
     # /v1/* 挂在主服务上是为了「未启用时给客户端一个可读的 503」，而不是 SPA 兜底页；
@@ -367,9 +423,22 @@ def _mount_webui(app: FastAPI) -> None:
     # 资源 —— 表现是「版本号已经是 0.4.2，界面还是 0.4.0」。带内容哈希的
     # `/assets/*` 可以放心缓存，唯独入口页不能。
     no_store = {"Cache-Control": "no-store, must-revalidate", "Pragma": "no-cache"}
+    # SPA 入口用严格 CSP：脚本只允许同源文件（主题脚本已外置）。
+    # `/docs` 是自建 iframe + Swagger UI，不套这份 CSP，避免把文档页打坏。
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' http://127.0.0.1:* http://localhost:* "
+        "ws://127.0.0.1:* ws://localhost:*; "
+        "frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    )
+    index_headers = {**no_store, "Content-Security-Policy": csp}
 
     def index_response() -> FileResponse:
-        return FileResponse(webui / "index.html", headers=no_store)
+        return FileResponse(webui / "index.html", headers=index_headers)
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -399,7 +468,17 @@ def run() -> None:
     watch_parent()
 
     settings = load_settings()
-    app = create_app(settings)
+    install_excepthooks(settings.home)
+    try:
+        app = create_app(settings)
+    except BaseException as exc:
+        # 启动失败必须留下可读原因：桌面端会读取这个文件并展示。
+        try:
+            write_startup_error(settings.home, exc)
+        except OSError:
+            logging.getLogger("chaierww").exception("写入启动错误文件失败")
+        raise
+    clear_startup_error(settings.home)
     logging.getLogger("chaierww").info("监听 http://%s:%s", settings.host, settings.port)
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
 

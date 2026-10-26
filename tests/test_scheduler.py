@@ -21,13 +21,15 @@ def _at(hour: int, minute: int = 0, *, day: int = 20) -> datetime:
 
 
 class _Recorder:
-    """假的执行体：记录每次被调到时的 (key, account_ids)。"""
+    """假的执行体：记录每次被调到时的 (key, account_ids, activity_keys)。"""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple[str, ...]]] = []
+        self.calls: list[tuple[str, tuple[str, ...], tuple[str, ...]]] = []
 
-    def __call__(self, key: str, account_ids: tuple[str, ...]) -> str:
-        self.calls.append((key, account_ids))
+    def __call__(
+        self, key: str, account_ids: tuple[str, ...], activity_keys: tuple[str, ...]
+    ) -> str:
+        self.calls.append((key, account_ids, activity_keys))
         return f"已执行 {key}"
 
 
@@ -37,6 +39,28 @@ def _build(tmp_path, recorder: _Recorder | None = None, *, now=None) -> Schedule
         executor=recorder or _Recorder(),
         now=(lambda: now) if now is not None else None,
     )
+
+
+def test_activity_keys_persist_and_reach_executor(tmp_path):
+    recorder = _Recorder()
+    scheduler = _build(tmp_path, recorder, now=_at(8))
+    scheduler.update(
+        "activity_run", enabled=True, times=["09:00"], activity_keys=["workbuddy.travel"]
+    )
+
+    reloaded = _build(tmp_path, recorder, now=_at(9))
+    spec = next(item for item in reloaded.list() if item.key == "activity_run")
+    assert spec.activity_keys == ("workbuddy.travel",)
+    reloaded.run_due()
+    activity_calls = [call for call in recorder.calls if call[0] == "activity_run"]
+    assert activity_calls == [("activity_run", (), ("workbuddy.travel",))]
+    # 结构化落盘也要带上 keys，前端表单回填依赖它。
+    payload = json.loads((tmp_path / "schedules.json").read_text(encoding="utf-8"))
+    saved = payload["tasks"]["activity_run"]
+    assert saved["keys"] == ["workbuddy.travel"]
+
+    scheduler.update("activity_run", activity_keys=[])
+    assert next(item for item in scheduler.list() if item.key == "activity_run").activity_keys == ()
 
 
 def test_same_time_point_runs_only_once(tmp_path):
@@ -153,11 +177,11 @@ def test_run_now_records_result_and_time(tmp_path):
 
     task = scheduler.get("activity_run")
     assert task.last_result == "已执行 activity_run"
-    assert recorder.calls == [("activity_run", ())]
+    assert recorder.calls == [("activity_run", (), ())]
 
 
 def test_executor_failure_does_not_raise(tmp_path):
-    def broken(key: str, account_ids: tuple[str, ...]) -> str:
+    def broken(key: str, account_ids: tuple[str, ...], keys: tuple[str, ...]) -> str:
         raise RuntimeError("上游炸了")
 
     scheduler = Scheduler(tmp_path, executor=broken, now=lambda: _at(10, 0))
@@ -247,7 +271,7 @@ def test_account_scope_is_passed_to_executor(tmp_path):
     scheduler.update("checkin", account_ids=["a-1", "a-2"])
 
     scheduler.run_now("checkin")
-    assert recorder.calls == [("checkin", ("a-1", "a-2"))]
+    assert recorder.calls == [("checkin", ("a-1", "a-2"), ())]
 
 
 def test_keepalive_and_checkin_are_enabled_by_default(tmp_path):
@@ -287,7 +311,7 @@ def test_travel_tasks_run_independently_at_their_own_times(tmp_path):
     scheduler.update("travel_claim", enabled=True, jitter_minutes=0)
 
     scheduler.run_due(_at(9, 30))
-    assert [key for key, _ in recorder.calls] == ["travel_depart"]
+    assert [key for key, _, _ in recorder.calls] == ["travel_depart"]
 
     scheduler.run_due(_at(15, 30))
-    assert [key for key, _ in recorder.calls] == ["travel_depart", "travel_claim"]
+    assert [key for key, _, _ in recorder.calls] == ["travel_depart", "travel_claim"]

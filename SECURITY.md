@@ -35,6 +35,13 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | **日志脱敏** | 令牌、Cookie、账号 ID 写日志前替换为圆点，日志在 `~/.chaierww/logs/` |
 | **网关只对内** | `domain/gateway.py`：默认 `127.0.0.1:8788`，`loopbackOnly` 生效；对外暴露要显式改配置 |
 | **网关鉴权** | Key 由本机签发、可随时吊销，不落明文到日志 |
+| **本机 API 鉴权** | `api/guard.py`：`/api/*` 要求同源 Cookie 或 `Authorization: Bearer <~/.chaierww/api-token>`；非回环 `Host`/`Origin`、`Sec-Fetch-Site: cross-site` 一律 403；写方法必须带 `X-Chaierww-Client: web`（含 Bearer 调用方） |
+| **配置原子写** | `infra/fsutil.py`：临时文件 + fsync + `os.replace`；损坏 JSON 隔离为 `*.corrupt-<时间戳>`，不静默覆盖用户配置 |
+| **数据库启动保护** | `infra/db.py`：启动/迁移前后 `PRAGMA quick_check`，失败抛 `DatabaseIntegrityError` 并提示可恢复来源；迁移前自动备份到 `backups/pre-migrate/`；关闭前 `wal_checkpoint(TRUNCATE)` |
+| **全局备份可恢复** | `domain/restore.py`：只登记 `restore-pending.json`，下次启动、数据库打开前覆盖；覆盖前留 `backups/restore-safety/`，失败自动回滚 |
+| **诊断包脱敏** | `domain/diagnostics.py`：只含版本、计数、配置健康度与日志尾部；不含凭据、Key、Cookie、账号外部 ID |
+| **崩溃现场落盘** | 后端 `infra/crash.py`（excepthook / 线程 hook / 兜底 handler + `X-Request-Id`）、桌面 `desktop.log`、前端错误上报 `/api/diagnostics/client-error`（20 次/分钟限流） |
+| **SPA 严格 CSP** | SPA 入口响应带 `Content-Security-Policy: script-src 'self'`，主题脚本外置为 `theme-boot.js`；`/docs` 不套 CSP 以免打坏 Swagger UI |
 | **写前有备份** | 切换前强制备份，中途失败自动回滚到切换前快照 |
 | **只读预演** | 「预演」只读不写，能先看到会改动哪些文件 |
 | **不碰程序本体** | 只读写客户端的**状态文件**，不打补丁、不改可执行文件 |

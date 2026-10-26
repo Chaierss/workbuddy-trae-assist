@@ -32,6 +32,9 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 57910
     recycle_days: int = 30
+    # 本机 `/api/*` 守卫。显式构造默认关闭（测试/嵌入式），生产入口
+    # `load_settings()` 默认开启，可用 `CHAIERWW_API_GUARD=0` 关闭。
+    api_guard: bool = False
     # 每个客户端作用域保留的常驻备份份数（按次数滚动，与 domain/backup.py 的
     # KEEP_SNAPSHOTS 一致）。常驻备份 = 每日自动 + 手动；切换前/恢复前的临时
     # 备份在流程成功后即删除，不占用这里的配额。
@@ -53,6 +56,16 @@ class Settings:
     def avatars_dir(self) -> Path:
         return self.home / "avatars"
 
+    @property
+    def api_token_path(self) -> Path:
+        """本机 API 令牌文件；外部脚本用它走 Bearer。"""
+        return self.home / "api-token"
+
+    @property
+    def pre_migrate_dir(self) -> Path:
+        """数据库迁移前的自动备份目录。"""
+        return self.backups_dir / "pre-migrate"
+
     def ensure_dirs(self) -> None:
         for path in (self.home, self.backups_dir, self.logs_dir, self.avatars_dir):
             path.mkdir(parents=True, exist_ok=True)
@@ -67,4 +80,5 @@ def default_home() -> Path:
 
 def load_settings(home: Path | str | None = None) -> Settings:
     resolved = Path(home).expanduser() if home is not None else default_home()
-    return Settings(home=resolved)
+    guard = os.environ.get("CHAIERWW_API_GUARD", "1").strip() != "0"
+    return Settings(home=resolved, api_guard=guard)

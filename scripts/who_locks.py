@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """用 Windows Restart Manager API 查出到底是哪个进程锁住了文件。
 
 用法：

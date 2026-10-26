@@ -56,8 +56,17 @@ webview/       网页版登录态快照（只在本机有效，不进导出包�
 离线或内网也能打开。用 `CHAIERWW_DISABLE_DOCS=1` 可以整体关掉，
 此时设置页会显示明确原因而不是套一层空白 iframe。
 
-本机 API 没有鉴权（只监听 127.0.0.1），所以 Swagger 不声明 `securitySchemes`。
-将来若引入访问令牌，必须同时补 `securitySchemes` 与 `security`，否则文档只能看不能调。
+`/api/*` 默认启用本机访问守卫：浏览器/桌面端靠同源 Cookie 自动放行，外部脚本要带
+`~/.chaierww/api-token` 的 Bearer 令牌；写方法还必须带 `X-Chaierww-Client: web`。
+
+```bash
+TOKEN=$(cat ~/.chaierww/api-token)
+curl -H "Authorization: Bearer $TOKEN" -H "X-Chaierww-Client: web" \
+  http://127.0.0.1:57910/api/scopes
+```
+
+开发或嵌入式场景可用 `CHAIERWW_API_GUARD=0` 关闭守卫（此时 Swagger 仍不声明
+`securitySchemes`；开启守卫时文档调用需要手动加上述请求头）。
 
 ## 几个容易误解的点
 

@@ -18,7 +18,8 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
-import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type OverviewPulse, type Snapshot } from "../api";
+import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
+import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type ActivityCampaign, type OverviewPulse, type Snapshot } from "../api";
 import { accounts, attentionCount, clientDetections, detection, scopedPath } from "../stores/app";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { t } from "../lib/i18n";
@@ -54,6 +55,8 @@ const subtitle = computed(() => {
 
 const actionables = ref<ActionableItem[]>([]);
 const pulse = ref<OverviewPulse | null>(null);
+/** 官方活动速览：与待处理清单同一次请求返回，不额外打上游。 */
+const campaigns = ref<ActivityCampaign[]>([]);
 const loadError = ref("");
 const busy = ref<string | null>(null);
 /** 客户端登录态目录默认收成一行，点开才铺完整路径 —— 它不是常用信息。 */
@@ -175,6 +178,7 @@ async function load(): Promise<void> {
     const next = await api.overviewActionables();
     actionables.value = next.items;
     pulse.value = next.pulse;
+    campaigns.value = next.campaigns ?? [];
     loadError.value = "";
   } catch (cause) {
     // 读不到就说读不到，不能渲染成「暂无待处理」——那等于骗用户一切正常。
@@ -407,6 +411,8 @@ async function loadGlobalBackups(): Promise<void> {
         </li>
       </ul>
     </SectionCard>
+
+    <OfficialActivityStrip v-if="pulse" class="mt-4" :campaigns="campaigns" />
 
     <div class="mt-4 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
       <SectionCard

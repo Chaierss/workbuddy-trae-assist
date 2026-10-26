@@ -39,6 +39,8 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
+from chaierww.infra.fsutil import read_json_or_default, write_json_atomic
+
 logger = logging.getLogger("chaierww")
 
 CONFIG_FILENAME = "gateway.json"
@@ -136,17 +138,12 @@ def _clean_limit(value: Any, label: str, maximum: int) -> int:
 
 
 def _write_json(path: Path, data: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, data)
 
 
 def _read_json(path: Path) -> Any:
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    # 保留「缺失 = None」语义；损坏文件会被隔离而不是静默重置。
+    return read_json_or_default(path, None, logger=logger)
 
 
 # ---------- 配置 ----------

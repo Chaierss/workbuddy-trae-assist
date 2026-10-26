@@ -861,7 +861,7 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
     )
 
     body = client.get("/api/overview/actionables").json()
-    assert set(body) == {"items", "pulse"}
+    assert set(body) == {"items", "pulse", "campaigns"}
     by_kind = {item["kind"]: item for item in body["items"]}
     assert set(by_kind) == {"credential", "checkin", "credits_expiring", "client_offline"}
 

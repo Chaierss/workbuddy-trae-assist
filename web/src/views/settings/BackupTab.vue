@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { AlertTriangle, CheckCircle2, FileLock2, ShieldAlert } from "lucide-vue-next";
+import { AlertTriangle, CheckCircle2, FileLock2, RotateCcw, ShieldAlert } from "lucide-vue-next";
+import ConfirmDialog from "../../components/ConfirmDialog.vue";
 import SectionCard from "../../components/SectionCard.vue";
 import StatusPill from "../../components/StatusPill.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
@@ -10,15 +11,19 @@ import {
   formatTime,
   type GlobalBackupPart,
   type Preferences,
+  type RestorePending,
+  type RestoreResult,
   type Snapshot,
 } from "../../api";
+import { desktop } from "../../lib/desktop";
 import { t } from "../../lib/i18n";
 
 // ---------- 全局备份（本工具自己的数据，按分区勾选） ----------
 //
 // 客户端数据快照（切换前 / 每日自动）与客户端设置备份点这两块已经从界面下线：
 // 它们各自带一套「原地恢复」，和这里的「导出型备份」混在一页反而分不清哪个能回滚。
-// 现在只留全局备份：按分区导出、可校验，不做原地恢复。
+// 现在只留全局备份：按分区导出、可校验。恢复是「登记 → 重启时应用」，
+// 不在运行中替换正在使用的数据库文件。
 
 const busy = ref(false);
 
@@ -68,6 +73,61 @@ const selectedParts = ref<string[]>([]);
 const pendingParts = ref<string[]>([]);
 const globalMessage = ref<string | null>(null);
 const globalFailed = ref(false);
+
+// ---------- 从全局备份恢复（登记 → 重启时应用） ----------
+const restoreTarget = ref<Snapshot | null>(null);
+const restorePending = ref<RestorePending | null>(null);
+const restoreResult = ref<RestoreResult | null>(null);
+const restoring = ref(false);
+
+async function loadRestoreStatus(): Promise<void> {
+  try {
+    const status = await api.restoreStatus();
+    restorePending.value = status.pending;
+    restoreResult.value = status.result;
+  } catch {
+    // 恢复状态是辅助信息，读不到不影响备份列表。
+  }
+}
+
+function askRestore(snapshot: Snapshot): void {
+  restoreTarget.value = snapshot;
+}
+
+async function confirmRestore(): Promise<void> {
+  const target = restoreTarget.value;
+  if (!target) return;
+  restoring.value = true;
+  globalFailed.value = false;
+  try {
+    const staged = await api.stageGlobalRestore(target.id);
+    restorePending.value = staged.pending;
+    restoreTarget.value = null;
+    globalMessage.value = t("settings.backup.restoreStaged", { id: target.id });
+    if (desktop?.relaunch) {
+      // 用户已在确认框里同意「立即重启并恢复」，这里直接交给主进程。
+      await desktop.relaunch();
+      return;
+    }
+    globalMessage.value = t("settings.backup.restoreRestartManual");
+  } catch (error) {
+    globalFailed.value = true;
+    globalMessage.value = (error as Error).message;
+  } finally {
+    restoring.value = false;
+  }
+}
+
+async function cancelPendingRestore(): Promise<void> {
+  try {
+    await api.cancelRestore();
+    restorePending.value = null;
+    globalMessage.value = t("settings.backup.restoreCancelled");
+  } catch (error) {
+    globalFailed.value = true;
+    globalMessage.value = (error as Error).message;
+  }
+}
 
 function isPending(key: string): boolean {
   return pendingParts.value.includes(key);
@@ -221,6 +281,7 @@ async function verifyGlobal(snapshot: Snapshot): Promise<void> {
 onMounted(() => {
   void loadPrefs();
   void loadGlobal();
+  void loadRestoreStatus();
 });
 </script>
 
@@ -328,6 +389,31 @@ onMounted(() => {
         </p>
       </div>
 
+      <div v-if="restorePending" class="border-b border-line-soft bg-warn-soft/60 px-5 py-2.5">
+        <p class="flex flex-wrap items-center gap-2 text-body-sm text-warn">
+          <RotateCcw :size="13" />
+          {{ t("settings.backup.restorePending", { id: restorePending.snapshotId }) }}
+          <button
+            type="button"
+            class="rounded-control border border-warn/40 px-2 py-0.5 text-caption hover:bg-warn/10"
+            @click="cancelPendingRestore"
+          >
+            {{ t("settings.backup.restoreCancel") }}
+          </button>
+        </p>
+      </div>
+      <p
+        v-else-if="restoreResult"
+        class="border-b border-line-soft px-5 py-2.5 text-body-sm"
+        :class="restoreResult.ok ? 'text-brand-dark' : 'text-danger'"
+      >
+        {{
+          restoreResult.ok
+            ? t("settings.backup.restoreDone", { id: restoreResult.snapshotId })
+            : t("settings.backup.restoreFailed", { error: restoreResult.error ?? "" })
+        }}
+      </p>
+
       <p v-if="!globalSnapshots.length" class="px-5 py-8 text-center text-body text-muted">
         {{ t("settings.backup.globalEmpty") }}
       </p>
@@ -349,7 +435,15 @@ onMounted(() => {
           </StatusPill>
           <button
             type="button"
-            class="ml-auto rounded-control border border-line px-2.5 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+            class="ml-auto rounded-control border border-warn/40 px-2.5 py-1 text-caption text-warn transition-colors hover:bg-warn-soft disabled:opacity-50"
+            :disabled="busy || restoring"
+            @click="askRestore(snapshot)"
+          >
+            {{ t("settings.backup.restore") }}
+          </button>
+          <button
+            type="button"
+            class="rounded-control border border-line px-2.5 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
             :disabled="busy"
             @click="verifyGlobal(snapshot)"
           >
@@ -367,5 +461,21 @@ onMounted(() => {
         <li v-for="note in NOTES" :key="note">{{ t(note) }}</li>
       </ul>
     </SectionCard>
+    <ConfirmDialog
+      :open="restoreTarget !== null"
+      :title="t('settings.backup.restoreConfirmTitle')"
+      :message="
+        restoreTarget
+          ? t('settings.backup.restoreConfirmBody', {
+              time: formatTime(restoreTarget.createdAt),
+            })
+          : ''
+      "
+      :confirm-text="t('settings.backup.restoreConfirm')"
+      tone="danger"
+      :busy="restoring"
+      @confirm="confirmRestore"
+      @cancel="restoreTarget = null"
+    />
   </div>
 </template>

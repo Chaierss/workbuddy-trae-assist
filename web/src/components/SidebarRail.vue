@@ -6,6 +6,7 @@ import { t } from "../lib/i18n";
 import { NAV_DESTINATIONS, SETTINGS_DESTINATION } from "../lib/nav";
 import {
   accountCount,
+  activityActionable,
   health,
   resolvedTheme,
   scopedPath,
@@ -28,8 +29,17 @@ const items = computed(() =>
     to: scopedPath(item.path),
     label: t(item.labelKey),
     icon: item.icon,
-    // 只有号池带计数徽标：它回答「池子里现在有几个账号」。
-    badge: item.key === "accounts" ? accountCount.value : 0,
+    // 号池徽标 = 账号数；活动徽标 = 有可执行项的活动个数（两者语义不同）。
+    badge:
+      item.key === "accounts"
+        ? accountCount.value
+        : item.key === "activity"
+          ? activityActionable.value
+          : 0,
+    badgeTitle:
+      item.key === "activity"
+        ? t("shell.activityBadge", { count: activityActionable.value })
+        : "",
   })),
 );
 
@@ -127,6 +137,8 @@ const updateBadgeTitle = computed(() => {
                 v-if="item.badge"
                 class="rounded-full px-1.5 py-0.5 text-caption leading-none tabular-nums"
                 :class="isActive ? 'bg-white/80 text-brand-dark dark:bg-white/15' : 'bg-line-soft text-muted'"
+                :title="item.badgeTitle || undefined"
+                :aria-label="item.badgeTitle || undefined"
               >
                 {{ item.badge }}
               </span>

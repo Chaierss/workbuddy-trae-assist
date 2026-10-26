@@ -12,10 +12,14 @@
 
 from __future__ import annotations
 
-import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from chaierww.infra.fsutil import read_json_or_default, write_json_atomic
+
+logger = logging.getLogger("chaierww")
 
 FILENAME = "preferences.json"
 
@@ -82,10 +86,7 @@ class PreferencesStore:
     def load(self) -> Preferences:
         if not self._file.is_file():
             return Preferences()
-        try:
-            data = json.loads(self._file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return Preferences()
+        data = read_json_or_default(self._file, None, logger=logger)
         if not isinstance(data, dict):
             return Preferences()
 
@@ -107,10 +108,7 @@ class PreferencesStore:
         )
 
     def save(self, prefs: Preferences) -> Preferences:
-        self._file.parent.mkdir(parents=True, exist_ok=True)
-        self._file.write_text(
-            json.dumps(prefs.payload(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_json_atomic(self._file, prefs.payload())
         return prefs
 
 

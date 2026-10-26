@@ -25,6 +25,7 @@ from chaierww.domain.gateway import POOL_FILENAME as GATEWAY_POOL_FILENAME
 from chaierww.domain.preferences import FILENAME as PREFERENCES_FILENAME
 from chaierww.domain.scheduler import FILENAME as SCHEDULES_FILENAME
 from chaierww.infra.db import now_iso, transaction
+from chaierww.infra.fsutil import write_json_atomic
 
 MANIFEST_NAME = "manifest.json"
 
@@ -263,9 +264,7 @@ class BackupService:
         }
         if extra:
             manifest.update(extra)
-        (dest / MANIFEST_NAME).write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_json_atomic(dest / MANIFEST_NAME, manifest)
         self._verify_manifest(dest, manifest)
 
         snapshot = Snapshot(

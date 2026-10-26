@@ -22,13 +22,12 @@
 ## 任务与执行体分离
 
 调度器只负责「什么时候跑」，**不知道**任务具体做什么。执行体由调用方通过
-`executor(key, account_ids) -> str` 注入（`main.py` 里接上活动/积分服务），
+`executor(key, account_ids, activity_keys) -> str` 注入（`main.py` 里接上活动/积分服务），
 这样调度器本身可以脱离网络做单测。
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
@@ -38,6 +37,8 @@ from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+
+from chaierww.infra.fsutil import read_json_or_default, write_json_atomic
 
 logger = logging.getLogger("chaierww")
 
@@ -50,23 +51,17 @@ FILE_LOCK = threading.RLock()
 
 
 def read_schedules(path: Path) -> dict[str, Any]:
-    """读整份 `schedules.json`；文件缺失或损坏时返回空 dict。"""
+    """读整份 `schedules.json`；文件缺失或损坏时返回空 dict（损坏文件会被隔离）。"""
     if not path.is_file():
         return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    raw = read_json_or_default(path, {}, logger=logger)
     return raw if isinstance(raw, dict) else {}
 
 
 def write_schedules(path: Path, payload: dict[str, Any]) -> None:
     """整份写回。调用方若要在「读 → 改 → 写」之间保持原子，请自行持有 `FILE_LOCK`。"""
     with FILE_LOCK:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_json_atomic(path, payload)
 
 
 #: 任务键。语义见 `main.py` 的执行体：keepalive = 保活探测；checkin = 只签到；
@@ -113,13 +108,18 @@ class SchedulerError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class TaskSpec:
-    """一个计划任务。``account_ids`` 为空 = 号池里全部账号。"""
+    """一个计划任务。``account_ids`` 为空 = 号池里全部账号。
+
+    ``activity_keys`` 为空 = 执行全部活动；非空时只跑列出的活动 key，
+    供「这个任务只负责某些活动」使用（如只跑每日签到、只跑派猫猫旅行）。
+    """
 
     key: str
     enabled: bool = False
     times: tuple[str, ...] = ()
     jitter_minutes: int = 0
     account_ids: tuple[str, ...] = ()
+    activity_keys: tuple[str, ...] = ()
     #: 最近一次执行的**实际时刻**。它同时充当「这一档时点今天跑过没有」的判据：
     #: 只要某个时点的计划时刻 ≤ 这个时刻，就认为该档今天已经跑过。
     last_run_at: str | None = None
@@ -134,6 +134,7 @@ class TaskSpec:
             "times": list(self.times),
             "jitterMinutes": self.jitter_minutes,
             "accountIds": list(self.account_ids),
+            "keys": list(self.activity_keys),
             "lastRunAt": self.last_run_at,
             "lastResult": self.last_result,
             "history": [dict(item) for item in self.history],
@@ -190,7 +191,7 @@ class Scheduler:
         self,
         home: Path,
         *,
-        executor: Callable[[str, tuple[str, ...]], str],
+        executor: Callable[[str, tuple[str, ...], tuple[str, ...]], str],
         tick_seconds: float = DEFAULT_TICK_SECONDS,
         now: Callable[[], datetime] | None = None,
     ) -> None:
@@ -221,6 +222,7 @@ class Scheduler:
                 times=tuple(_string_list(item.get("times"))) or base.times,
                 jitter_minutes=_sanitize_jitter(item.get("jitterMinutes"), base.jitter_minutes),
                 account_ids=tuple(_string_list(item.get("accountIds"))),
+                activity_keys=tuple(_string_list(item.get("keys"))),
                 last_run_at=(
                     item.get("lastRunAt") if isinstance(item.get("lastRunAt"), str) else None
                 ),
@@ -285,6 +287,7 @@ class Scheduler:
         times: Iterable[str] | None = None,
         jitter_minutes: int | None = None,
         account_ids: Iterable[str] | None = None,
+        activity_keys: Iterable[str] | None = None,
     ) -> TaskSpec:
         with self._lock:
             current = self._tasks.get(key)
@@ -299,12 +302,16 @@ class Scheduler:
             new_accounts = current.account_ids
             if account_ids is not None:
                 new_accounts = tuple(_string_list(account_ids))
+            new_keys = current.activity_keys
+            if activity_keys is not None:
+                new_keys = tuple(dict.fromkeys(_string_list(activity_keys)))
             updated = replace(
                 current,
                 enabled=current.enabled if enabled is None else bool(enabled),
                 times=new_times,
                 jitter_minutes=new_jitter,
                 account_ids=new_accounts,
+                activity_keys=new_keys,
             )
             self._tasks[key] = updated
             self._write()
@@ -396,7 +403,7 @@ class Scheduler:
 
     def _execute(self, spec: TaskSpec, *, at: datetime) -> dict[str, Any]:
         try:
-            result = self._executor(spec.key, spec.account_ids)
+            result = self._executor(spec.key, spec.account_ids, spec.activity_keys)
         except Exception as exc:  # noqa: BLE001 - 单次失败只记结果，绝不退出线程
             logger.exception("计划任务执行异常：%s", spec.key)
             result = f"执行异常：{type(exc).__name__}：{exc}"

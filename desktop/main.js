@@ -17,6 +17,7 @@ const { autoUpdater } = require('electron-updater');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const net = require('net');
 
 const BACKEND_HOST = '127.0.0.1';
@@ -38,6 +39,49 @@ app.disableHardwareAcceleration();
 // Windows 上不设 AppUserModelID 的话，任务栏会把窗口和托盘图标认成两个不同程序，
 // 通知也挂不到应用上。
 if (IS_WIN) app.setAppUserModelId('com.chaierss.chaierww');
+
+// ---------------------------------------------------------------------------
+// 崩溃落盘
+// ---------------------------------------------------------------------------
+// 桌面端的三类崩溃（主进程异常、渲染进程消失、子进程消失）都追加到
+// userData/desktop.log；不再只依赖弹窗——弹窗关掉就没有现场了。
+
+function logDesktopCrash(kind, detail) {
+  try {
+    const dir = app.getPath('userData');
+    const file = path.join(dir, 'desktop.log');
+    const text = `\n[${new Date().toISOString()}] ${kind}\n${detail}\n`;
+    fs.appendFileSync(file, text, 'utf8');
+    return file;
+  } catch (_) {
+    return null;
+  }
+}
+
+function describeError(error) {
+  if (!error) return 'unknown';
+  if (error instanceof Error) return `${error.message}\n${error.stack || ''}`;
+  try {
+    return JSON.stringify(error);
+  } catch (_) {
+    return String(error);
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  logDesktopCrash('uncaughtException', describeError(error));
+  // 主进程异常后继续跑并不可靠；记录后退出，让用户重启（历史崩溃现场已落盘）。
+  app.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  logDesktopCrash('unhandledRejection', describeError(reason));
+});
+app.on('render-process-gone', (_event, _contents, details) => {
+  logDesktopCrash('render-process-gone', JSON.stringify(details));
+});
+app.on('child-process-gone', (_event, details) => {
+  logDesktopCrash('child-process-gone', JSON.stringify(details));
+});
 
 // 后端是否由本进程拉起（用于退出时决定要不要一并回收）。
 let backendProcess = null;
@@ -160,12 +204,34 @@ function startBackend() {
       detached: !IS_WIN,
     });
   }
-  backendProcess.on('exit', (code) => {
+/**
+ * 读取后端启动失败时写下的 startup-error.json。
+ * 读完即删：它是「这一次启动」的现场，不该在下一次启动时继续误导用户。
+ */
+function consumeStartupError() {
+  const home = process.env.CHAIERWW_HOME || path.join(os.homedir(), '.chaierww');
+  const file = path.join(home, 'startup-error.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.unlinkSync(file);
+    if (data && typeof data === 'object') {
+      return `${data.message || ''}${data.hint ? `\n\n${data.hint}` : ''}`;
+    }
+  } catch (_) {
+    /* 不存在或不可读：保持原来的通用提示 */
+  }
+  return '';
+}
+
+backendProcess.on('exit', (code) => {
     if (!quitting && code !== 0) {
       // 后端意外退出（非正常关闭），提示用户。
+      const detail = consumeStartupError();
       dialog.showErrorBox(
         'chaierww',
-        `后端服务已意外退出（退出码 ${code}）。请检查日志后重启应用。`
+        detail
+          ? `后端服务启动/运行失败（退出码 ${code}）：\n\n${detail}`
+          : `后端服务已意外退出（退出码 ${code}）。请检查日志后重启应用。`
       );
     }
     backendProcess = null;
@@ -748,6 +814,14 @@ function setupAutoUpdater() {
 // 渲染进程 IPC
 // ---------------------------------------------------------------------------
 ipcMain.handle('update:get', () => updateState);
+// 备份恢复只在下次启动时生效：界面确认后调它重启应用（不重开新实例）。
+ipcMain.handle('app:relaunch', () => {
+  quitting = true;
+  stopBackend();
+  app.relaunch();
+  app.exit(0);
+  return true;
+});
 ipcMain.handle('update:check', () => checkForUpdates({ manual: true }));
 ipcMain.handle('update:download', async () => startDownload());
 ipcMain.handle('update:install', () => {

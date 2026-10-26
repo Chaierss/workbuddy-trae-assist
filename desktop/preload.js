@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
   version: readVersion(),
   platform: process.platform,
 
+  /** 备份恢复后重启应用（只由主进程执行 relaunch，渲染层不直接碰 app）。 */
+  relaunch: () => ipcRenderer.invoke('app:relaunch'),
+
   /** 更新相关：check 会连更新源，get 只读当前状态。 */
   update: {
     get: () => ipcRenderer.invoke('update:get'),

@@ -314,6 +314,39 @@ class AccountRepository:
         ]
 
     @_serialized
+    def activity_history(
+        self, since_day: str, key: str | None = None
+    ) -> list[dict[str, object]]:
+        """按天聚合活动执行结果（供活动详情里的趋势图）。
+
+        只返回「有执行记录」的 (day, key, status) 组合，缺失的天由前端补零；
+        这样数据量恒定，不会因为天数增加而线性膨胀。
+        """
+        sql = """
+            SELECT day, activity_key, status,
+                   COUNT(*) AS count,
+                   COALESCE(SUM(reward), 0) AS reward
+              FROM activity_runs
+             WHERE day >= ?
+        """
+        params: list[object] = [since_day]
+        if key:
+            sql += " AND activity_key = ?"
+            params.append(key)
+        sql += " GROUP BY day, activity_key, status ORDER BY day ASC"
+        rows = self._conn.execute(sql, params).fetchall()
+        return [
+            {
+                "day": str(row["day"]),
+                "key": str(row["activity_key"]),
+                "status": str(row["status"]),
+                "count": int(row["count"]),
+                "reward": float(row["reward"] or 0),
+            }
+            for row in rows
+        ]
+
+    @_serialized
     def credential_expiries(
         self, account_ids: list[str] | tuple[str, ...]
     ) -> dict[str, str | None]:
