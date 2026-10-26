@@ -49,6 +49,68 @@ export interface PurgeFailure {
   reason: string;
 }
 
+/** 单账号的会话同步状态（账号页徽标 / 设置页行）。 */
+export interface SyncAccountStatus {
+  accountId: string;
+  displayName: string;
+  externalId: string;
+  enabled: boolean;
+  /** idle / capturing / applied / blocked / failed。 */
+  state: string;
+  /** 已镜像的会话条数（含冲突副本对应条目）。 */
+  items: number;
+  /** 还没铺进这个账号客户端的条数。 */
+  pending: number;
+  conflicts: number;
+  lastCapturedAt: string | null;
+  lastAppliedAt: string | null;
+  lastError: string;
+}
+
+export interface SyncStatus {
+  scope: string;
+  supported: { conversations: boolean; webview: boolean };
+  totals: { accounts: number; items: number; pending: number; conflicts: number };
+  /** 镜像正文占用的磁盘字节数。 */
+  blobBytes: number;
+  accounts: SyncAccountStatus[];
+}
+
+export interface SyncItem {
+  stableKey: string;
+  title: string;
+  workspace: string;
+  bytes: number;
+  lines: number;
+  localCid: string | null;
+  capturedAt: string | null;
+  appliedAt: string | null;
+  conflict: boolean;
+  pending: boolean;
+}
+
+/** 采集 / 应用 / 冲突解决的结果。`state` 见后端 SyncReport。 */
+export interface SyncReport {
+  state: string;
+  direction: string;
+  scope: string;
+  accountId: string;
+  dryRun: boolean;
+  succeeded: boolean;
+  backup: string | null;
+  error: string | null;
+  counts: Record<string, number>;
+  plan: Array<{
+    action: string;
+    stableKey: string;
+    title: string;
+    workspace: string;
+    bytes: number;
+  }>;
+  errors: Array<Record<string, string>>;
+  steps: Array<{ step: string; state: string; detail: string }>;
+}
+
 export interface PurgeOneResult {
   ok: boolean;
   accountId: string;
@@ -693,6 +755,8 @@ export interface Preferences {
   migrateWorkspaces: boolean;
   /** 切换时把源账号的网页版登录态（Chromium 分区）换到目标账号，切完不用重登。 */
   migrateWebview: boolean;
+  /** 会话同步总开关：关掉后计划任务与「客户端退出」边沿都不再自动采集。 */
+  sessionSyncEnabled: boolean;
   /**
    * 每日自动备份，每个客户端只留最近 7 份快照。
    *
@@ -1674,6 +1738,45 @@ export const api = {
     if (query.file) params.set("file", query.file);
     return request<LogPage>(`/api/logs?${params.toString()}`);
   },
+
+  /** 会话同步概况：每号已镜像 / 待应用 / 冲突 + 网页版快照能力。 */
+  syncStatus: (scope: string) =>
+    request<SyncStatus>(`/api/sync/status?scope=${encodeURIComponent(scope)}`),
+
+  /** 某账号的会话镜像清单（含冲突标记）。 */
+  syncItems: (accountId: string, scope?: string) => {
+    const params = new URLSearchParams({ accountId });
+    if (scope) params.set("scope", scope);
+    return request<{ scope: string; accountId: string; items: SyncItem[] }>(
+      `/api/sync/items?${params.toString()}`,
+    );
+  },
+
+  /** 立即采集一次会话镜像（只读，客户端运行中也安全）。 */
+  syncCapture: (accountId: string, scope?: string) =>
+    request<SyncReport>("/api/sync/capture", {
+      method: "POST",
+      body: JSON.stringify({ accountId, scope: scope ?? "" }),
+    }),
+
+  /** 把镜像补进客户端；`dryRun` 默认 true，只推演不落盘。 */
+  syncApply: (accountId: string, dryRun = true, scope?: string) =>
+    request<SyncReport>("/api/sync/apply", {
+      method: "POST",
+      body: JSON.stringify({ accountId, scope: scope ?? "", dryRun }),
+    }),
+
+  /** 解决一条冲突：保留本地 / 用镜像覆盖 / 两者都留。 */
+  syncResolve: (
+    accountId: string,
+    stableKey: string,
+    action: "keepSource" | "keepMirror" | "keepBoth",
+    scope?: string,
+  ) =>
+    request<SyncReport>("/api/sync/conflicts/resolve", {
+      method: "POST",
+      body: JSON.stringify({ accountId, stableKey, action, scope: scope ?? "" }),
+    }),
 };
 
 export function formatTime(iso: string | null): string {

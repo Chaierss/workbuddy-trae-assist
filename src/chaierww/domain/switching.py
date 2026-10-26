@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import sqlite3
 import threading
 import uuid
@@ -25,6 +26,11 @@ from chaierww.infra.db import now_iso, transaction
 
 class SwitchError(RuntimeError):
     pass
+
+
+#: 有「按账号隔离的网页版分区」的平台。网页版是 WorkBuddy 客户端专有能力，
+#: Trae 是 IDE，没有对应分区 —— 用能力表表达，而不是散落的 scope 字符串比较。
+WEBVIEW_SUPPORT: frozenset[str] = frozenset({"workbuddy-cn"})
 
 
 def encode_payload(raw: bytes) -> dict[str, str]:
@@ -137,6 +143,7 @@ class SwitchEngine:
         adapters: dict[str, PlatformAdapter],
         conn: sqlite3.Connection,
         keep_snapshots: int = 5,
+        sync: Any = None,
     ) -> None:
         self._repo = repo
         self._backups = backups
@@ -144,6 +151,15 @@ class SwitchEngine:
         self._conn = conn
         self._keep = keep_snapshots
         self._lock = threading.RLock()
+        #: 会话同步引擎（可选）。为 None 时退回旧的「切号时一次性复制」路径，
+        #: 保证既有测试与未启用同步的部署行为完全不变。
+        self._sync = sync
+
+    def _scope_guard(self, scope: str) -> Any:
+        """切号与后台采集共用同一把作用域锁，避免「边切边采」。"""
+        if self._sync is None:
+            return contextlib.nullcontext()
+        return self._sync.lock_for(scope)
 
     def _adapter(self, scope: str, slot: str | None = None) -> PlatformAdapter:
         require_implemented(scope)
@@ -264,7 +280,7 @@ class SwitchEngine:
         migrate_workspaces: bool = True,
         migrate_webview: bool = True,
     ) -> SwitchReport:
-        with self._lock:
+        with self._lock, self._scope_guard(scope):
             adapter = self._adapter(scope, slot)
             account = self._load_target(scope, account_id)
             payload = decode_payload(self._repo.current_credential(account_id))
@@ -362,13 +378,38 @@ class SwitchEngine:
             #     此刻客户端刚退出、登录态文件可读，顺手把最新一份收回号池。失败不阻断切号。
             self._sync_client_credential(adapter, scope, source_external_id, run)
 
+            # 2.3 采集源账号的会话镜像（只读，不写客户端）。
+            #     之后无论用户在这个号上聊了多少，切回时都能从镜像补齐；
+            #     也正因为「源端已静止」，此刻读到的正文最可信。失败不阻断切号。
+            source_account = None
+            if source_external_id:
+                with contextlib.suppress(Exception):
+                    source_account = self._repo.get_by_external(scope, source_external_id)
+            if (
+                self._sync is not None
+                and migrate_sessions
+                and source_account is not None
+                and not source_account.is_deleted
+            ):
+                with contextlib.suppress(Exception):
+                    captured = self._sync.capture(scope, source_account.id)
+                    run.add(
+                        "采集会话镜像",
+                        captured.state in ("ok", "partial"),
+                        f"已镜像 {captured.counts.get('captured', 0)} 条会话",
+                    )
+
             # 2.5 保存「切走前那个账号」的网页版登录态。
             #     客户端里乐享/文档/频道应用跑在按账号隔离的 Chromium 分区
             #     （Partitions/wb-webview-<uid>-*）。不存这一份，下次切回来网页版就是空的。
             #     客户端此刻已退出，分区文件不会被占用；失败不阻断切号。
-            if migrate_webview and scope == "workbuddy-cn" and source_external_id:
+            if migrate_webview and scope in WEBVIEW_SUPPORT and source_external_id:
+                generation = 0
+                if source_account is not None:
+                    with contextlib.suppress(Exception):
+                        generation = self._repo.credential_generation(source_account.id)
                 try:
-                    saved = webview_state.snapshot(source_external_id)
+                    saved = webview_state.snapshot(source_external_id, generation=generation)
                     if saved:
                         run.add("保存网页版登录态", True, f"已保存 {saved} 个网页分区")
                 except OSError as exc:
@@ -422,10 +463,22 @@ class SwitchEngine:
             #     有快照 → 铺回去，网页版跟着切号走；
             #     没快照 → 清掉旧账号的分区，否则网页版继续显示上一个身份，比空着更糟。
             #     两种情况都只影响网页版，失败一律不阻断切号。
-            if migrate_webview and scope == "workbuddy-cn":
+            if migrate_webview and scope in WEBVIEW_SUPPORT:
+                target_generation = 0
+                with contextlib.suppress(Exception):
+                    target_generation = self._repo.credential_generation(account.id)
                 try:
-                    restored = webview_state.restore(account.external_id)
-                    if restored:
+                    checked = webview_state.restore_checked(
+                        account.external_id, generation=target_generation
+                    )
+                    restored = checked.partitions
+                    if checked.reason:
+                        run.add("网页版登录态", not checked.error, checked.reason)
+                        if checked.warning:
+                            warnings.append(checked.reason)
+                    if checked.error:
+                        webview_state.drop(account.external_id)
+                    elif restored:
                         run.add("网页版登录态", True, f"已恢复 {restored} 个网页分区")
                     elif source_external_id and source_external_id != account.external_id:
                         webview_state.drop(source_external_id)
@@ -456,9 +509,39 @@ class SwitchEngine:
                 except OSError as exc:
                     run.add("网页版登录态", False, f"迁移失败（不影响切号）：{exc}")
 
-            # 4.5 数据迁移：账号切换成功后，把源账号的记忆/连接器/会话迁移到目标账号。
+            # 4.4 补齐目标账号的会话。
+            #     从「源账号切到目标账号」只保证目标账号有源账号那批会话；
+            #     再切回来时，目标账号在本次登录期间新增的会话由 4.5 的反向补齐覆盖。
+            #     客户端此刻已退出，写入不会与客户端抢库。失败不阻断切号。
+            if self._sync is not None and migrate_sessions:
+                from chaierww.domain.sync.engine import conversation_supported
+
+                if conversation_supported(scope):
+                    with contextlib.suppress(Exception):
+                        applied = self._sync.apply(scope, account_id)
+                        run.add(
+                            "补齐会话",
+                            applied.state in ("ok", "partial"),
+                            f"新增 {applied.counts.get('created', 0)} 条、"
+                            f"冲突副本 {applied.counts.get('conflicts', 0)} 条",
+                        )
+                        if applied.state == "blocked":
+                            warnings.append(
+                                "会话补齐被跳过：客户端未能退出，会话库仍被占用。"
+                                "下次切号或手动同步时会再试一次。"
+                            )
+                        elif applied.counts.get("failed"):
+                            warnings.append(
+                                f"{applied.counts['failed']} 条会话未能补进目标账号，"
+                                "其余已落地；可在「设置 → 会话同步」里重试。"
+                            )
+
+            # 4.5 数据迁移：账号切换成功后，把源账号的记忆/连接器/档案迁移到目标账号。
             #     仅 WorkBuddy 有对应本地数据（Trae 无）。迁移失败不阻断切换（切换已成功）。
             #     迁移哪几块由「设置 → 常规」的开关决定；全关则整块跳过，不产生迁移报告。
+            #     会话块：启用了同步引擎时由 4.4 负责，这里不再走旧的「一次性复制」，
+            #     避免同一条会话被两套逻辑各复制一遍。
+            legacy_sessions = migrate_sessions and self._sync is None
             migration: dict[str, Any] | None = None
             if (
                 scope == "workbuddy-cn"
@@ -467,7 +550,7 @@ class SwitchEngine:
                 and (
                     migrate_memory
                     or migrate_connectors
-                    or migrate_sessions
+                    or legacy_sessions
                     or migrate_profile
                     or migrate_workspaces
                 )
@@ -478,7 +561,7 @@ class SwitchEngine:
                     account.external_id,
                     memory=migrate_memory,
                     connectors=migrate_connectors,
-                    sessions=migrate_sessions,
+                    sessions=legacy_sessions,
                     profile=migrate_profile,
                     workspaces=migrate_workspaces,
                 )
@@ -605,17 +688,24 @@ class SwitchEngine:
         WorkBuddy 客户端会自己刷新 token，刷新后旧的 refresh token 即作废。号池若一直
         用导入时那份，切回来写进去就是 401。只回写 raw-file 形态（整份登录态）的账号；
         oauth-token 账号的续期走另一套链路，不在这里改。任何失败都不阻断切号。
+
+        Trae 同样是 raw-file（``storage.json`` 里的 ``iCubeAuthInfo*`` 键），
+        因此这里不再按平台写死，改为「适配器提供 ``import_current`` 且凭据是
+        raw-file」这个能力判定。
         """
-        if not external_id or scope != "workbuddy-cn":
+        if not external_id:
             return
         try:
+            importer = getattr(adapter, "import_current", None)
+            if importer is None:
+                return
             account = self._repo.get_by_external(scope, external_id)
             if account is None or account.is_deleted:
                 return
             kind, current = self._repo.credential_record(account.id)
             if current.get("format") != "raw-file":
                 return
-            imported = adapter.import_current()
+            imported = importer()
             if imported.external_id != external_id:
                 return
             fresh = encode_payload(imported.payload)

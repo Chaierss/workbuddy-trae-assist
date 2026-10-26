@@ -313,6 +313,11 @@ export const accountsZh = {
   "env.boundary3.desc": "账号凭据由系统绑定当前 Windows 用户加密，密钥不落磁盘。",
   "env.boundary4.title": "不解密登录态。",
   "env.boundary4.desc": "客户端的加密信封原样保存，因此拿不到昵称，显示名退化为账号标识。",
+
+  "accounts.sync.mirrored": "已镜像 {count}",
+  "accounts.sync.pending": "待应用 {count}",
+  "accounts.sync.conflicts": "冲突 {count}",
+  "accounts.sync.tooltip": "本机会话镜像：切到该账号时把这些会话补进客户端",
 };
 
 export const accountsEn = {
@@ -643,4 +648,9 @@ export const accountsEn = {
   "env.boundary4.title": "Login state never decrypted.",
   "env.boundary4.desc":
     "The client's encrypted envelope is kept as is, so nicknames can't be read and the display name falls back to the account ID.",
+
+  "accounts.sync.mirrored": "Mirrored {count}",
+  "accounts.sync.pending": "Pending {count}",
+  "accounts.sync.conflicts": "Conflicts {count}",
+  "accounts.sync.tooltip": "Local conversation mirror: these get copied into the client when you switch to this account",
 };

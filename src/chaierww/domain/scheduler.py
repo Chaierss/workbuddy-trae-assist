@@ -67,7 +67,8 @@ def write_schedules(path: Path, payload: dict[str, Any]) -> None:
 #: 任务键。语义见 `main.py` 的执行体：keepalive = 保活探测；checkin = 只签到；
 #: activity_run = 全部可自动活动（含成长任务）；
 #: travel_depart / travel_claim = 派猫猫旅行「只派出」/「只回领」两个独立动作；
-#: credential_refresh = 凭据巡检续期（只动到期前 30 分钟的号）。
+#: credential_refresh = 凭据巡检续期（只动到期前 30 分钟的号）；
+#: session_sync = 会话镜像的只读采集（不写客户端）。
 #: 拆成两个旅行任务是因为派出后猫要在路上待一段时间，同一次执行里做不完两件事。
 TASK_KEYS: tuple[str, ...] = (
     "keepalive",
@@ -76,6 +77,7 @@ TASK_KEYS: tuple[str, ...] = (
     "travel_depart",
     "travel_claim",
     "credential_refresh",
+    "session_sync",
 )
 
 #: 抖动的可选半径（分钟）。实际偏移在 `[-n, +n]` 内确定性派生。
@@ -99,6 +101,9 @@ _DEFAULT_TIMES: dict[str, tuple[str, ...]] = {
     "travel_claim": ("15:30",),
     # 凭据续期一天两次：早、晚各看一次「有没有 30 分钟内到期的号」。
     "credential_refresh": ("08:00", "20:00"),
+    # 会话镜像：白天每隔两小时采一次（只读）。客户端运行中也安全，
+    # 因此不需要和「客户端是否退出」对齐；关掉后只剩切号那一刻才镜像。
+    "session_sync": ("10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"),
 }
 
 
@@ -169,7 +174,12 @@ def _jitter_offset(day: datetime, key: str, time_text: str, jitter: int) -> int:
 #: 默认开启的任务。保活 / 签到是「默认就该在跑」的日常动作（原先由常规设置里的
 #: 同名偏好开关给出同样的默认值），所以这里也默认开；全部活动是重动作，默认关。
 #: 凭据续期默认开：它只在到期前 30 分钟才发请求，日常轮次基本是空跑。
-_DEFAULT_ENABLED: tuple[str, ...] = ("keepalive", "checkin", "credential_refresh")
+_DEFAULT_ENABLED: tuple[str, ...] = (
+    "keepalive",
+    "checkin",
+    "credential_refresh",
+    "session_sync",
+)
 
 
 def _default_tasks() -> dict[str, TaskSpec]:
@@ -194,11 +204,15 @@ class Scheduler:
         executor: Callable[[str, tuple[str, ...], tuple[str, ...]], str],
         tick_seconds: float = DEFAULT_TICK_SECONDS,
         now: Callable[[], datetime] | None = None,
+        tick_hook: Callable[[], None] | None = None,
     ) -> None:
         self._file = home / FILENAME
         self._executor = executor
         self._tick = max(1.0, float(tick_seconds))
         self._now = now or (lambda: datetime.now().astimezone())
+        #: 每个 tick 调用一次（不参与任务判定）。用于「客户端刚退出」这类
+        #: 没有定时点的边沿事件：调度器只提供心跳，具体动作由调用方决定。
+        self._tick_hook = tick_hook
         self._lock = threading.RLock()
         self._tasks = self._read()
         self._thread: threading.Thread | None = None
@@ -453,6 +467,11 @@ class Scheduler:
                 self.run_due()
             except Exception:  # noqa: BLE001 - tick 级异常也不能让线程死掉
                 logger.exception("计划任务调度 tick 异常")
+            if self._tick_hook is not None:
+                try:
+                    self._tick_hook()
+                except Exception:  # noqa: BLE001 - 心跳钩子失败同样不能拖垮线程
+                    logger.exception("计划任务心跳钩子异常")
             self._stop.wait(self._tick)
 
 

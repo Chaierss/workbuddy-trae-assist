@@ -42,6 +42,7 @@ import {
   type OverviewPulse,
   type RecycleBinAccount,
   type SwitchReport,
+  type SyncAccountStatus,
 } from "../api";
 import {
   accounts,
@@ -841,6 +842,7 @@ function applyRefreshTimer(): void {
         void refreshAll();
         // 活动状态也一起刷（走服务端 2 分钟缓存，不在每次轮询都打上游）。
         void loadActivityBrief();
+        void loadSyncStatus();
       }
     }, refreshSeconds.value * 1000);
   }
@@ -860,6 +862,27 @@ async function loadPulse(): Promise<void> {
   }
 }
 
+/**
+ * 会话同步状态：每个平台各拉一次，按 accountId 合并。
+ * 徽标是辅助信息，任何一个平台取不到就跳过，不影响号池本身。
+ */
+const syncRows = ref<Record<string, SyncAccountStatus>>({});
+
+async function loadSyncStatus(): Promise<void> {
+  const next: Record<string, SyncAccountStatus> = {};
+  await Promise.all(
+    ["workbuddy-cn", "trae-cn"].map(async (key) => {
+      try {
+        const data = await api.syncStatus(key);
+        for (const row of data.accounts) next[row.accountId] = row;
+      } catch {
+        // 取不到就不显示徽标。
+      }
+    }),
+  );
+  syncRows.value = next;
+}
+
 onMounted(() => {
   applyRefreshTimer();
   window.addEventListener("keydown", onKeydown);
@@ -867,6 +890,7 @@ onMounted(() => {
 onMounted(() => {
   void loadPulse();
   void loadActivityBrief();
+  void loadSyncStatus();
   // 回收站只在打开弹层时才需要明细，但按钮上的角标要有数，所以启动时拉一次。
   void loadRecycleBin();
   void loadCredentialHealth();
@@ -1607,6 +1631,7 @@ const confirmText = computed(() => {
         :activity="activityBriefs[account.id] ?? null"
         :selected="selectedIds.has(account.id)"
         :preview="previews[account.id] ?? null"
+        :sync="syncRows[account.id] ?? null"
         @switch="askSwitch"
         @remove="askDelete"
         @toggle="toggleSelect"

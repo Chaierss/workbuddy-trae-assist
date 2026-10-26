@@ -27,15 +27,25 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import shutil
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 #: 分区名前缀与分隔。形如 ``wb-webview-<uid>-<purpose>``。
 PREFIX = "wb-webview-"
+
+#: 快照清单文件名。写在 ``~/.chaierww/webview/<uid>/manifest.json``。
+#:
+#: 目的不是「描述快照」，而是**代际校验**：号池里的 token 可能已经续期过 N 次，
+#: 而快照还是 M 次之前留下的。清单让调用方能判断「这份 cookie 是不是同一代」。
+MANIFEST_NAME = "manifest.json"
+MANIFEST_VERSION = 1
 
 #: 要搬的条目（登录态真正落在这里）。
 KEEP_NAMES: frozenset[str] = frozenset(
@@ -171,10 +181,11 @@ def _unsafe_uid(uid: str) -> bool:
     return any(token in uid for token in ("/", "\\", ":", "\x00"))
 
 
-def snapshot(uid: str) -> int:
+def snapshot(uid: str, *, generation: int = 0) -> int:
     """把某个 uid 的分区存到本机快照目录，返回复制的分区目录数。
 
     快照是「覆盖式」的：每次都整份重写，避免旧 cookie 与新 cookie 混在一起。
+    ``generation`` 记下本次快照对应的登录态代际，供 ``restore_checked`` 校验。
     """
     if _unsafe_uid(uid):
         return 0
@@ -186,10 +197,113 @@ def snapshot(uid: str) -> int:
     with contextlib.suppress(OSError):
         shutil.rmtree(target)
     count = 0
+    purposes: list[str] = []
     for item in parts:
         if _copy_partition(item.path, target / item.purpose):
             count += 1
+            purposes.append(item.purpose)
+    if count:
+        _write_manifest(
+            target,
+            {
+                "version": MANIFEST_VERSION,
+                "uid": uid,
+                "credentialGeneration": int(generation or 0),
+                "capturedAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
+                "purposes": sorted(purposes),
+                "entries": count,
+                "bytes": _dir_bytes(target),
+            },
+        )
     return count
+
+
+def _write_manifest(root: Path, payload: dict[str, Any]) -> None:
+    path = root / MANIFEST_NAME
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            tmp.unlink()
+
+
+def read_manifest(uid: str) -> dict[str, Any] | None:
+    """读快照清单；缺失或损坏返回 ``None``（旧版本快照没有清单，属正常情况）。"""
+    if _unsafe_uid(uid):
+        return None
+    path = snapshot_root() / uid / MANIFEST_NAME
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _dir_bytes(root: Path) -> int:
+    total = 0
+    for path in root.rglob("*"):
+        with contextlib.suppress(OSError):
+            if path.is_file():
+                total += path.stat().st_size
+    return total
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreResult:
+    """网页版快照的铺回结果。
+
+    ``reason`` 只在「没铺」或「铺了但该提醒」时非空；``error=True`` 表示
+    明确不能铺（账号标识不符），调用方应把分区清空并提示重登。
+    """
+
+    partitions: int = 0
+    reason: str | None = None
+    error: bool = False
+    warning: bool = False
+
+
+def restore_checked(uid: str, *, generation: int) -> RestoreResult:
+    """带清单校验的铺回。
+
+    校验梯度（刻意分级，避免「一次 token 续期就要求用户重登网页版」）：
+
+    1. 快照里没有清单 → 按旧版快照直接铺，返回警告；
+    2. 清单里的 uid 与请求不一致 → **拒绝**（这是真的串号风险）；
+    3. 代际不一致 → 仍然铺，但返回警告（cookie 与 token 同属一个账号，
+       刷新 token 不会让已有 cookie 变成别人的）。
+    """
+    manifest = read_manifest(uid)
+    if manifest is None:
+        if not has_snapshot(uid):
+            return RestoreResult()
+        count = restore(uid)
+        return RestoreResult(
+            partitions=count,
+            reason="该账号的网页版快照来自旧版本（无代际信息），已按原样铺回",
+            warning=True,
+        )
+    recorded_uid = str(manifest.get("uid") or "")
+    if recorded_uid and recorded_uid != uid:
+        return RestoreResult(
+            reason=f"快照属于另一个账号（{recorded_uid[:8]}…），已拒绝铺回",
+            error=True,
+        )
+    count = restore(uid)
+    recorded_gen = int(manifest.get("credentialGeneration") or 0)
+    if generation and recorded_gen and recorded_gen != generation:
+        return RestoreResult(
+            partitions=count,
+            reason=(
+                f"网页版快照与当前登录态不同代（快照 {recorded_gen} → 当前 {generation}）；"
+                "已铺回，若网页版显示旧身份请重新登录一次"
+            ),
+            warning=True,
+        )
+    return RestoreResult(partitions=count)
 
 
 def has_snapshot(uid: str) -> bool:

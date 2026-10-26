@@ -39,6 +39,9 @@ DEFAULTS: dict[str, Any] = {
     # 切换时是否把「网页版登录态」（按账号隔离的 Chromium 分区）一起搬。
     # 不搬的话，切到没在本机网页版登录过的号，桌面端能用、网页版没有登录态。
     "migrateWebview": True,
+    # 会话镜像的后台采集（设置 → 会话同步）。默认开：只读采集，不写客户端，
+    # 关掉的话只有切号那一刻才会镜像一次。
+    "sessionSyncEnabled": True,
     # 每日自动备份，默认开启；每个客户端只留最近 7 份快照。
     # 设置页的开关已随「客户端数据快照」一起下线：恢复入口没了，再让用户关掉
     # 只是关掉一张看不见的安全网。所以读文件时**忽略存量的 false**，恒为 True。
@@ -61,6 +64,7 @@ class Preferences:
     migrate_profile: bool = True
     migrate_workspaces: bool = True
     migrate_webview: bool = True
+    session_sync_enabled: bool = True
     auto_backup: bool = True
     auto_global_backup: bool = True
     auto_global_parts: tuple[str, ...] = _DEFAULT_PARTS
@@ -73,6 +77,7 @@ class Preferences:
             "migrateProfile": self.migrate_profile,
             "migrateWorkspaces": self.migrate_workspaces,
             "migrateWebview": self.migrate_webview,
+            "sessionSyncEnabled": self.session_sync_enabled,
             "autoBackup": self.auto_backup,
             "autoGlobalBackup": self.auto_global_backup,
             "autoGlobalParts": list(self.auto_global_parts),
@@ -100,6 +105,7 @@ class PreferencesStore:
             migrate_profile=flag("migrateProfile"),
             migrate_workspaces=flag("migrateWorkspaces"),
             migrate_webview=flag("migrateWebview"),
+            session_sync_enabled=flag("sessionSyncEnabled"),
             # 故意不走 flag()：存量文件里可能是 false，但现在没有入口能改回来，
             # 当成 True 处理才是对用户有利的方向（这是迁移，不是丢数据）。
             auto_backup=True,

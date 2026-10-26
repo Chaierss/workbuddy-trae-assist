@@ -74,6 +74,7 @@ from chaierww.domain.switching import (
     encode_payload,
     encode_token_payload,
 )
+from chaierww.domain.sync.engine import SyncError
 from chaierww.domain.usage import summarize as summarize_usage
 from chaierww.domain.usage_turns import read_turn, read_turns_brief
 from chaierww.infra.db import now_iso
@@ -182,6 +183,8 @@ def _snapshot_payload(snapshot: Snapshot) -> dict[str, Any]:
 
 
 def _handle(exc: Exception) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
     if isinstance(exc, AccountNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, (AccountBusyError, AccountInUseError, ActivityBusyError)):
@@ -198,6 +201,8 @@ def _handle(exc: Exception) -> HTTPException:
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, ScopeNotImplemented):
         return HTTPException(status_code=501, detail=str(exc))
+    if isinstance(exc, SyncError):
+        return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, (UnknownScope, ValueError, AdapterError, SwitchError)):
         return HTTPException(status_code=400, detail=str(exc))
     logger.exception("未预期的接口错误：%s", type(exc).__name__)
@@ -1569,6 +1574,91 @@ def migration_preview(
         return engine.preview_migration(
             resolved_scope, accountId, selection=selection, source_uid=sourceUid
         )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+def _sync(request: Request) -> Any:
+    return request.app.state.sync
+
+
+def _sync_scope(request: Request, scope: str, account_id: str) -> str:
+    """没传 scope 时按账号反查；两者都缺则报错，绝不默认猜一个平台。"""
+    if scope:
+        return scope
+    if account_id:
+        return _engine(request).scope_of(account_id)
+    raise HTTPException(status_code=400, detail="缺少 scope 或 accountId")
+
+
+class SyncCaptureRequest(BaseModel):
+    accountId: str = ""
+    scope: str = ""
+
+
+class SyncApplyRequest(BaseModel):
+    accountId: str
+    scope: str = ""
+    dryRun: bool = True
+
+
+class SyncResolveRequest(BaseModel):
+    accountId: str
+    stableKey: str = Field(min_length=1)
+    action: str = Field(pattern="^(keepSource|keepMirror|keepBoth)$")
+    scope: str = ""
+
+
+@router.get("/sync/status", summary="会话同步概况：每号镜像条数、待应用、冲突", tags=["同步"])
+def sync_status(request: Request, scope: str = "workbuddy-cn") -> dict[str, Any]:
+    try:
+        return _sync(request).overview(scope)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/sync/items", summary="某账号的会话镜像清单", tags=["同步"])
+def sync_items(request: Request, accountId: str, scope: str = "") -> dict[str, Any]:
+    try:
+        resolved = _sync_scope(request, scope, accountId)
+        return {
+            "scope": resolved,
+            "accountId": accountId,
+            "items": _sync(request).items(resolved, accountId),
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.post("/sync/capture", summary="立即采集会话镜像（只读）", tags=["同步"])
+def sync_capture(request: Request, body: SyncCaptureRequest) -> dict[str, Any]:
+    try:
+        resolved = _sync_scope(request, body.scope, body.accountId)
+        if not body.accountId:
+            raise HTTPException(status_code=400, detail="缺少 accountId")
+        return _sync(request).capture(resolved, body.accountId).to_dict()
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.post("/sync/apply", summary="把镜像补进客户端（默认只预演）", tags=["同步"])
+def sync_apply(request: Request, body: SyncApplyRequest) -> dict[str, Any]:
+    try:
+        resolved = _sync_scope(request, body.scope, body.accountId)
+        return _sync(request).apply(
+            resolved, body.accountId, dry_run=body.dryRun
+        ).to_dict()
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.post("/sync/conflicts/resolve", summary="解决会话冲突", tags=["同步"])
+def sync_resolve(request: Request, body: SyncResolveRequest) -> dict[str, Any]:
+    try:
+        resolved = _sync_scope(request, body.scope, body.accountId)
+        return _sync(request).resolve_conflict(
+            resolved, body.accountId, body.stableKey, body.action
+        ).to_dict()
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 

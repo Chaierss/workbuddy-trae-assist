@@ -109,6 +109,28 @@ def _columns(conn: sqlite3.Connection, table: str) -> list[str]:
         return []
 
 
+def session_rows_for_user(uid: str) -> list[dict[str, Any]] | None:
+    """某账号名下的**全部** ``sessions`` 行（含已软删除），供会话镜像采集。
+
+    与 ``conversations_for_user`` 的区别：那个只取展示所需的四列、供用量页用；
+    镜像需要完整行才能在目标账号里重建索引。读不到（库缺失 / 打不开）返回 ``None``，
+    与「该账号没有会话」的空列表区分开。
+    """
+    if not uid:
+        return []
+    conn = _open_readonly()
+    if conn is None:
+        return None
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT * FROM sessions WHERE user_id = ?", (uid,)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
 def conversation_owner(cid: str) -> str | None:
     """这条会话属于哪个账号（``sessions.user_id``）；库里没有则 None。"""
     conn = _open_readonly()

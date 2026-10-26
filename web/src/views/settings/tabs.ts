@@ -5,6 +5,7 @@ import {
   CalendarClock,
   Database,
   FileCog,
+  Layers,
   ListChecks,
   Plug,
   ScrollText,
@@ -23,6 +24,7 @@ import WikiTab from "./WikiTab.vue";
 import LogsTab from "./LogsTab.vue";
 import RulesTab from "./RulesTab.vue";
 import ComponentsTab from "./ComponentsTab.vue";
+import SyncTab from "./SyncTab.vue";
 
 /**
  * 设置 tab 的唯一登记处。加一个 tab 只改这里。
@@ -74,6 +76,13 @@ export const SETTINGS_TABS: SettingsTab[] = [
     hintKey: "settings.client.hint",
     icon: FileCog,
     component: ClientSettingsTab,
+  },
+  {
+    key: "sync",
+    labelKey: "settings.sync.label",
+    hintKey: "settings.sync.hint",
+    icon: Layers,
+    component: SyncTab,
   },
   {
     key: "env",

@@ -57,6 +57,15 @@ class AccountRepository:
         self._box = box
         self._lock = threading.RLock()
 
+    @property
+    def lock(self) -> threading.RLock:
+        """与其它仓储共享的连接锁。
+
+        SQLite 的事务是**连接级**的：``SyncRepository`` 若自带一把锁，仍可能与
+        本仓储的事务交错。把同一把 RLock 传过去，跨仓储的读改写才真正串行。
+        """
+        return self._lock
+
     # ---------- 写入 ----------
 
     @_serialized
@@ -121,6 +130,7 @@ class AccountRepository:
                            avatar_path = COALESCE(?, avatar_path),
                            source = ?,
                            credential_state = ?,
+                           credential_generation = credential_generation + 1,
                            updated_at = ?,
                            deleted_at = NULL
                      WHERE id = ?
@@ -200,7 +210,9 @@ class AccountRepository:
                 (uuid.uuid4().hex, account_id, kind, sealed, now, expires_at),
             )
             self._conn.execute(
-                "UPDATE accounts SET updated_at = ? WHERE id = ?", (now, account_id)
+                "UPDATE accounts SET updated_at = ?, "
+                "credential_generation = credential_generation + 1 WHERE id = ?",
+                (now, account_id),
             )
 
     @_serialized
@@ -394,6 +406,35 @@ class AccountRepository:
             if isinstance(data, dict):
                 found[str(row["account_id"])] = (str(row["kind"]), data, row["expires_at"])
         return found
+
+    @_serialized
+    def credential_generation(self, account_id: str) -> int:
+        """该账号当前登录态代际；账号不存在抛 ``AccountNotFound``。"""
+        row = self._conn.execute(
+            "SELECT credential_generation FROM accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        if row is None:
+            raise AccountNotFound(account_id)
+        return int(row[0])
+
+    @_serialized
+    def bump_credential_generation(self, account_id: str) -> int:
+        """登录态发生实际变化时把代际 +1，返回新值。
+
+        只在「确实写入了新凭据」时调用（回写内容相同会提前 return，不虚增代际）。
+        """
+        with transaction(self._conn):
+            cursor = self._conn.execute(
+                "UPDATE accounts SET credential_generation = credential_generation + 1, "
+                "updated_at = ? WHERE id = ?",
+                (now_iso(), account_id),
+            )
+            if cursor.rowcount == 0:
+                raise AccountNotFound(account_id)
+            row = self._conn.execute(
+                "SELECT credential_generation FROM accounts WHERE id = ?", (account_id,)
+            ).fetchone()
+        return int(row[0])
 
     @_serialized
     def set_credential_state(self, account_id: str, state: CredentialState) -> None:

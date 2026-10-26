@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -159,6 +159,77 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V3 + "\nCOMMIT;")
 
 
+#: v4：多账号会话同步。
+#:
+#: - ``accounts.credential_generation``：登录态代际。每次回写/续期 +1，
+#:   网页版快照与会话镜像都记录自己看到的代际，跨代不做覆盖（宁可让用户重登）。
+#: - ``sync_state``：每个账号的同步状态与水印（按 ``account_id`` 唯一）。
+#: - ``sync_items``：一条会话血统（``stable_key``）在某账号下的镜像与落地 cid。
+#: - ``sync_jobs``：同步执行流水，只追加。
+_SCHEMA_V4 = """
+ALTER TABLE accounts ADD COLUMN credential_generation INTEGER NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS sync_state (
+    account_id            TEXT PRIMARY KEY REFERENCES accounts (id) ON DELETE CASCADE,
+    scope                 TEXT NOT NULL,
+    external_id           TEXT NOT NULL,
+    enabled               INTEGER NOT NULL DEFAULT 1,
+    state                 TEXT NOT NULL DEFAULT 'idle',
+    credential_generation INTEGER NOT NULL DEFAULT 0,
+    last_captured_at      TEXT,
+    last_applied_at       TEXT,
+    items_total           INTEGER NOT NULL DEFAULT 0,
+    items_pending         INTEGER NOT NULL DEFAULT 0,
+    last_error            TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_state_scope ON sync_state (scope, state);
+
+CREATE TABLE IF NOT EXISTS sync_items (
+    account_id        TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    stable_key        TEXT NOT NULL,
+    local_cid         TEXT,
+    workspace         TEXT NOT NULL DEFAULT '',
+    title             TEXT NOT NULL DEFAULT '',
+    content_sha256    TEXT NOT NULL,
+    content_bytes     INTEGER NOT NULL DEFAULT 0,
+    content_lines     INTEGER NOT NULL DEFAULT 0,
+    meta_json         TEXT NOT NULL DEFAULT '',
+    source_updated_at TEXT,
+    captured_at       TEXT NOT NULL,
+    applied_at        TEXT,
+    deleted_at        TEXT,
+    conflict_of       TEXT,
+    conflict_sha256   TEXT,
+    PRIMARY KEY (account_id, stable_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_items_pending
+    ON sync_items (account_id, applied_at, deleted_at);
+
+CREATE TABLE IF NOT EXISTS sync_jobs (
+    id            TEXT PRIMARY KEY,
+    scope         TEXT NOT NULL,
+    account_id    TEXT NOT NULL,
+    direction     TEXT NOT NULL,
+    state         TEXT NOT NULL,
+    items_total   INTEGER NOT NULL DEFAULT 0,
+    items_changed INTEGER NOT NULL DEFAULT 0,
+    failed_step   TEXT,
+    error         TEXT NOT NULL DEFAULT '',
+    started_at    TEXT NOT NULL,
+    finished_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_account
+    ON sync_jobs (account_id, started_at DESC);
+"""
+
+
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V4 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -170,6 +241,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v2(conn)
     if version < 3:
         _migrate_v3(conn)
+    if version < 4:
+        _migrate_v4(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

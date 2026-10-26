@@ -53,6 +53,8 @@ from chaierww.domain.rotation import (
 from chaierww.domain.scheduler import Scheduler
 from chaierww.domain.scopes import all_scopes
 from chaierww.domain.switching import SwitchEngine, build_adapters
+from chaierww.domain.sync import SyncEngine
+from chaierww.domain.sync.repository import SyncRepository
 from chaierww.domain.trae_oauth import build_trae_oauth
 from chaierww.domain.usage import UsageService
 from chaierww.domain.wb_tasks import GrowthTaskRunner
@@ -96,8 +98,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     accounts = AccountService(repository)
     backups = BackupService(conn, resolved.backups_dir)
     adapters = build_adapters()
+    sync_repository = SyncRepository(conn, repository.lock)
+    sync_engine = SyncEngine(repository, sync_repository, resolved.home, adapters)
     engine = SwitchEngine(
-        repository, backups, adapters, conn, keep_snapshots=resolved.snapshot_keep
+        repository,
+        backups,
+        adapters,
+        conn,
+        keep_snapshots=resolved.snapshot_keep,
+        sync=sync_engine,
     )
     # 额度网关：配置/Key/日志落盘，真正的转发由 gateway_relay + api/gateway 完成。
     # 选号器同时接两个只读数据源：排除集（持久化）与积分缓存（判断「积分耗尽」）。
@@ -133,6 +142,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not targets:
             return "号池里没有可用账号，本轮跳过"
         keys = set(activity_keys) or None
+        if key == "session_sync":
+            # 只读采集：客户端运行中也安全，因此无需等待退出。只采「当前登录的那个号」，
+            # 其余账号没有客户端数据可读，采了也是空跑。
+            if not preferences.load().session_sync_enabled:
+                return "会话同步已在设置中关闭，本轮跳过"
+            lines: list[str] = []
+            for scope_key in ("workbuddy-cn", "trae-cn"):
+                if scope_key not in adapters:
+                    continue
+                uid = engine.current_uid(scope_key)
+                account = repository.get_by_external(scope_key, uid) if uid else None
+                if account is None:
+                    lines.append(f"{scope_key}：当前未登录或未导入，跳过")
+                    continue
+                report = sync_engine.capture(scope_key, account.id)
+                if report.state == "unavailable":
+                    lines.append(f"{scope_key}：不支持会话同步")
+                    continue
+                lines.append(
+                    f"{scope_key}：{report.state}，镜像 {report.counts.get('captured', 0)} 条"
+                )
+            return "；".join(lines) or "没有可同步的账号"
         if key == "credential_refresh":
             # 只续「有效期已知且到期前 30 分钟」的号；其余轮次是空跑，
             # 所以默认开启也不会给上游增加日常压力。
@@ -182,7 +213,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             line += f"（{brief}）"
         return line
 
-    scheduler = Scheduler(resolved.home, executor=run_scheduled)
+    # 客户端「刚退出」这个边沿没有定时点：调度器每 30 秒心跳一次，这里对比
+    # 上轮/本轮运行状态，捕捉「运行中 → 未运行」的瞬间补一次只读采集。
+    last_running: dict[str, bool] = {}
+
+    def sync_tick() -> None:
+        if not preferences.load().session_sync_enabled:
+            return
+        for scope_key, adapter in adapters.items():
+            try:
+                running = bool(adapter.is_running())
+            except Exception:  # noqa: BLE001 - 探测失败当作没发生，下轮再试
+                continue
+            previous = last_running.get(scope_key)
+            last_running[scope_key] = running
+            if previous is not True or running:
+                continue
+            uid = engine.current_uid(scope_key)
+            account = repository.get_by_external(scope_key, uid) if uid else None
+            if account is None:
+                continue
+            try:
+                sync_engine.capture(scope_key, account.id, record_job=False)
+            except Exception:  # noqa: BLE001 - 后台心跳绝不影响主流程
+                logger.exception("客户端退出后采集会话失败：%s", scope_key)
+
+    scheduler = Scheduler(resolved.home, executor=run_scheduled, tick_hook=sync_tick)
 
     # 积分到期自动轮换（默认关闭，设置里手动开）：判定走 `domain/rotation.py`，
     # 这里只提供两个回调 —— 取快照（账号库 + 积分 + 客户端状态）与执行切换。
@@ -259,7 +315,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # 回收站「彻底删除」：删账号行之后，顺手清掉散在别处的引用
     # （网页版快照 / 网关账号池 / 轮换台账）。
-    purger = AccountPurger(accounts, gateway=gateway, rotation=rotation_store)
+    purger = AccountPurger(
+        accounts, gateway=gateway, rotation=rotation_store, sync=sync_engine
+    )
 
     # 模型目录自动刷新：间隔从配置现读（设置里一改就生效，0 = 不刷）。
     # 抓取复用 api/gateway 的 refresh_catalog（内部 asyncio.run，跑在自己的线程里）。
@@ -356,6 +414,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.activities = activities
     app.state.credential_lifecycle = lifecycle
     app.state.scheduler = scheduler
+    app.state.sync = sync_engine
+    app.state.sync_repository = sync_repository
     app.state.rotation = rotation
     app.state.purger = purger
     # 用量页走 UsageService（读云端明细），对话正文从本机 workbuddy.db / projects/*.jsonl 关联。

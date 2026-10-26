@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Clock,
   Coins,
+  Layers,
   Loader2,
   Pencil,
   RefreshCw,
@@ -23,6 +24,7 @@ import {
   type ActivityBrief,
   type CreditInfo,
   type MigrationPreview,
+  type SyncAccountStatus,
 } from "../api";
 import { t, type MessageKey } from "../lib/i18n";
 
@@ -45,6 +47,8 @@ const props = defineProps<{
   selected?: boolean;
   /** 切换迁移预检结果：null 未拉、loading 拉取中、none 拉取失败。 */
   preview?: MigrationPreview | "loading" | "none" | null;
+  /** 会话同步状态：没采过 / 无镜像时不显示徽标。 */
+  sync?: SyncAccountStatus | null;
 }>();
 
 const emit = defineEmits<{
@@ -244,6 +248,23 @@ const previewText = computed(() => {
     parts.push(t("accounts.preview.connectors", { count: preview.connectors.addedKeys }));
   }
   return parts.length ? parts.join(" · ") : t("accounts.preview.none");
+});
+
+/** 会话同步徽标：没有镜像、没有待应用、没有冲突时整行不占位。 */
+const syncLabel = computed(() => {
+  const state = props.sync;
+  if (!state) return "";
+  if (!state.items && !state.pending && !state.conflicts) return "";
+  const parts = [t("accounts.sync.mirrored", { count: state.items })];
+  if (state.pending) parts.push(t("accounts.sync.pending", { count: state.pending }));
+  if (state.conflicts) parts.push(t("accounts.sync.conflicts", { count: state.conflicts }));
+  return parts.join(" · ");
+});
+
+const syncTooltip = computed(() => {
+  const state = props.sync;
+  if (!state) return "";
+  return state.lastError || t("accounts.sync.tooltip");
 });
 
 /** 凭据到期时间：客户端信封凭据没有这个值，整行不显示。 */
@@ -552,6 +573,16 @@ function formatCredits(value: number | null): string {
       <StatusPill v-if="stateInfo" :tone="stateInfo.tone">
         {{ t(stateInfo.textKey) }}
       </StatusPill>
+    </div>
+
+    <!-- 会话同步：只在有镜像 / 有待应用 / 有冲突时占一行，平时不干扰 -->
+    <div
+      v-if="syncLabel"
+      class="mt-1 flex items-center gap-1 truncate text-micro leading-none text-muted"
+      :title="syncTooltip"
+    >
+      <Layers :size="9.5" :stroke-width="2" class="shrink-0" />
+      <span class="truncate" :class="sync?.conflicts ? 'text-warn' : ''">{{ syncLabel }}</span>
     </div>
 
     <!-- 切换预检：悬停卡片时按需拉取，直接显示会迁移多少 -->

@@ -1,216 +1,121 @@
-"""网页版登录态（按账号隔离的 Chromium 分区）的搬迁逻辑。
+"""网页版登录态快照：清单写入与代际校验。
 
-这些用例都不碰真实客户端目录：`partitions_dir` / `snapshot_root` 全部替换成 tmp_path。
+快照本身只是「复制文件」，真正容易出错的是**判断该不该铺**：
+uid 不符说明串号（必须拒绝），代际不符只说明 token 续过期（要铺 + 提示重登）。
 """
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
-from chaierww.domain import webview_state
+import chaierww.domain.webview_state as wv
 
-UID_A = "c1f0cc8d-3824-42dd-bf6a-3fbcb2dd91a6"
-UID_B = "b27354e6-b015-4d85-bd86-3cf2e89c11ce"
+UID_A = "11111111-1111-1111-1111-111111111111"
+UID_B = "22222222-2222-2222-2222-222222222222"
 
 
 @pytest.fixture
-def parts(tmp_path, monkeypatch):
-    """一个假的 Partitions 目录 + 假的快照目录。"""
-    partitions = tmp_path / "Partitions"
-    partitions.mkdir()
+def dirs(tmp_path, monkeypatch):
+    session = tmp_path / "session"
+    (session / "Partitions").mkdir(parents=True)
     snapshots = tmp_path / "webview"
-    monkeypatch.setattr(webview_state, "partitions_dir", lambda: partitions)
-    monkeypatch.setattr(webview_state, "snapshot_root", lambda: snapshots)
-    return partitions, snapshots
+    monkeypatch.setattr(wv, "session_dir", lambda: session)
+    monkeypatch.setattr(wv, "snapshot_root", lambda: snapshots)
+    return {"session": session, "partitions": session / "Partitions", "snapshots": snapshots}
 
 
-def _make_partition(root, uid: str, purpose: str, *, cookie: str = "session-cookie") -> None:
-    """造一个最小分区：登录态放在 Network/Cookies，另外塞一个缓存目录验证会被跳过。"""
-    base = root / webview_state.partition_name(uid, purpose)
-    (base / "Network").mkdir(parents=True, exist_ok=True)
-    (base / "Network" / "Cookies").write_text(cookie, encoding="utf-8")
-    local = base / "Local Storage" / "leveldb"
-    local.mkdir(parents=True, exist_ok=True)
-    (local / "000001.log").write_text("ls", encoding="utf-8")
-    cache = base / "Cache"
-    cache.mkdir(exist_ok=True)
-    (cache / "big.bin").write_text("x" * 1024, encoding="utf-8")
+def _seed_partition(dirs, uid: str, purpose: str = "lexiang-auth") -> None:
+    """造一个带登录态（白名单条目）的分区。"""
+    folder = dirs["partitions"] / wv.partition_name(uid, purpose)
+    (folder / "Network").mkdir(parents=True)
+    (folder / "Network" / "Cookies").write_bytes(b"cookie-bytes")
+    (folder / "Preferences").write_text("{}", encoding="utf-8")
+    # 缓存条目不该被搬走。
+    (folder / "Cache").mkdir()
+    (folder / "Cache" / "junk").write_bytes(b"x" * 1024)
 
 
-def test_parse_partition_name_handles_uuid_and_rejects_others():
-    assert webview_state.parse_partition_name(
-        f"wb-webview-{UID_A}-lexiang-auth"
-    ) == (UID_A, "lexiang-auth")
-    # 不是本工具的命名，一律不碰
-    assert webview_state.parse_partition_name("genie-webview") is None
-    assert webview_state.parse_partition_name("wb-webview-too-short") is None
-    # 构造与解析必须互逆，否则快照会铺到别的账号名下
-    assert webview_state.partition_name(UID_A, "tdoc-auth") == f"wb-webview-{UID_A}-tdoc-auth"
+def test_snapshot_records_manifest_with_generation(dirs):
+    _seed_partition(dirs, UID_A)
+    assert wv.snapshot(UID_A, generation=3) == 1
+
+    manifest = wv.read_manifest(UID_A)
+    assert manifest is not None
+    assert manifest["version"] == wv.MANIFEST_VERSION
+    assert manifest["uid"] == UID_A
+    assert manifest["credentialGeneration"] == 3
+    assert manifest["purposes"] == ["lexiang-auth"]
+    assert manifest["entries"] == 1
+    # 缓存不进快照：清单里的字节数只算白名单条目。
+    assert manifest["bytes"] < 1024
 
 
-def test_discover_reads_uid_and_purpose(parts):
-    root, _ = parts
-    _make_partition(root, UID_A, "lexiang-auth")
-    _make_partition(root, UID_A, "tdoc-auth")
-    _make_partition(root, UID_B, "channel-app")
-    (root / "mcp-apps").mkdir()  # 与账号无关的分区应被忽略
+def _clear_partitions(dirs) -> None:
+    """模拟「客户端分区被清空、只剩快照」。"""
+    import shutil
 
-    found = webview_state.discover()
-
-    # discover 按 (uid, purpose) 排序，不按写入顺序
-    assert [item.uid for item in found] == [UID_B, UID_A, UID_A]
-    assert {item.purpose for item in found} == {"lexiang-auth", "tdoc-auth", "channel-app"}
-    assert webview_state.uids_on_disk() == {UID_A, UID_B}
+    shutil.rmtree(dirs["partitions"])
+    dirs["partitions"].mkdir()
 
 
-def test_snapshot_copies_credentials_but_skips_cache(parts):
-    """搬的是登录态，不是缓存：缓存动辄几十 MB，且与登录无关。"""
-    root, snapshots = parts
-    _make_partition(root, UID_A, "lexiang-auth")
+def test_restore_checked_accepts_same_generation(dirs):
+    _seed_partition(dirs, UID_A)
+    wv.snapshot(UID_A, generation=1)
+    _clear_partitions(dirs)
 
-    saved = webview_state.snapshot(UID_A)
-
-    assert saved == 1
-    target = snapshots / UID_A / "lexiang-auth"
-    assert (target / "Network" / "Cookies").read_text(encoding="utf-8") == "session-cookie"
-    assert (target / "Local Storage" / "leveldb" / "000001.log").is_file()
-    assert not (target / "Cache").exists()
+    result = wv.restore_checked(UID_A, generation=1)
+    assert result.partitions == 1
+    assert result.reason is None
+    assert result.warning is False
+    assert (dirs["partitions"] / wv.partition_name(UID_A, "lexiang-auth") / "Network").is_dir()
 
 
-def test_snapshot_is_overwrite_not_merge(parts):
-    """第二次快照要整份重写，否则已登出的账号会在快照里残留登录态。"""
-    root, snapshots = parts
-    _make_partition(root, UID_A, "lexiang-auth", cookie="first")
-    webview_state.snapshot(UID_A)
+def test_restore_checked_refuses_mismatched_uid(dirs):
+    _seed_partition(dirs, UID_A)
+    wv.snapshot(UID_A, generation=1)
+    _clear_partitions(dirs)
+    # 把清单改成「属于另一个账号」——这是真的串号风险，必须拒绝。
+    wv._write_manifest(dirs["snapshots"] / UID_A, {"uid": UID_B, "version": 1})
 
-    stale = snapshots / UID_A / "lexiang-auth" / "Network" / "stale.txt"
-    stale.write_text("left-over", encoding="utf-8")
-    _make_partition(root, UID_A, "lexiang-auth", cookie="second")
-    webview_state.snapshot(UID_A)
-
-    target = snapshots / UID_A / "lexiang-auth"
-    assert (target / "Network" / "Cookies").read_text(encoding="utf-8") == "second"
-    assert not stale.exists()
+    result = wv.restore_checked(UID_A, generation=1)
+    assert result.error is True
+    assert result.partitions == 0
+    assert "另一个账号" in (result.reason or "")
+    assert not (dirs["partitions"] / wv.partition_name(UID_A, "lexiang-auth")).exists()
 
 
-def test_restore_puts_snapshot_back_under_same_partition_name(parts):
-    root, _ = parts
-    _make_partition(root, UID_A, "tdoc-auth")
-    webview_state.snapshot(UID_A)
-    # 模拟「切走之后客户端把分区删了」
-    for item in webview_state.discover():
-        if item.uid == UID_A:
-            import shutil
+def test_restore_checked_warns_but_restores_on_generation_drift(dirs):
+    _seed_partition(dirs, UID_A)
+    wv.snapshot(UID_A, generation=1)
 
-            shutil.rmtree(item.path)
-    assert UID_A not in webview_state.uids_on_disk()
-
-    restored = webview_state.restore(UID_A)
-
-    assert restored == 1
-    back = root / webview_state.partition_name(UID_A, "tdoc-auth") / "Network" / "Cookies"
-    assert back.read_text(encoding="utf-8") == "session-cookie"
+    result = wv.restore_checked(UID_A, generation=2)
+    assert result.partitions == 1
+    assert result.warning is True
+    assert "不同代" in (result.reason or "")
 
 
-def test_restore_returns_zero_when_no_snapshot(parts):
-    assert webview_state.restore(UID_A) == 0
-    assert webview_state.has_snapshot(UID_A) is False
+def test_restore_checked_tolerates_legacy_snapshot_without_manifest(dirs):
+    _seed_partition(dirs, UID_A)
+    wv.snapshot(UID_A, generation=0)
+    (dirs["snapshots"] / UID_A / wv.MANIFEST_NAME).unlink()
+
+    result = wv.restore_checked(UID_A, generation=5)
+    assert result.partitions == 1
+    assert result.warning is True
+    assert "旧版本" in (result.reason or "")
 
 
-def test_drop_only_removes_target_uid(parts):
-    """清旧账号残留时不能顺手把别的号的分区一起删掉。"""
-    root, _ = parts
-    _make_partition(root, UID_A, "lexiang-auth")
-    _make_partition(root, UID_B, "lexiang-auth")
-
-    removed = webview_state.drop(UID_A)
-
-    assert removed == 1
-    assert webview_state.uids_on_disk() == {UID_B}
+def test_restore_checked_without_snapshot_is_noop(dirs):
+    result = wv.restore_checked(UID_A, generation=1)
+    assert result.partitions == 0
+    assert result.reason is None
+    assert result.warning is False
+    assert result.error is False
 
 
-def test_snapshot_bytes_reports_size(parts):
-    root, _ = parts
-    _make_partition(root, UID_A, "lexiang-auth")
-    webview_state.snapshot(UID_A)
-
-    size = webview_state.snapshot_bytes(UID_A)
-
-    assert size > 0
-    # 缓存没被搬进去，所以快照不该包含那 1 KB
-    assert size < 1024
-
-
-def test_partition_bytes_counts_only_whitelisted(parts):
-    root, _ = parts
-    _make_partition(root, UID_A, "browser-preview")
-
-    item = next(iter(webview_state.discover()))
-
-    # Cookies("session-cookie" 13B) + leveldb log(2B)，Cache 的 1 KB 不计入
-    assert webview_state.partition_bytes(item.path) == len("session-cookie") + 2
-
-
-def test_real_uids_and_purposes_survive_json_roundtrip(parts):
-    """uid 里有连字符，别在序列化/拼接时被切断。"""
-    root, _ = parts
-    _make_partition(root, UID_B, "tdoc-import")
-
-    payload = json.dumps([item.name for item in webview_state.discover()])
-
-    assert f"wb-webview-{UID_B}-tdoc-import" in payload
-
-
-@pytest.mark.parametrize("uid", ["..", ".", "", "a/b", "a\\b", "C:evil", "x\x00y"])
-def test_unsafe_uid_never_touches_the_filesystem(parts, uid):
-    """uid 要拼进路径：`..` / 分隔符 / 盘符这类形状一律拒绝。
-
-    uid 来自账号的 external_id，正常是 UUID。这条防线不是为「正常账号」准备的，
-    而是把「拼路径先校验」这条规矩钉住：一旦上游给了奇怪的值，快照读写只会
-    变成空操作，绝不会跑到 `snapshot_root()` 之外去。
-    """
-    root, snapshots = parts
-    _make_partition(root, UID_A, "lexiang-auth")
-
-    assert webview_state.snapshot(uid) == 0
-    assert webview_state.restore(uid) == 0
-    assert webview_state.has_snapshot(uid) is False
-    assert webview_state.snapshot_bytes(uid) == 0
-    assert webview_state.drop(uid) == 0
-
-    # 快照目录一个都没建，正常账号的分区也没被误删
-    assert not snapshots.exists() or list(snapshots.iterdir()) == []
-    assert len(webview_state.discover()) == 1
-
-
-# ---------- 永久删除账号时清理快照 ----------
-
-
-def test_drop_snapshot_removes_only_that_uid(parts):
-    """永久删除账号只清它自己那份快照，别把别人的一起带走。"""
-    root, snapshots = parts
-    _make_partition(root, UID_A, "lexiang-auth")
-    _make_partition(root, UID_B, "lexiang-auth")
-    assert webview_state.snapshot(UID_A) == 1
-    assert webview_state.snapshot(UID_B) == 1
-
-    assert webview_state.drop_snapshot(UID_A) is True
-
-    assert (snapshots / UID_A).exists() is False
-    assert (snapshots / UID_B).is_dir()
-    # 已经没了，再删一次如实返回 False，而不是报错
-    assert webview_state.drop_snapshot(UID_A) is False
-
-
-@pytest.mark.parametrize("uid", ["..", ".", "", "a/b", "a\\b", "C:evil", "x\x00y"])
-def test_drop_snapshot_rejects_unsafe_uid(parts, uid):
-    """拼路径先校验：危险 uid 一律返回 False，不动盘、不抛异常。"""
-    root, snapshots = parts
-    _make_partition(root, UID_A, "lexiang-auth")
-    webview_state.snapshot(UID_A)
-
-    assert webview_state.drop_snapshot(uid) is False
-    # 正常账号的快照没被误删
-    assert (snapshots / UID_A).is_dir()
+def test_unsafe_uid_never_touches_disk(dirs):
+    assert wv.snapshot("..", generation=1) == 0
+    assert wv.read_manifest("..") is None
+    assert wv.has_snapshot("..") is False
+    assert wv.restore_checked("..", generation=1).partitions == 0
+    assert wv.drop_snapshot("..") is False

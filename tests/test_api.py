@@ -183,6 +183,99 @@ def test_switch_corrupt_credential_is_400_not_500(client):
     assert "凭据" in response.json()["detail"]
 
 
+# ---------- 会话同步 ----------
+
+
+def test_sync_status_lists_accounts(client):
+    _seed(client)
+    body = client.get("/api/sync/status", params={"scope": SCOPE}).json()
+    assert body["scope"] == SCOPE
+    assert body["supported"]["conversations"] is True
+    assert body["supported"]["webview"] is True
+    row = body["accounts"][0]
+    assert row["state"] == "idle"
+    assert row["items"] == 0
+    assert row["pending"] == 0
+    assert row["conflicts"] == 0
+
+
+def test_sync_status_requires_implemented_scope(client):
+    response = client.get("/api/sync/status", params={"scope": "qoder-cn"})
+    assert response.status_code == 501
+
+
+def test_sync_capture_then_dry_run_apply(client, monkeypatch):
+    # 会话库读取换成空列表：测试不该碰开发机上真实的 workbuddy.db。
+    import chaierww.domain.sync.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "session_rows_for_user", lambda uid: [])
+    account = _seed(client).account
+
+    captured = client.post(
+        "/api/sync/capture", json={"accountId": account.id, "scope": SCOPE}
+    )
+    assert captured.status_code == 200
+    assert captured.json()["state"] == "ok"
+
+    planned = client.post(
+        "/api/sync/apply", json={"accountId": account.id, "scope": SCOPE}
+    )
+    assert planned.status_code == 200
+    body = planned.json()
+    assert body["dryRun"] is True  # 预演是默认值，不会顺手写客户端
+    assert body["state"] == "planned"
+
+
+def test_sync_capture_without_session_db_is_failed(client, monkeypatch):
+    import chaierww.domain.sync.engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "session_rows_for_user", lambda uid: None)
+    account = _seed(client).account
+
+    body = client.post(
+        "/api/sync/capture", json={"accountId": account.id, "scope": SCOPE}
+    ).json()
+    assert body["state"] == "failed"
+    assert body["error"]
+
+
+def test_sync_capture_trae_is_unavailable(client):
+    account = client.app.state.repository.upsert(
+        scope="trae-cn",
+        external_id="trae-1",
+        display_name="Trae 账号",
+        credential={"blob": "x"},
+    ).account
+
+    body = client.post(
+        "/api/sync/capture", json={"accountId": account.id, "scope": "trae-cn"}
+    ).json()
+    assert body["state"] == "unavailable"
+
+
+def test_sync_resolve_unknown_key_is_400(client):
+    account = _seed(client).account
+    response = client.post(
+        "/api/sync/conflicts/resolve",
+        json={
+            "accountId": account.id,
+            "stableKey": "sk-does-not-exist",
+            "action": "keepSource",
+            "scope": SCOPE,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_sync_items_returns_list(client):
+    account = _seed(client).account
+    body = client.get(
+        "/api/sync/items", params={"accountId": account.id, "scope": SCOPE}
+    ).json()
+    assert body["accountId"] == account.id
+    assert body["items"] == []
+
+
 def test_import_without_scope_auto_detects_logged_in_client(client, monkeypatch):
     """统一号池：点「导入」不传平台，后端探测已登录客户端。"""
     from chaierww.adapters.base import Detection, ImportedAccount
@@ -303,6 +396,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "migrateWorkspaces": True,
         # 网页版登录态（按账号隔离的 Chromium 分区）随切号迁移，默认开。
         "migrateWebview": True,
+        # 会话镜像的后台只读采集，默认开（设置 → 会话同步）。
+        "sessionSyncEnabled": True,
         "autoBackup": True,
         # 全局备份的每日自动备份：默认开，开关在设置 → 备份页。
         "autoGlobalBackup": True,
@@ -322,6 +417,7 @@ def test_preferences_defaults_and_roundtrip(client):
         "migrateProfile": False,
         "migrateWorkspaces": True,
         "migrateWebview": True,
+        "sessionSyncEnabled": True,
         "autoBackup": True,
         "autoGlobalBackup": True,
         "autoGlobalParts": ["config"],
@@ -692,7 +788,7 @@ def test_api_conversation_messages_returns_transcript(client, monkeypatch):
 
 
 def test_schedules_lists_all_tasks(client):
-    """六个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期。"""
+    """七个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期 / 会话镜像。"""
     tasks = client.get("/api/schedules").json()["tasks"]
     assert [item["key"] for item in tasks] == [
         "keepalive",
@@ -701,6 +797,7 @@ def test_schedules_lists_all_tasks(client):
         "travel_depart",
         "travel_claim",
         "credential_refresh",
+        "session_sync",
     ]
     assert {"enabled", "times", "jitterMinutes", "accountIds", "lastRunAt", "nextRunAt"} <= set(
         tasks[0]

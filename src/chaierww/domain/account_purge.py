@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import Account
@@ -72,10 +73,12 @@ class AccountPurger:
         *,
         gateway: GatewayStore,
         rotation: RotationStore,
+        sync: Any = None,
     ) -> None:
         self._service = service
         self._gateway = gateway
         self._rotation = rotation
+        self._sync = sync
 
     def purge(self, account_id: str) -> PurgeOutcome:
         """永久删除一个账号。账号不在回收站/正被使用时抛异常（由调用方映射状态码）。"""
@@ -129,5 +132,12 @@ class AccountPurger:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("清理轮换台账引用失败：%s", exc)
                 warnings.append(f"轮换台账里指向它的记录没清干净：{exc}")
+            if self._sync is not None:
+                # 会话镜像：同步表靠外键级联删掉了，这里补的是「失去引用的正文」。
+                try:
+                    self._sync.forget_account(account.scope, account.id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("清理会话镜像失败：%s", exc)
+                    warnings.append(f"「{account.display_name}」的会话镜像没清干净：{exc}")
             done.append(PurgedAccount(account.id, account.display_name, removed))
         return tuple(done), tuple(warnings)

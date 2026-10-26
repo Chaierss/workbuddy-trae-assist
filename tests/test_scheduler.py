@@ -71,6 +71,7 @@ def test_same_time_point_runs_only_once(tmp_path):
     scheduler.update("checkin", enabled=False)
     scheduler.update("activity_run", enabled=False)
     scheduler.update("credential_refresh", enabled=False)
+    scheduler.update("session_sync", enabled=False)
 
     scheduler.run_due(_at(9, 5))
     assert len(recorder.calls) == 1
@@ -102,6 +103,7 @@ def test_disabled_task_never_runs(tmp_path):
     scheduler.update("keepalive", enabled=False)
     scheduler.update("checkin", enabled=False, times=["09:00"], jitter_minutes=0)
     scheduler.update("credential_refresh", enabled=False)
+    scheduler.update("session_sync", enabled=False)
 
     scheduler.run_due(_at(12, 0))
     assert recorder.calls == []
@@ -115,6 +117,7 @@ def test_multi_times_backfills_only_the_latest_missed(tmp_path):
     scheduler.update("keepalive", enabled=True, times=["06:00", "12:00", "18:00"], jitter_minutes=0)
     scheduler.update("checkin", enabled=False)
     scheduler.update("credential_refresh", enabled=False)
+    scheduler.update("session_sync", enabled=False)
 
     # 18:05 才启动：应该只跑 18:00 这一档。
     scheduler.run_due(_at(18, 5))
@@ -307,6 +310,7 @@ def test_travel_tasks_run_independently_at_their_own_times(tmp_path):
     scheduler.update("keepalive", enabled=False)
     scheduler.update("checkin", enabled=False)
     scheduler.update("credential_refresh", enabled=False)
+    scheduler.update("session_sync", enabled=False)
     scheduler.update("travel_depart", enabled=True, jitter_minutes=0)
     scheduler.update("travel_claim", enabled=True, jitter_minutes=0)
 
@@ -315,3 +319,25 @@ def test_travel_tasks_run_independently_at_their_own_times(tmp_path):
 
     scheduler.run_due(_at(15, 30))
     assert [key for key, _, _ in recorder.calls] == ["travel_depart", "travel_claim"]
+
+
+def test_tick_hook_fires_even_when_no_task_is_due(tmp_path):
+    """心跳钩子不参与任务判定：没有任何任务到点时也要照常触发。"""
+    import threading
+
+    fired = threading.Event()
+    scheduler = Scheduler(
+        tmp_path,
+        executor=_Recorder(),
+        tick_seconds=0.05,
+        now=lambda: _at(3, 0),
+        tick_hook=fired.set,
+    )
+    for spec in scheduler.list():
+        scheduler.update(spec.key, enabled=False)
+
+    scheduler.start()
+    try:
+        assert fired.wait(2.0), "tick_hook 未被调用"
+    finally:
+        scheduler.stop()

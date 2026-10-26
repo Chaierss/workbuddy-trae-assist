@@ -42,6 +42,7 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -62,6 +63,9 @@ LEDGER_SEP = "\x1f"
 
 #: 血缘回溯最大深度（防环）。
 MAX_LINEAGE_DEPTH = 8
+
+#: 台账读改写串行锁：切换引擎与定时同步都会碰它。
+_LEDGER_LOCK = threading.RLock()
 
 
 def _now_ms() -> int:
@@ -749,6 +753,48 @@ def _backup_db(db: Path) -> str | str:
 def _finalize_ledger(doc: LedgerDoc) -> None:
     if doc.entries or doc.lineage:
         _write_ledger(doc)
+
+
+# ---------- 供会话同步复用的公开入口 ----------
+#
+# 同步引擎要按「血统稳定键」索引会话，并在落地时补登台账，否则切换引擎的
+# 去重逻辑会把同步产生的副本当成新会话再复制一遍。这里只暴露两个薄封装，
+# 复制协议本身仍留在 ``copy_sessions_for_switch`` 里，避免两套逻辑漂移。
+
+
+def lineage_root(uid: str, cid: str) -> tuple[str, str]:
+    """返回会话 ``cid`` 的血统根 ``(root_uid, root_cid)``。"""
+    with _LEDGER_LOCK:
+        doc = _read_ledger()
+        return _root_of(cid, uid, doc.reverse(), doc.lineage)
+
+
+def register_copy(
+    source_uid: str,
+    source_cid: str,
+    target_uid: str,
+    new_cid: str,
+    root_uid: str,
+    root_cid: str,
+) -> None:
+    """把同步引擎落地的一条会话补登进复制台账（幂等）。"""
+    with _LEDGER_LOCK:
+        doc = _read_ledger()
+        doc.entries[_ledger_key(source_uid, target_uid, source_cid)] = new_cid
+        doc.lineage[new_cid] = (root_uid, root_cid)
+        _write_ledger(doc)
+
+
+def backup_session_db() -> str | None:
+    """整库备份（同步引擎用）；失败返回 ``None``，由调用方如实报告。"""
+    db = workbuddy_db_path()
+    if not db.is_file():
+        return None
+    result = _backup_db(db)
+    if result and Path(result).is_file():
+        return result
+    return None
+
 
 
 # ---------- 重复检测与清理 ----------
