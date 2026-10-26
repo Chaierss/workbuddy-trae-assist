@@ -6,9 +6,36 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
-## [未发布]
+## [0.7.0] - 2026-10-26
 
-本轮安全自查的收尾：日志与外发材料里的个人标识、仓库侧的推送闸门。
+多账号会话同步（一期）：同一台机器上、同一平台的不同账号之间镜像聊天会话与网页版登录态，
+切号后接着聊。数据库升级到 v4，老库自动迁移。
+
+### 新增
+
+- **多账号会话同步（一期）**：同机、同平台的账号之间镜像聊天会话——采到的正文按内容
+  哈希去重存一份，切号时自动补进目标账号的客户端，源端续写只追加尾段，删除会跟着软删；
+  两端都改过的会话保留本地并另存「冲突副本」，可在设置 → 会话同步里逐条选择
+  保留本地 / 用镜像覆盖 / 两者都留。
+- **网页版快照代际校验**：快照写 `manifest.json`。铺回前比对 uid（不符直接拒绝，
+  防串号）；代际不符只警告并照常铺回，避免一次 token 续期就把用户赶去重登网页版。
+- **账号页同步徽标 + 设置 → 会话同步页**：显示「已镜像 N / 待应用 M / 冲突 K」，
+  提供采集（只读）、预演、应用（需退出客户端，写前备份）与冲突处理。总开关
+  `sessionSyncEnabled` 控制自动采集；客户端退出瞬间会补采一次。
+- **永久删除账号会一并清掉会话镜像**：同步表随账号级联删除，失去引用的正文由 CAS 回收。
+
+### 变更
+
+- 数据库升级到 **v4**：`accounts.credential_generation` 与 `sync_state` / `sync_items` /
+  `sync_jobs` 三张表，老库自动迁移、老账号代际从 0 开始。
+- 账号切换的会话迁移改走同步内核（`sync` 未注入时仍保留旧路径）；Trae 等没有本地
+  会话库的平台状态明确显示「不支持」，不误报成功。
+- **Swagger UI 不再把授权信息留在浏览器。** `persistAuthorization` 关掉；
+  本机页面本来就靠同源 Cookie 自动鉴权，不依赖 localStorage。
+- **仓库多了两道闸门。** `scripts/check_secrets.py` 接入 `repo-guard` CI，
+  扫已入库文件里的数据库、日志、备份与假密钥；新增 `.githooks/pre-push`
+  只允许推 `main`（`master` / `backup/*` 含早年内部文档）。
+  新克隆的机器需执行一次 `git config core.hooksPath .githooks`。
 
 ### 修复
 
@@ -17,15 +44,6 @@
   诊断包里的日志尾部出包前再洗一遍，旧日志也覆盖。
 - **网关请求日志同步脱敏。** `accountName` / `skipped` / `promptPreview` 在落盘与回读
   两端打码，历史记录一并处理。
-
-### 变更
-
-- **Swagger UI 不再把授权信息留在浏览器。** `persistAuthorization` 关掉；
-  本机页面本来就靠同源 Cookie 自动鉴权，不依赖 localStorage。
-- **仓库多了两道闸门。** `scripts/check_secrets.py` 接入 `repo-guard` CI，
-  扫已入库文件里的数据库、日志、备份与假密钥；新增 `.githooks/pre-push`
-  只允许推 `main`（`master` / `backup/*` 含早年内部文档）。
-  新克隆的机器需执行一次 `git config core.hooksPath .githooks`。
 
 ## [0.6.1] - 2026-10-26
 
