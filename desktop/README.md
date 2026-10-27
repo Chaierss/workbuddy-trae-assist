@@ -23,36 +23,35 @@
 
 - **后端**：`python scripts/build_backend.py` 用 PyInstaller 打成单文件（Windows 带 `.exe`，其它平台无后缀）
 - **前端**：`web/dist` 构建产物，通过 `extraResources` 打进安装包，后端用 `CHAIERWW_WEBUI` 环境变量定位
-- **更新**：`electron-updater` 走 GitHub Releases，**先问用户再下载**，详见下节
+- **更新**：`electron-updater` 走 GitHub Releases，自动检查后**静默下载、完成再提示**，详见下节
 
 ## 检查更新是怎么走完一圈的
 
 主进程是唯一的真相来源，前端只负责画状态：
 
 ```
-启动 8s ──► autoCheck 开关开着？ ──否──► 什么都不做
+启动后（默认延迟 30s，不对用户展示）──► autoCheck 开关开着？ ──否──► 什么都不做
                  │是
                  ▼
            checkForUpdates(自动)
                  │
                  ├─ 无新版本 → 静默（不打扰）
-                 └─ 有新版本 → 只更新托盘 tooltip / 侧栏小圆点 / 设置页状态
+                 └─ 有新版本 → 直接静默下载（不再先问「要不要下载」）
                                   │
-                             用户点开（托盘菜单「查看更新」/ 设置页 / 手动检查）
+                          download-progress ──► 设置页进度 / 托盘 tooltip / 侧栏小圆点
                                   │
-                             自绘弹窗：release notes + [立即下载][稍后][跳过此版本]
-                                  │
-                          download-progress ──► 弹窗进度 + 速率 + 剩余时间
-                                  │
-                          update-downloaded ──► 弹窗「立即重启并安装 / 稍后重启」
+                          update-downloaded ──► 窗口可见：弹窗「重启并安装 / 稍后」
+                                                窗口不可见：只亮侧栏小圆点与托盘 tooltip
 ```
+
+跳过某个版本后，自动路径既不下载也不亮标；手动检查仍会弹窗提示。
 
 两条入口共用这一个状态机：
 
 | 入口 | 行为 |
 | --- | --- |
-| 启动自动检查 | 查到也**不弹窗**，只在托盘与设置页提示；查不到 / 出错都静默。可在设置里关掉 |
-| 设置 → 常规 → 版本与更新 | 手动：明确告诉你「已是最新」或失败原因，带进度条、速率、剩余时间和「重启并安装」 |
+| 启动自动检查 | 有新版本直接静默下载；完成才提示（窗口可见弹窗，不可见只亮托盘与侧栏）；出错静默。可在设置里关掉 |
+| 设置 → 常规 → 版本与更新 | 手动：明确告诉你「已是最新」或失败原因，带进度条、速率、剩余时间和「重启并安装」；手动检查到新版仍先问再下载 |
 
 **弹窗是自绘的，不再用系统原生 `dialog.showMessageBox`**：原生框按钮最多两个、塞不进
 release notes、也没有进度条。现在由 `web/src/components/UpdateDialog.vue` 渲染，主进程只推
@@ -202,8 +201,8 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron
 ## 自动更新发布
 
 1. 改 `desktop/package.json` 的 `version`
-2. 打标签（`git tag v0.9.1 && git push origin v0.9.1`）→ CI 构建并上传 Release
-3. 旧版客户端启动后自动检查 → 弹窗询问 → 下载 → 重启升级
+2. 打标签（`git tag v0.9.2 && git push origin v0.9.2`）→ CI 构建并上传 Release
+3. 旧版客户端启动后自动检查 → 静默下载 → 完成才提示 → 重启升级
 
 发布通道配置在 `desktop/package.json` 的 `build.publish`（GitHub: `Chaierss/workbuddy-trae-assist`）。
 这个仓库名同时决定了安装包里 `app-update.yml` 指向哪里——写错不会报错，只会静默地永远查不到更新。

@@ -3,9 +3,10 @@
 ;
 ; 干什么：
 ;   1. 把 chaierww-backend.exe 也收掉（见下方 preInit / customUnInit 的说明）
-;   2. 卸载前弹一次「数据不会被删」的提示，允许取消（customUnInit 开头）
+;   2. 卸载确认与「数据会保留」说明放在卸载向导的欢迎页（customUnInit 只收后端进程）
 ;   3. 定各个向导页的文案（欢迎页 / 目录页 / 完成页），并把欢迎页补回来
 ;   4. 跳过「为所有用户 / 仅为我安装」那一页（customInstallMode）
+;   5. 记住上次安装位置，卸载后重装仍默认落在原目录（customInstall / preInit）
 ;
 ; 注意：本文件被前插在 !include MUI2.nsh 之前，只能用 NSIS 核心指令
 ; （IfSilent / IntCmp / MessageBox / StrCpy…），不能用 LogicLib 的 ${If} 语法。
@@ -39,7 +40,8 @@
   !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的多个账号收在一处：一键切号、签到积分、账号体检、用量统计。$\r$\n$\r$\n只为当前用户安装，不需要管理员权限，也不写系统目录。$\r$\n账号、凭据、备份与日志都在 $PROFILE\.chaierww —— 升级和卸载都不会动它。"
 
   ; 目录页：用户最容易把「安装目录」当成「数据目录」，这里当场分开讲。
-  !define MUI_DIRECTORYPAGE_TEXT_TOP "程序文件装到这里（约 130 MB）。$\r$\n账号数据不在这里，在 $PROFILE\.chaierww；换安装位置不影响已有账号。"
+  ; 「默认沿用上次位置」由下方 customInstall / preInit 的 LastInstallDir 保证。
+  !define MUI_DIRECTORYPAGE_TEXT_TOP "程序文件装到这里（约 130 MB）。默认沿用上次安装位置，要换可以直接改。$\r$\n账号数据不在这里，在 $PROFILE\.chaierww；换安装位置不影响已有账号。"
   !define MUI_DIRECTORYPAGE_TEXT_DESTINATION "安装到："
 
   ; 完成页：默认文本区只有 40u（约 3 行），长文案会被裁掉，所以打开 TEXT_LARGE（60u）。
@@ -49,6 +51,17 @@
   ; 完成页底部的小链接（点击时按运行期展开，所以 $INSTDIR 指向真实安装位置）。
   !define MUI_FINISHPAGE_LINK "打开使用说明（INSTALL.txt）"
   !define MUI_FINISHPAGE_LINK_LOCATION "$INSTDIR\INSTALL.txt"
+
+  ; 解压中误点「取消」时先确认一次，避免留下半套文件。
+  !define MUI_ABORTWARNING
+
+  ; —— 卸载向导文案 ——
+  ; 模板只插「欢迎 / 卸载中 / 完成」三页；确认交给欢迎页，不再额外弹 MessageBox。
+  ; 静默卸载（更新器带 /S）本来就不显示页面，因此这里不会干扰自动更新。
+  !define MUI_UNWELCOMEPAGE_TITLE "卸载 chaierww"
+  !define MUI_UNWELCOMEPAGE_TEXT "这次只删除程序文件、桌面快捷方式和开始菜单项。$\r$\n$\r$\n会保留：$PROFILE\.chaierww 里的账号、凭据、备份、日志与网页版登录态；$APPDATA\chaierww 里的更新偏好。$\r$\n重装后旧账号会自动回来。要彻底清干净，请在卸载完成后手动删除 $PROFILE\.chaierww。"
+  !define MUI_UNABORTWARNING
+  !define MUI_UNFINISHPAGE_TEXT "chaierww 已卸载。$\r$\n$\r$\n账号、凭据与备份仍保留在 $PROFILE\.chaierww，重装后会回来；要彻底清理请手动删除该目录。"
 !endif
 
 ; 跳过「Choose Installation Options / 为所有用户还是仅为我」这一页。
@@ -73,7 +86,36 @@
   !insertmacro MUI_PAGE_WELCOME
 !macroend
 
+; 记住这次装到哪。
+;
+; electron-builder 卸载时会把 HKCU\Software\<APP_GUID> 整键删掉（InstallLocation
+; 就在里面），重装读不到就回落到 $LocalAppData\Programs\chaierww —— 这是「重装
+; 路径被改回默认」的根因。这里把最终路径另存到一个卸载不会动的键里；
+; preInit 在重装时再回填回去。只存路径字符串，不放任何账号数据。
+!macro customInstall
+  WriteRegStr HKCU "Software\Chaierss\chaierww" LastInstallDir "$INSTDIR"
+!macroend
+
 !macro preInit
+  ; —— 重装沿用上次安装位置 ——
+  ;
+  ; 必须在这里（早于 initMultiUser 和安装范围页的 PRE 回调）回填官方键：
+  ; 安装范围页虽然被 customInstallMode 跳过，PRE 回调里仍会再调一次
+  ; setInstallModePerUser，只在 customInit 里改 $INSTDIR 会被它重置。
+  ;
+  ; 只回填 InstallLocation，不写 UninstallString —— 否则安装器会去找一个
+  ; 已经不存在的旧卸载器。BUILD_UNINSTALLER 那次编译不执行，避免污染构建机。
+  !ifndef BUILD_UNINSTALLER
+    ReadRegStr $R0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+    StrCmp $R0 "" 0 cw_preinit_path_ready
+    ReadRegStr $R0 HKCU "Software\Chaierss\chaierww" LastInstallDir
+    StrCmp $R0 "" 0 cw_preinit_path_write
+    Goto cw_preinit_path_ready
+    cw_preinit_path_write:
+      WriteRegStr HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation "$R0"
+    cw_preinit_path_ready:
+  !endif
+
   ; tasklist 加 /FI 没匹配到时退出码仍是 0，所以拿 find 的退出码判断
   ; （找到 → 0，没找到 → 1）。
   nsExec::ExecToStack '"$SYSDIR\cmd.exe" /c tasklist /FI "IMAGENAME eq chaierww.exe" /NH | "$SYSDIR\find.exe" /I "chaierww.exe"'
@@ -97,18 +139,12 @@
 !macroend
 
 !macro customUnInit
-  ; 卸载前先说明「数据不会被删」，并允许取消。
+  ; 卸载确认交给卸载向导的欢迎页（MUI_UNWELCOMEPAGE_TEXT 里已写明删什么、留什么），
+  ; 这里不再弹 MessageBox —— 那会让用户先确认一次、进向导再点一次，很啰嗦。
+  ; 静默卸载（electron-updater 带 /S）本来就不显示页面，因此不会干扰自动更新。
   ;
-  ; 关键：必须用 IfSilent（核心指令）而不是 LogicLib 的 ${IfNot} ${Silent}——
-  ; 本文件被 electron-builder 前插在 !include MUI2.nsh 之前，此时 LogicLib 还没进来，
-  ; 用 ${IfNot} 会直接编译失败。静默卸载（electron-updater 自动更新带 /S）绝不能弹框，
-  ; 否则升级会永久卡在后端卸载这一步。
-  IfSilent cw_un_continue 0
-  MessageBox MB_OKCANCEL|MB_ICONINFORMATION "卸载只删除程序文件、快捷方式和开始菜单项。$\r$\n$\r$\n账号、凭据、备份、日志与网页版登录态都在 $PROFILE\.chaierww，会被保留，重装后旧数据会回来。要彻底清干净，卸载后手动删除该目录。$\r$\n$\r$\n更新偏好（含「跳过的版本」）在 $APPDATA\chaierww。$\r$\n$\r$\n继续卸载？" /SD IDOK IDOK cw_un_continue
-  Quit
-  cw_un_continue:
-
-  ; —— 以下为原有「收掉后端进程」逻辑，原样保留 ——
+  ; 只收掉后端进程：PyInstaller --onefile 是「引导器 + 子进程」两层，
+  ; 旧版被强杀时子进程会变孤儿并锁住安装目录里的文件。
   nsExec::Exec '"$SYSDIR\cmd.exe" /c taskkill /F /IM "chaierww-backend.exe"'
   Pop $0
   Sleep 400

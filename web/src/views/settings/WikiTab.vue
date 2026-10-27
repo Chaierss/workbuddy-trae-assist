@@ -3,13 +3,17 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { FileText, Loader2, RefreshCw } from "lucide-vue-next";
 import { api, formatBytes, formatTime, type DocContent, type DocEntry } from "../../api";
+import { canShow } from "../../lib/devMode";
 import { t } from "../../lib/i18n";
 import { md, isExternalHref, resolveDocHref } from "../../lib/markdown";
 
 /**
  * Wiki = 仓库 docs/ 下的 Markdown，目录与正文都从后端接口读。
  * 不写死文件清单：新增一个 .md 刷新即出现，不用改前端。
+ *
+ * 仓库路径只在开发模式展示：线上用户看到的是文档本身，不是项目结构。
  */
+const showSourcePath = canShow("wikiSourcePath");
 const route = useRoute();
 const router = useRouter();
 
@@ -156,7 +160,9 @@ onMounted(async () => {
             @click="select(file.path)"
           >
             <FileText :size="13" class="mt-0.5 shrink-0 opacity-60" />
-            <span class="min-w-0 flex-1 truncate" :title="file.path">{{ file.title }}</span>
+            <span class="min-w-0 flex-1 truncate" :title="showSourcePath ? file.path : file.title">
+              {{ file.title }}
+            </span>
           </button>
         </div>
       </div>
@@ -169,7 +175,9 @@ onMounted(async () => {
         <h2 class="text-body font-semibold text-ink">
           {{ content?.title ?? t("settings.wiki.selectDoc") }}
         </h2>
-        <span v-if="content" class="font-mono text-caption text-muted">{{ content.path }}</span>
+        <span v-if="content && showSourcePath" class="font-mono text-caption text-muted">
+          {{ content.path }}
+        </span>
         <span v-if="meta" class="ml-auto text-caption text-muted">
           {{ formatTime(meta.updatedAt) }} · {{ formatBytes(meta.size) }}
         </span>

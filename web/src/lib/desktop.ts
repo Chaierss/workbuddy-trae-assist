@@ -55,7 +55,7 @@ export interface DesktopUpdateState {
 
 /** 更新偏好，存在主进程的 userData/update-prefs.json。 */
 export interface DesktopUpdatePrefs {
-  /** 启动 8 秒后是否自动检查；关掉后只有手动点「检查更新」才查。 */
+  /** 启动后是否自动检查并静默下载；关掉后只有手动点「检查更新」才查。 */
   autoCheck: boolean;
   /** 用户主动跳过的版本号；null = 没跳过。 */
   skippedVersion: string | null;

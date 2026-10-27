@@ -1,0 +1,14 @@
+[
+  { "name": "README.md", "title": "文档入口" },
+  { "name": "QUICKSTART.md", "title": "快速开始" },
+  { "name": "QUICKSTART.en.md", "title": "Quick start" },
+  { "name": "FEATURES.md", "title": "功能清单" },
+  { "name": "PLAN.md", "title": "迭代计划" },
+  { "name": "PLAN-V2.md", "title": "计划 V2" },
+  { "name": "SPEC-M1a.md", "title": "M1a 规格" },
+  { "name": "COMPETITORS.md", "title": "竞品分析" },
+  { "name": "COMMERCIAL-RISK.md", "title": "商业风险" },
+  { "name": "LEGAL-RISK.md", "title": "法律风险" },
+  { "name": "policies/DISCLAIMER.md", "title": "免责声明" },
+  { "name": "policies/TELEMETRY.md", "title": "遥测说明" }
+]

@@ -1,0 +1,13 @@
+{
+  "$comment": "keel 的扫描范围。路径一律相对仓库根、正斜杠。",
+  "version": 1,
+  "consoleDir": "keel",
+  "srcDir": "web/src",
+  "scanDirs": ["web/src", "src", "desktop"],
+  "componentsDirs": ["web/src/components"],
+  "wikiDir": "docs",
+  "sourceExts": [".vue", ".ts", ".js"],
+  "excludeDirs": ["node_modules", "dist", "build", ".git", "coverage", ".venv", "__pycache__"],
+  "testPatterns": [".test.", ".spec.", ".stories."],
+  "demoSuffix": ".demo"
+}

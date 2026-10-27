@@ -9,8 +9,9 @@
  * `stores/update.ts` 这个单例中转（弹窗和这张卡片看到同一份状态）。本组件
  * 只负责画，不再自己订阅 `update:state`。
  *
- * 完整链路：启动 8 秒（可关）→ 静默查 → 托盘与这里提示 → 弹窗确认下载（带进度）→
- * 下载完弹窗问重启 → `quitAndInstall`。用户选「稍后」的话，退出应用时自动装上
+ * 完整链路：启动后静默查（可关）→ 有新版本直接静默下载（带进度）→
+ * 完成才提示：窗口可见时弹窗问重启，不可见就只亮侧栏小圆点与托盘 tooltip →
+ * `quitAndInstall`。用户选「稍后」的话，退出应用时自动装上
  * （主进程 `autoInstallOnAppQuit = true`）。
  */
 import { computed, nextTick, ref, watch } from "vue";

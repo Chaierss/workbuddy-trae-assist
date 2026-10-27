@@ -1781,10 +1781,13 @@ export const api = {
     }),
 
   // 文档与接口清单都是后端运行期读出来的，新增 md 或新增路由后刷新即可见。
-  docs: () => request<{ root: string | null; files: DocEntry[] }>("/api/docs"),
+  // no-store：Wiki 的判据是「改完文件刷新即生效」，浏览器缓存在这里会直接破坏它。
+  docs: () => request<{ root: string | null; files: DocEntry[] }>("/api/docs", { cache: "no-store" }),
 
   docContent: (path: string) =>
-    request<DocContent>(`/api/docs/content?path=${encodeURIComponent(path)}`),
+    request<DocContent>(`/api/docs/content?path=${encodeURIComponent(path)}`, {
+      cache: "no-store",
+    }),
 
   /** 运行期接口规格：接口文档页直接渲染它，不再依赖 Swagger UI 静态资源。 */
   openapi: () => request<OpenApiSpec>("/api/openapi.json"),

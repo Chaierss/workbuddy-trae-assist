@@ -567,7 +567,15 @@ const updateState = {
  */
 let manualCheck = false;
 
-/** 8 秒自动检查的定时器。留着句柄才能在退出时清掉，避免 timer 撑着事件循环。 */
+/**
+ * 启动后静默检查的延迟。
+ *
+ * 30 秒只为错开窗口初始化（渲染、登录态、客户端检测），**不对用户展示**：
+ * 用户只需要知道「打开开关会自动检查并下载」，具体等几秒是实现细节。
+ */
+const AUTO_CHECK_DELAY_MS = 30_000;
+
+/** 启动静默检查的定时器。留着句柄才能在退出 / 关开关时清掉，避免 timer 撑着事件循环。 */
 let autoCheckTimer = null;
 
 /** 下载是否在进行中，防止弹窗和设置页同时点出两次 downloadUpdate。 */
@@ -648,8 +656,7 @@ function sendPrompt(kind) {
  * 「有新版本了」要不要打扰用户。
  *
  * 规则：窗口在屏幕上（且没最小化）才发弹窗事件；在托盘里就只更新 tooltip 和菜单，
- * 等用户自己点开。8 秒后的自动检查可能撞上开会、演示、全屏视频，任何时候
- * 抢焦点都是负收益。
+ * 等用户自己点开。自动检查可能撞上开会、演示、全屏视频，任何时候抢焦点都是负收益。
  */
 function maybeNotify(kind) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -732,7 +739,8 @@ async function checkForUpdates({ manual = false } = {}) {
 }
 
 function setupAutoUpdater() {
-  // autoDownload 关闭：先问用户「要不要更新」，而不是闷头下载几百兆。
+  // autoDownload 关闭：下载时机由 update-available 决定 —— 自动检查直接静默下，
+  // 手动检查先弹窗问；这样「跳过这个版本」仍能拦住下载。
   autoUpdater.autoDownload = false;
   // 用户选择「稍后」时，退出应用时自动装上，不用再回来点一次。
   autoUpdater.autoInstallOnAppQuit = true;
@@ -751,9 +759,19 @@ function setupAutoUpdater() {
       errorKind: '',
       message: '',
     });
-    // 跳过的版本：自动检查就当没看见（不弹、不亮徽标、不改 tooltip）。
+    // 跳过的版本：自动检查就当没看见（不下载、不弹、不亮徽标）。
     // 手动检查照样弹 —— 用户主动问「有没有新版」，静默反而像坏了。
-    if (!skipped || manualCheck) sendPrompt('available');
+    if (skipped) {
+      if (manualCheck) sendPrompt('available');
+      return;
+    }
+    if (manualCheck) {
+      sendPrompt('available');
+      return;
+    }
+    // 自动检查：直接静默下载。用户已经开了「自动检查更新」，
+    // 不该再让他点一次「下载」；完成时才提示（见 update-downloaded）。
+    void startDownload();
   });
 
   autoUpdater.on('update-not-available', () => {
@@ -803,10 +821,10 @@ function setupAutoUpdater() {
     if (manualCheck || downloading) maybeNotify('error');
   });
 
-  // 启动 8 秒后静默查一次。查不到就算了，查到也只在托盘与设置页提示。
+  // 启动后静默查一次并自动下载；完成才提示。
   // 用户可以在「设置 → 常规」里关掉自动检查，关掉后只有手动点才查。
   if (updatePrefs.autoCheck) {
-    autoCheckTimer = setTimeout(() => { void checkForUpdates({ manual: false }); }, 8000);
+    autoCheckTimer = setTimeout(() => { void checkForUpdates({ manual: false }); }, AUTO_CHECK_DELAY_MS);
   }
 }
 
@@ -830,7 +848,19 @@ ipcMain.handle('update:install', () => {
 });
 ipcMain.handle('update:get-prefs', () => updatePrefs);
 ipcMain.handle('update:set-prefs', (_event, patch) => {
+  const wasAuto = updatePrefs.autoCheck;
   const next = saveUpdatePrefs(patch || {});
+  if (wasAuto !== next.autoCheck) {
+    if (autoCheckTimer) {
+      clearTimeout(autoCheckTimer);
+      autoCheckTimer = null;
+    }
+    if (next.autoCheck) {
+      // 刚打开开关就静默查一次并下载，让开关立刻有反馈；
+      // 等 2 秒是为了不在点击瞬间抢带宽。
+      autoCheckTimer = setTimeout(() => { void checkForUpdates({ manual: false }); }, 2000);
+    }
+  }
   // 开关状态变了，托盘里那行「查看更新」要跟着消失或出现。
   refreshTrayStatus();
   return next;
@@ -1021,7 +1051,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
-  // 定时器不清掉的话，退出前那 8 秒内计时还在跑，可能在拆后端的同时去查更新。
+  // 定时器不清掉的话，退出前那段延迟里计时还在跑，可能在拆后端的同时去查更新。
   if (autoCheckTimer) {
     clearTimeout(autoCheckTimer);
     autoCheckTimer = null;

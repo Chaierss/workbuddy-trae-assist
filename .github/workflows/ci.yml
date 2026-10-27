@@ -56,6 +56,18 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  keel:
+    name: Keel gates (four-pillar + preflight)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # 零依赖脚本，不需要 npm ci：四件套完整性与静态漏洞扫描都只读仓库文件。
+      - run: node keel/console-check.mjs --strict
+      - run: node keel/preflight-scan.mjs --strict
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest

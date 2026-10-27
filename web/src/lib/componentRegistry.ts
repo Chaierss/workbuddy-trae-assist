@@ -1,17 +1,25 @@
 import type { MessageKey } from "./i18n";
+import rawRegistry from "../../../keel/components.json";
 
 /**
  * 前端通用组件注册表 —— 设置 → 组件 页的唯一数据源。
  *
- * 约定：在 `web/src/components/` 下新建通用组件后，必须在这里 `registerComponent`
- * 一次，否则设置页看不到它（新增组件 = 新建文件 + 登记）。这样做是为了让
- * 「现在有哪些通用组件、各自负责什么」有一份可读的清单，而不是靠翻目录猜。
+ * 真相源是仓库里的 `keel/components.json`（纯文本、可 diff），这里只做一次
+ * 类型收敛。增删组件改 JSON，页面刷新即变，不需要同步第二份清单。
  *
- * 只收录可复用的通用组件；`views/` 下的页面级组件不属于这里。
+ * 约定：`web/src/components/` 下的每个 `.vue` 都必须登记，否则
+ * `node keel/console-check.mjs --strict` 会直接报错，页面上也会列出未登记名单。
  * 文案走 i18n，`summaryKey` 由 `locales/settings.ts` 提供中英两份。
+ * `views/` 下的页面级组件不属于这里。
  */
 
-export type ComponentCategory = "layout" | "display" | "form" | "feedback" | "container";
+export type ComponentCategory =
+  | "layout"
+  | "display"
+  | "form"
+  | "feedback"
+  | "container"
+  | "business";
 
 export type ComponentStatus = "stable" | "beta" | "deprecated";
 
@@ -33,167 +41,27 @@ export const COMPONENT_CATEGORIES: ComponentCategory[] = [
   "form",
   "feedback",
   "container",
+  "business",
 ];
 
 export function componentCategoryKey(category: ComponentCategory): MessageKey {
   return `settings.components.category.${category}`;
 }
 
-const registry = new Map<string, ComponentDef>();
-
-export function registerComponent(def: ComponentDef): void {
-  if (registry.has(def.id)) {
-    throw new Error(`组件已登记：${def.id}`);
-  }
-  registry.set(def.id, def);
-}
+const ids = new Set<string>();
+const registry: ComponentDef[] = rawRegistry.map((entry) => {
+  if (ids.has(entry.key)) throw new Error(`组件已登记：${entry.key}`);
+  ids.add(entry.key);
+  return {
+    id: entry.key,
+    name: entry.name,
+    path: entry.path,
+    category: entry.category as ComponentCategory,
+    summaryKey: entry.summaryKey as MessageKey,
+    status: entry.status as ComponentStatus | undefined,
+  };
+});
 
 export function listComponents(): ComponentDef[] {
-  return [...registry.values()];
+  return registry;
 }
-
-/* ---------- 登记区：新增组件加在这里 ---------- */
-
-registerComponent({
-  id: "app-shell",
-  name: "AppShell",
-  path: "web/src/components/AppShell.vue",
-  category: "layout",
-  summaryKey: "settings.components.summary.appShell",
-});
-
-registerComponent({
-  id: "sidebar-rail",
-  name: "SidebarRail",
-  path: "web/src/components/SidebarRail.vue",
-  category: "layout",
-  summaryKey: "settings.components.summary.sidebarRail",
-});
-
-registerComponent({
-  id: "section-card",
-  name: "SectionCard",
-  path: "web/src/components/SectionCard.vue",
-  category: "container",
-  summaryKey: "settings.components.summary.sectionCard",
-});
-
-registerComponent({
-  id: "account-card",
-  name: "AccountCard",
-  path: "web/src/components/AccountCard.vue",
-  category: "display",
-  summaryKey: "settings.components.summary.accountCard",
-});
-
-registerComponent({
-  id: "stat-card",
-  name: "StatCard",
-  path: "web/src/components/StatCard.vue",
-  category: "display",
-  summaryKey: "settings.components.summary.statCard",
-});
-
-registerComponent({
-  id: "animated-number",
-  name: "AnimatedNumber",
-  path: "web/src/components/AnimatedNumber.vue",
-  category: "display",
-  summaryKey: "settings.components.summary.animatedNumber",
-});
-
-registerComponent({
-  id: "status-pill",
-  name: "StatusPill",
-  path: "web/src/components/StatusPill.vue",
-  category: "display",
-  summaryKey: "settings.components.summary.statusPill",
-});
-
-registerComponent({
-  id: "empty-state",
-  name: "EmptyState",
-  path: "web/src/components/EmptyState.vue",
-  category: "display",
-  summaryKey: "settings.components.summary.emptyState",
-});
-
-registerComponent({
-  id: "toggle-switch",
-  name: "ToggleSwitch",
-  path: "web/src/components/ToggleSwitch.vue",
-  category: "form",
-  summaryKey: "settings.components.summary.toggleSwitch",
-});
-
-registerComponent({
-  id: "select-menu",
-  name: "SelectMenu",
-  path: "web/src/components/SelectMenu.vue",
-  category: "form",
-  summaryKey: "settings.components.summary.selectMenu",
-});
-
-registerComponent({
-  id: "segmented-control",
-  name: "SegmentedControl",
-  path: "web/src/components/SegmentedControl.vue",
-  category: "form",
-  summaryKey: "settings.components.summary.segmentedControl",
-});
-
-registerComponent({
-  id: "confirm-dialog",
-  name: "ConfirmDialog",
-  path: "web/src/components/ConfirmDialog.vue",
-  category: "feedback",
-  summaryKey: "settings.components.summary.confirmDialog",
-});
-
-registerComponent({
-  id: "note-dialog",
-  name: "NoteDialog",
-  path: "web/src/components/NoteDialog.vue",
-  category: "feedback",
-  summaryKey: "settings.components.summary.noteDialog",
-});
-
-registerComponent({
-  id: "switch-dialog",
-  name: "SwitchDialog",
-  path: "web/src/components/SwitchDialog.vue",
-  category: "feedback",
-  summaryKey: "settings.components.summary.switchDialog",
-});
-
-registerComponent({
-  id: "oauth-login-dialog",
-  name: "OAuthLoginDialog",
-  path: "web/src/components/OAuthLoginDialog.vue",
-  category: "feedback",
-  summaryKey: "settings.components.summary.oauthLoginDialog",
-});
-
-registerComponent({
-  id: "update-dialog",
-  name: "UpdateDialog",
-  path: "web/src/components/UpdateDialog.vue",
-  category: "feedback",
-  summaryKey: "settings.components.summary.updateDialog",
-});
-
-registerComponent({
-  id: "command-palette",
-  name: "CommandPalette",
-  path: "web/src/components/CommandPalette.vue",
-  category: "feedback",
-  summaryKey: "settings.components.summary.commandPalette",
-});
-
-registerComponent({
-  id: "open-api-viewer",
-  name: "OpenApiViewer",
-  path: "web/src/components/OpenApiViewer.vue",
-  category: "display",
-  summaryKey: "settings.components.summary.openApiViewer",
-});

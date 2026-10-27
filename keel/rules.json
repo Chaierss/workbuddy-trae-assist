@@ -1,0 +1,208 @@
+{
+  "version": "2026-10-27",
+  "projectName": "workbuddy-trae-assist",
+  "$comment": "规则与术语的唯一真相源。title / summary / detail 存的是 i18n key（中英文案在 web/src/lib/locales/settings.ts），页面按当前语言解析；导出的 Markdown 也在这里解析成可读文本。severity: must = 强制，should = 约定。初始规则必须含 P-01（设计优雅原则）与 S-01（上线前扫描），缺了它们其余规则只是细节堆砌。",
+  "pageModes": [
+    {
+      "key": "focus",
+      "name": "专注模式",
+      "english": "Focus Mode",
+      "aliases": ["沉浸模式", "全屏工作台"],
+      "definition": "进入设置、网关这类模块后隐藏全局菜单，模块自持左栏与内容区，顶部保留「返回主站」出口。它是可深链、可刷新的整屏路由态。",
+      "appliesTo": ["系统设置", "网关"],
+      "signal": "全局菜单隐藏 + 模块左栏 240px + 顶部「返回主站」",
+      "codeHint": "route.meta.focus = 'settings' | 'gateway'，壳层据此切换布局。",
+      "avoid": [
+        "不要叫「弹窗 / 抽屉 / 全屏弹窗」——它是整屏路由态",
+        "不要在用户可见的菜单或文案里出现「专注模式」——这是内部设计语言（见 naming-focus-mode）",
+        "不要把它理解成「只是把菜单折叠起来」"
+      ]
+    },
+    {
+      "key": "standard",
+      "name": "标准模式",
+      "english": "Standard Mode",
+      "aliases": ["主菜单模式", "常规页"],
+      "definition": "全局菜单常驻左侧，右侧为单一内容区；用户在主菜单下按模块浏览或操作，导航始终可见。",
+      "appliesTo": ["概览", "号池", "活动", "用量"],
+      "signal": "全局菜单常驻 + 右侧内容区滚动",
+      "codeHint": "普通路由：meta.focus 缺省，壳层保留全局菜单。",
+      "avoid": [
+        "不要叫「一级页 / 二级页」",
+        "不要把它和亮暗主题混为一谈——主题是外观，模式是信息边界"
+      ]
+    }
+  ],
+  "categories": [
+    { "key": "release", "label": "上线流程", "description": "什么时候可以发、发之前必须做什么。" },
+    { "key": "naming", "label": "命名与文案", "description": "项目名、术语与用户可见文案的硬约束。" },
+    { "key": "scope", "label": "功能范围", "description": "功能归属与入口数量，防止同一能力出现多个开关。" },
+    { "key": "design", "label": "设计规范", "description": "令牌、层级、动效与优雅设计原则。" },
+    { "key": "engineering", "label": "工程约定", "description": "文档自动刷新、组件登记等代码层约定。" },
+    { "key": "data", "label": "数据与安全", "description": "凭据、备份与敏感数据的处理边界。" }
+  ],
+  "rules": [
+    {
+      "id": "S-01",
+      "category": "release",
+      "severity": "must",
+      "title": "settings.rules.items.releaseSecurityGate.title",
+      "summary": "settings.rules.items.releaseSecurityGate.title",
+      "detail": "settings.rules.items.releaseSecurityGate.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "release-version-bump",
+      "category": "release",
+      "severity": "must",
+      "title": "settings.rules.items.releaseVersionBump.title",
+      "summary": "settings.rules.items.releaseVersionBump.title",
+      "detail": "settings.rules.items.releaseVersionBump.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "naming-project",
+      "category": "naming",
+      "severity": "must",
+      "title": "settings.rules.items.namingProject.title",
+      "summary": "settings.rules.items.namingProject.title",
+      "detail": "settings.rules.items.namingProject.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "naming-focus-mode",
+      "category": "naming",
+      "severity": "must",
+      "title": "settings.rules.items.namingFocusMode.title",
+      "summary": "settings.rules.items.namingFocusMode.title",
+      "detail": "settings.rules.items.namingFocusMode.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "scope-pool",
+      "category": "scope",
+      "severity": "must",
+      "title": "settings.rules.items.scopePool.title",
+      "summary": "settings.rules.items.scopePool.title",
+      "detail": "settings.rules.items.scopePool.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "scope-batch-actions",
+      "category": "scope",
+      "severity": "must",
+      "title": "settings.rules.items.scopeBatchActions.title",
+      "summary": "settings.rules.items.scopeBatchActions.title",
+      "detail": "settings.rules.items.scopeBatchActions.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "scope-checkin-credits",
+      "category": "scope",
+      "severity": "must",
+      "title": "settings.rules.items.scopeCheckinCredits.title",
+      "summary": "settings.rules.items.scopeCheckinCredits.title",
+      "detail": "settings.rules.items.scopeCheckinCredits.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "scope-single-toggle",
+      "category": "scope",
+      "severity": "must",
+      "title": "settings.rules.items.scopeSingleToggle.title",
+      "summary": "settings.rules.items.scopeSingleToggle.title",
+      "detail": "settings.rules.items.scopeSingleToggle.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "scope-web-only-pages",
+      "category": "scope",
+      "severity": "must",
+      "title": "settings.rules.items.scopeWebOnlyPages.title",
+      "summary": "settings.rules.items.scopeWebOnlyPages.title",
+      "detail": "settings.rules.items.scopeWebOnlyPages.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "P-01",
+      "category": "design",
+      "severity": "must",
+      "title": "settings.rules.items.elegantDesign.title",
+      "summary": "settings.rules.items.elegantDesign.title",
+      "detail": "settings.rules.items.elegantDesign.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "design-tokens-only",
+      "category": "design",
+      "severity": "must",
+      "title": "settings.rules.items.designTokensOnly.title",
+      "summary": "settings.rules.items.designTokensOnly.title",
+      "detail": "settings.rules.items.designTokensOnly.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "design-hierarchy",
+      "category": "design",
+      "severity": "must",
+      "title": "settings.rules.items.designHierarchy.title",
+      "summary": "settings.rules.items.designHierarchy.title",
+      "detail": "settings.rules.items.designHierarchy.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "design-one-action",
+      "category": "design",
+      "severity": "must",
+      "title": "settings.rules.items.designOneAction.title",
+      "summary": "settings.rules.items.designOneAction.title",
+      "detail": "settings.rules.items.designOneAction.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "design-motion-budget",
+      "category": "design",
+      "severity": "should",
+      "title": "settings.rules.items.designMotionBudget.title",
+      "summary": "settings.rules.items.designMotionBudget.title",
+      "detail": "settings.rules.items.designMotionBudget.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "design-theme-parity",
+      "category": "design",
+      "severity": "must",
+      "title": "settings.rules.items.designThemeParity.title",
+      "summary": "settings.rules.items.designThemeParity.title",
+      "detail": "settings.rules.items.designThemeParity.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "docs-auto-refresh",
+      "category": "engineering",
+      "severity": "must",
+      "title": "settings.rules.items.docsAutoRefresh.title",
+      "summary": "settings.rules.items.docsAutoRefresh.title",
+      "detail": "settings.rules.items.docsAutoRefresh.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "engineering-component-registry",
+      "category": "engineering",
+      "severity": "should",
+      "title": "settings.rules.items.engineeringComponentRegistry.title",
+      "summary": "settings.rules.items.engineeringComponentRegistry.title",
+      "detail": "settings.rules.items.engineeringComponentRegistry.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "data-backup-credentials",
+      "category": "data",
+      "severity": "should",
+      "title": "settings.rules.items.dataBackupCredentials.title",
+      "summary": "settings.rules.items.dataBackupCredentials.title",
+      "detail": "settings.rules.items.dataBackupCredentials.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    }
+  ]
+}

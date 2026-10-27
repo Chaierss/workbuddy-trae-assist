@@ -4,26 +4,33 @@ import { Boxes } from "lucide-vue-next";
 import EmptyState from "../../components/EmptyState.vue";
 import SectionCard from "../../components/SectionCard.vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
+import report from "virtual:keel-report";
 import {
   COMPONENT_CATEGORIES,
   componentCategoryKey,
   listComponents,
   type ComponentStatus,
 } from "../../lib/componentRegistry";
+import { canShow } from "../../lib/devMode";
 import { t } from "../../lib/i18n";
 
 /**
  * 设置 → 组件：前端通用组件的统一清单。
  *
- * 只读，数据来自 `lib/componentRegistry.ts`。新增组件的流程是
- * 「components/ 下建文件 + 注册表里登记一项」，缺了登记这里就看不到 ——
- * 这不是遗漏，而是故意的：清单必须能回答「项目里到底有哪些通用组件」。
+ * 数据来自 `keel/components.json`；未登记 / 未引用名单由 `virtual:keel-report`
+ * 在构建期扫描真实文件得出，页面不维护任何手写清单。
+ *
+ * 未登记与未引用属于内部质量债：只在开发模式展示，线上模式连同源码路径一起隐藏。
  */
 const keyword = ref("");
 // 分段控件传的是普通字符串，不收紧联合类型，避免 v-model 类型冲突。
 const category = ref("all");
 
 const components = listComponents();
+
+const showDebt = canShow("componentDebt");
+const showSourcePath = canShow("componentSourcePath");
+const hasDebt = report.unregistered.length > 0 || report.unused.length > 0;
 
 /** 只有非 stable 的状态才显示标签；空串同时作为「不显示」的判定。 */
 function statusLabel(status?: ComponentStatus): string {
@@ -71,6 +78,48 @@ const grouped = computed(() =>
       </span>
     </div>
 
+    <!-- 内部质量债：未登记 / 未引用名单由构建期扫描生成，只在开发模式展示 -->
+    <div v-if="showDebt" class="rounded-card border border-line bg-surface p-4">
+      <p v-if="!hasDebt" class="text-body-sm text-ink-soft">
+        {{ t("settings.components.clean") }}
+      </p>
+      <template v-else>
+        <div v-if="report.unregistered.length" class="space-y-1">
+          <p class="text-body-sm font-medium text-warn">
+            {{ t("settings.components.unregistered", { count: report.unregistered.length }) }}
+          </p>
+          <p class="text-caption leading-relaxed text-muted">
+            {{ t("settings.components.unregisteredHint") }}
+          </p>
+          <ul class="flex flex-wrap gap-1.5 pt-1">
+            <li v-for="path in report.unregistered" :key="path">
+              <code class="rounded-badge bg-warn-soft px-1.5 py-0.5 font-mono text-micro text-warn">
+                {{ path }}
+              </code>
+            </li>
+          </ul>
+        </div>
+        <div v-if="report.unused.length" class="space-y-1" :class="{ 'mt-3': report.unregistered.length }">
+          <p class="text-body-sm font-medium text-warn">
+            {{ t("settings.components.unused", { count: report.unused.length }) }}
+          </p>
+          <p class="text-caption leading-relaxed text-muted">
+            {{ t("settings.components.unusedHint") }}
+          </p>
+          <ul class="flex flex-wrap gap-1.5 pt-1">
+            <li v-for="path in report.unused" :key="path">
+              <code class="rounded-badge bg-warn-soft px-1.5 py-0.5 font-mono text-micro text-warn">
+                {{ path }}
+              </code>
+            </li>
+          </ul>
+        </div>
+      </template>
+      <p class="mt-2 text-caption leading-relaxed text-muted">
+        {{ t("settings.components.debtHint") }}
+      </p>
+    </div>
+
     <SectionCard
       :title="t('settings.components.title')"
       :subtitle="t('settings.components.subtitle')"
@@ -111,13 +160,17 @@ const grouped = computed(() =>
                   {{ t(item.summaryKey) }}
                 </p>
               </div>
-              <code class="shrink-0 font-mono text-micro text-muted">{{ item.path }}</code>
+              <code v-if="showSourcePath" class="shrink-0 font-mono text-micro text-muted">
+                {{ item.path }}
+              </code>
             </li>
           </ul>
         </section>
       </div>
     </SectionCard>
 
-    <p class="text-caption leading-relaxed text-muted">{{ t("settings.components.source") }}</p>
+    <p v-if="showSourcePath" class="text-caption leading-relaxed text-muted">
+      {{ t("settings.components.source") }}
+    </p>
   </div>
 </template>

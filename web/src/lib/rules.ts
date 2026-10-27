@@ -1,11 +1,13 @@
 import type { MessageKey } from "./i18n";
+import { t } from "./i18n";
+import rawRules from "../../../keel/rules.json";
 
 /**
  * 项目规则登记表 —— 设置 → 规则 页的唯一数据源。
  *
- * 规则只读展示，不在界面上编辑：约束要改就走代码评审，避免「界面上点一下」
- * 就把项目硬性约定改掉。新增一条规则时在这里追加一项，并在
- * `locales/settings.ts` 补上对应的 `title` / `detail` 文案（中英各一份）。
+ * 真相源是仓库里的 `keel/rules.json`：规则要变就改 JSON / 走代码评审，
+ * 页面只读不写。`title` / `detail` 存的是 i18n key，按当前语言解析；
+ * 同一份数据还能导出成 Markdown 交给 AI 当作上下文。
  */
 
 export type RuleCategory =
@@ -25,6 +27,17 @@ export interface ProjectRule {
   level: RuleLevel;
   titleKey: MessageKey;
   detailKey: MessageKey;
+  /** 这条规则追到哪个文件，评审时用来核对。 */
+  source: string;
+}
+
+export interface PageModeTerm {
+  key: string;
+  name: string;
+  english: string;
+  definition: string;
+  signal: string;
+  avoid: string[];
 }
 
 export const RULE_CATEGORIES: RuleCategory[] = [
@@ -40,131 +53,64 @@ export function ruleCategoryKey(category: RuleCategory): MessageKey {
   return `settings.rules.category.${category}`;
 }
 
-export const PROJECT_RULES: ProjectRule[] = [
-  {
-    id: "release-security-gate",
-    category: "release",
-    level: "mandatory",
-    titleKey: "settings.rules.items.releaseSecurityGate.title",
-    detailKey: "settings.rules.items.releaseSecurityGate.detail",
-  },
-  {
-    id: "release-version-bump",
-    category: "release",
-    level: "mandatory",
-    titleKey: "settings.rules.items.releaseVersionBump.title",
-    detailKey: "settings.rules.items.releaseVersionBump.detail",
-  },
-  {
-    id: "naming-project",
-    category: "naming",
-    level: "mandatory",
-    titleKey: "settings.rules.items.namingProject.title",
-    detailKey: "settings.rules.items.namingProject.detail",
-  },
-  {
-    id: "naming-focus-mode",
-    category: "naming",
-    level: "mandatory",
-    titleKey: "settings.rules.items.namingFocusMode.title",
-    detailKey: "settings.rules.items.namingFocusMode.detail",
-  },
-  {
-    id: "scope-pool",
-    category: "scope",
-    level: "mandatory",
-    titleKey: "settings.rules.items.scopePool.title",
-    detailKey: "settings.rules.items.scopePool.detail",
-  },
-  {
-    id: "scope-batch-actions",
-    category: "scope",
-    level: "mandatory",
-    titleKey: "settings.rules.items.scopeBatchActions.title",
-    detailKey: "settings.rules.items.scopeBatchActions.detail",
-  },
-  {
-    id: "scope-checkin-credits",
-    category: "scope",
-    level: "mandatory",
-    titleKey: "settings.rules.items.scopeCheckinCredits.title",
-    detailKey: "settings.rules.items.scopeCheckinCredits.detail",
-  },
-  {
-    id: "scope-single-toggle",
-    category: "scope",
-    level: "mandatory",
-    titleKey: "settings.rules.items.scopeSingleToggle.title",
-    detailKey: "settings.rules.items.scopeSingleToggle.detail",
-  },
-  {
-    id: "scope-web-only-pages",
-    category: "scope",
-    level: "mandatory",
-    titleKey: "settings.rules.items.scopeWebOnlyPages.title",
-    detailKey: "settings.rules.items.scopeWebOnlyPages.detail",
-  },
-  {
-    id: "elegant-design",
-    category: "design",
-    level: "mandatory",
-    titleKey: "settings.rules.items.elegantDesign.title",
-    detailKey: "settings.rules.items.elegantDesign.detail",
-  },
-  {
-    id: "design-tokens-only",
-    category: "design",
-    level: "mandatory",
-    titleKey: "settings.rules.items.designTokensOnly.title",
-    detailKey: "settings.rules.items.designTokensOnly.detail",
-  },
-  {
-    id: "design-hierarchy",
-    category: "design",
-    level: "mandatory",
-    titleKey: "settings.rules.items.designHierarchy.title",
-    detailKey: "settings.rules.items.designHierarchy.detail",
-  },
-  {
-    id: "design-one-action",
-    category: "design",
-    level: "mandatory",
-    titleKey: "settings.rules.items.designOneAction.title",
-    detailKey: "settings.rules.items.designOneAction.detail",
-  },
-  {
-    id: "design-motion-budget",
-    category: "design",
-    level: "convention",
-    titleKey: "settings.rules.items.designMotionBudget.title",
-    detailKey: "settings.rules.items.designMotionBudget.detail",
-  },
-  {
-    id: "design-theme-parity",
-    category: "design",
-    level: "mandatory",
-    titleKey: "settings.rules.items.designThemeParity.title",
-    detailKey: "settings.rules.items.designThemeParity.detail",
-  },
-  {
-    id: "docs-auto-refresh",
-    category: "engineering",
-    level: "mandatory",
-    titleKey: "settings.rules.items.docsAutoRefresh.title",
-    detailKey: "settings.rules.items.docsAutoRefresh.detail",
-  },
-  {
-    id: "engineering-component-registry",
-    category: "engineering",
-    level: "convention",
-    titleKey: "settings.rules.items.engineeringComponentRegistry.title",
-    detailKey: "settings.rules.items.engineeringComponentRegistry.detail",
-  },
-  {
-    id: "data-backup-credentials",
-    category: "data",
-    level: "convention",
-    titleKey: "settings.rules.items.dataBackupCredentials.title",
-    detailKey: "settings.rules.items.dataBackupCredentials.detail",
-  },
-];
+export function ruleLevelKey(level: RuleLevel): MessageKey {
+  return level === "mandatory"
+    ? "settings.rules.level.mandatory"
+    : "settings.rules.level.convention";
+}
+
+export const PROJECT_RULES: ProjectRule[] = rawRules.rules.map((rule) => ({
+  id: rule.id,
+  category: rule.category as RuleCategory,
+  level: rule.severity === "must" ? "mandatory" : "convention",
+  titleKey: rule.title as MessageKey,
+  detailKey: rule.detail as MessageKey,
+  source: rule.source,
+}));
+
+/** 内部设计术语。线上形态不展示（见 naming-focus-mode），导出给 AI 时保留。 */
+export const PAGE_MODES: PageModeTerm[] = rawRules.pageModes as PageModeTerm[];
+
+/**
+ * 导出给 AI 的 Markdown：术语定义 + 硬性约束 + 出处。
+ *
+ * 验收标准不是「人觉得清楚」，而是没读过代码的 agent 只读这段，
+ * 就不会把「专注模式」误解成全屏或弹窗。
+ */
+export function rulesMarkdown(): string {
+  const lines: string[] = [
+    `# ${rawRules.projectName} · 项目规则`,
+    "",
+    `版本：${rawRules.version}`,
+    "",
+    "> 术语定义与硬性约束。看到「专注模式」时按下面定义理解，不要自行想象成全屏或弹窗。",
+    "",
+    "## 术语与页面形态",
+    "",
+  ];
+
+  for (const mode of PAGE_MODES) {
+    lines.push(
+      `### ${mode.name}（${mode.english}）`,
+      "",
+      `- 定义：${mode.definition}`,
+      `- 界面信号：${mode.signal}`,
+      `- 不要这样理解：${mode.avoid.join("；")}`,
+      "",
+    );
+  }
+
+  lines.push("## 规则", "");
+  for (const rule of PROJECT_RULES) {
+    lines.push(
+      `### ${rule.id} · ${t(rule.titleKey)}`,
+      "",
+      `- 级别：${t(ruleLevelKey(rule.level))} · 类别：${t(ruleCategoryKey(rule.category))}`,
+      `- 约束：${t(rule.detailKey)}`,
+      `- 出处：${rule.source}`,
+      "",
+    );
+  }
+
+  return lines.join("\n");
+}

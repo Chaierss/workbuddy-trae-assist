@@ -21,12 +21,24 @@ export const settingsZh = {
   "settings.logs.label": "运行日志",
   "settings.logs.hint": "按级别与关键字检索，出参已脱敏",
   "settings.rules.label": "规则",
-  "settings.rules.hint": "项目硬性约束与上线流程；新增规则登记到 lib/rules.ts",
+  "settings.rules.hint": "项目硬性约束与上线流程；新增规则登记到 keel/rules.json",
   "settings.components.label": "组件",
   "settings.components.hint": "前端通用组件注册表，新增组件登记后统一管理",
 
   "settings.rail.title": "设置",
   "settings.rail.subtitle": "返回主站",
+
+  "settings.mode.dev": "开发模式",
+  "settings.mode.prod": "线上模式",
+  "settings.mode.devTemp": "开发模式（临时）",
+  "settings.mode.hint": "判定来源：{source}",
+  "settings.mode.hintElevated": " · 本机临时升权，看完请切回",
+  "settings.mode.toggle": "点击切换",
+  "settings.mode.denied": "当前访问方式不允许升权到开发模式",
+  "settings.mode.source.build": "构建期常量",
+  "settings.mode.source.url": "URL 参数",
+  "settings.mode.source.storage": "本地存储",
+  "settings.mode.source.default": "默认值",
 
   "settings.backup.backupNow": "立即备份",
   "settings.backup.fileCount": "{count} 个文件",
@@ -124,7 +136,15 @@ export const settingsZh = {
   "settings.rules.count": "{count} 条",
   "settings.rules.empty": "没有匹配的规则",
   "settings.rules.emptyHint": "换个关键字或类别再试。",
-  "settings.rules.source": "规则登记处：web/src/lib/rules.ts",
+  "settings.rules.source": "规则登记处：keel/rules.json（改完刷新即生效）",
+  "settings.rules.export": "导出给 AI",
+  "settings.rules.exportDone": "规则 Markdown 已复制",
+  "settings.rules.exportFailed": "复制失败，请手动重试",
+  "settings.rules.glossary": "术语与页面形态",
+  "settings.rules.glossaryHint": "内部设计语言，只在开发模式展示",
+  "settings.rules.definition": "定义",
+  "settings.rules.signal": "界面信号",
+  "settings.rules.avoid": "不要这样理解",
   "settings.rules.items.releaseSecurityGate.title": "上线前必做安全检查",
   "settings.rules.items.releaseSecurityGate.detail":
     "任何上线动作前先完成一轮代码安全漏洞检查（依赖漏洞、密钥泄露、注入、权限、敏感数据），把结论汇报给用户并得到明确确认后才执行上线；未经确认不得自行上线。",
@@ -175,7 +195,7 @@ export const settingsZh = {
     "规则、组件、接口文档、Wiki 四类文档页只能从各自唯一数据源在运行时读取并自动刷新；桌面安装包不得内置预生成的文档副本。接口文档直接渲染 /api/openapi.json，不依赖打包的 Swagger UI 资源。",
   "settings.rules.items.engineeringComponentRegistry.title": "新增组件必须注册",
   "settings.rules.items.engineeringComponentRegistry.detail":
-    "在 web/src/components 下新建通用组件后，必须到 lib/componentRegistry.ts 登记，否则设置 → 组件页不会出现它。",
+    "在 web/src/components 下新建通用组件后，必须到 keel/components.json 登记，否则设置 → 组件页会出现「未登记」告警，`node keel/console-check.mjs --strict` 也会直接报错。",
   "settings.rules.items.dataBackupCredentials.title": "含凭据备份需二次确认",
   "settings.rules.items.dataBackupCredentials.detail":
     "备份收录凭据分区前必须显式确认；备份文件是明文，只应留在本机。",
@@ -189,13 +209,23 @@ export const settingsZh = {
   "settings.components.category.form": "表单控件",
   "settings.components.category.feedback": "反馈与弹窗",
   "settings.components.category.container": "容器",
+  "settings.components.category.business": "业务组件",
   "settings.components.status.stable": "稳定",
   "settings.components.status.beta": "试验",
   "settings.components.status.deprecated": "废弃",
   "settings.components.count": "{count} 个",
   "settings.components.empty": "没有匹配的组件",
   "settings.components.emptyHint": "换个关键字或类别再试。",
-  "settings.components.source": "组件登记处：web/src/lib/componentRegistry.ts",
+  "settings.components.source": "组件登记处：keel/components.json（改完刷新即生效）",
+  "settings.components.unregistered": "未登记 {count} 个",
+  "settings.components.unregisteredHint":
+    "目录里有、注册表里没有。补登记到 keel/components.json，或删掉文件。",
+  "settings.components.unused": "未被引用 {count} 个",
+  "settings.components.unusedHint": "已登记但没有任何页面 import。先标 deprecated，再决定下架。",
+  "settings.components.clean": "目录与注册表一致，所有组件都有引用",
+  "settings.components.listUnregistered": "未登记",
+  "settings.components.listUnused": "未被引用",
+  "settings.components.debtHint": "内部质量债，只在开发模式展示",
   "settings.components.summary.appShell": "唯一的壳层，承载三种布局形态与全局快捷键",
   "settings.components.summary.sidebarRail": "主侧栏：高频业务入口，设置收在左下角",
   "settings.components.summary.sectionCard": "内容分区卡片，统一标题、副标题与操作区",
@@ -215,6 +245,18 @@ export const settingsZh = {
   "settings.components.summary.commandPalette": "Ctrl+K 页面跳转面板",
   "settings.components.summary.openApiViewer":
     "接口文档渲染器：把 openapi.json 画成「标签 → 接口 → 详情」，不依赖 Swagger UI",
+  "settings.components.summary.modeBadge": "开发 / 线上模式角标，点击切换并说明判定来源",
+  "settings.components.summary.pageHeader": "页面标题区，统一标题、副标题与右侧操作",
+  "settings.components.summary.searchInput": "带图标与清空按钮的搜索框，列表页共用",
+  "settings.components.summary.toastHost": "全局轻提示，统一成功 / 失败 / 信息的出现与消失",
+  "settings.components.summary.skeleton": "加载占位骨架，数据到达前不让页面跳动",
+  "settings.components.summary.officialActivityStrip": "主站顶部的官方活动横幅，展示进度与入口",
+  "settings.components.summary.officialCampaignCard": "单个官方活动的卡片，展示状态与可执行操作",
+  "settings.components.summary.officialCampaignDrawer": "官方活动详情抽屉，集中展示规则与步骤",
+  "settings.components.summary.activityRunsPanel": "活动执行记录面板，按时间列出每次运行结果",
+  "settings.components.summary.campaignProgress": "活动进度条，展示已完成 / 总量与当前阶段",
+  "settings.components.summary.officialActivitiesPanel": "官方活动列表面板，按状态聚合多个活动",
+  "settings.components.summary.onboardingChecklist": "首次使用清单，按顺序引导完成必要配置",
 
   "gateway.tab.overview.label": "概览",
   "gateway.tab.overview.hint": "运行状态、用量看板与健康度",
@@ -234,9 +276,9 @@ export const settingsZh = {
 
   // ---- 版本更新（桌面端专属） ----
   "settings.update.title": "版本与更新",
-  "settings.update.subtitle": "启动时会静默检查一次，也可以随时手动查",
+  "settings.update.subtitle": "启动后自动检查并静默下载更新，也可以随时手动检查",
   "settings.update.autoCheck": "启动时自动检查更新",
-  "settings.update.autoCheckDesc": "打开后启动 8 秒静默查一次；发现新版本只在托盘和这里提示，不弹窗打断",
+  "settings.update.autoCheckDesc": "打开后自动静默检查并下载新版本；下载完成在侧栏、托盘和这里提示，不打断当前操作",
   "settings.update.check": "检查更新",
   "settings.update.download": "下载更新",
   "settings.update.restart": "重启并安装",
@@ -262,7 +304,7 @@ export const settingsZh = {
   "settings.update.notesCollapse": "收起说明",
   "settings.update.unskip": "取消跳过",
   "settings.update.note":
-    "更新包从 GitHub Releases 获取并校验完整性。下载完成后选择「稍后」也没关系，下次退出应用时会自动安装。",
+    "更新包从 GitHub Releases 获取并校验完整性。下载完成后可立即重启安装，或下次退出应用时自动安装。",
   "settings.update.envChannelValue": "GitHub Releases · Chaierss/workbuddy-trae-assist",
 
   // ---- 会话同步 ----
@@ -325,13 +367,25 @@ export const settingsEn = {
   "settings.logs.label": "Runtime logs",
   "settings.logs.hint": "Search by level and keyword; responses are redacted",
   "settings.rules.label": "Rules",
-  "settings.rules.hint": "Project constraints and release flow; register new rules in lib/rules.ts",
+  "settings.rules.hint": "Project constraints and release flow; register new rules in keel/rules.json",
   "settings.components.label": "Components",
   "settings.components.hint":
     "Registry of shared frontend components; register new ones to manage them here",
 
   "settings.rail.title": "Settings",
   "settings.rail.subtitle": "Back to main site",
+
+  "settings.mode.dev": "Dev mode",
+  "settings.mode.prod": "Prod mode",
+  "settings.mode.devTemp": "Dev mode (temporary)",
+  "settings.mode.hint": "Decided by: {source}",
+  "settings.mode.hintElevated": " · locally elevated; switch back when done",
+  "settings.mode.toggle": "Click to switch",
+  "settings.mode.denied": "This access path may not elevate to dev mode",
+  "settings.mode.source.build": "build-time constant",
+  "settings.mode.source.url": "URL parameter",
+  "settings.mode.source.storage": "local storage",
+  "settings.mode.source.default": "default value",
 
   "settings.backup.backupNow": "Back up now",
   "settings.backup.fileCount": "{count} files",
@@ -431,7 +485,15 @@ export const settingsEn = {
   "settings.rules.count": "{count} rules",
   "settings.rules.empty": "No matching rules",
   "settings.rules.emptyHint": "Try another keyword or category.",
-  "settings.rules.source": "Registry: web/src/lib/rules.ts",
+  "settings.rules.source": "Registry: keel/rules.json (refresh after editing)",
+  "settings.rules.export": "Export for AI",
+  "settings.rules.exportDone": "Rules markdown copied",
+  "settings.rules.exportFailed": "Copy failed; try again manually",
+  "settings.rules.glossary": "Terms and page modes",
+  "settings.rules.glossaryHint": "Internal design language, shown in dev mode only",
+  "settings.rules.definition": "Definition",
+  "settings.rules.signal": "UI signal",
+  "settings.rules.avoid": "Do not read it as",
   "settings.rules.items.releaseSecurityGate.title": "Security check before every release",
   "settings.rules.items.releaseSecurityGate.detail":
     "Before any release, run a full security review (dependencies, leaked secrets, injection, permissions, sensitive data), report the findings to the user, and only release after explicit confirmation. Never ship without it.",
@@ -482,7 +544,7 @@ export const settingsEn = {
     "The rules, components, API docs and wiki pages must read from their single source at runtime and refresh automatically; the desktop installer must not ship pre-generated doc copies. API docs render /api/openapi.json directly, without bundled Swagger UI assets.",
   "settings.rules.items.engineeringComponentRegistry.title": "New components must be registered",
   "settings.rules.items.engineeringComponentRegistry.detail":
-    "After adding a shared component under web/src/components, register it in lib/componentRegistry.ts, otherwise Settings → Components will not list it.",
+    "After adding a shared component under web/src/components, register it in keel/components.json, otherwise Settings → Components shows an unregistered warning and `node keel/console-check.mjs --strict` fails.",
   "settings.rules.items.dataBackupCredentials.title": "Confirm backups that include credentials",
   "settings.rules.items.dataBackupCredentials.detail":
     "Adding a credential section to backups requires explicit confirmation; backup files are plain text and should stay on this machine.",
@@ -497,13 +559,24 @@ export const settingsEn = {
   "settings.components.category.form": "Form controls",
   "settings.components.category.feedback": "Feedback & dialogs",
   "settings.components.category.container": "Containers",
+  "settings.components.category.business": "Business",
   "settings.components.status.stable": "Stable",
   "settings.components.status.beta": "Beta",
   "settings.components.status.deprecated": "Deprecated",
   "settings.components.count": "{count} components",
   "settings.components.empty": "No matching components",
   "settings.components.emptyHint": "Try another keyword or category.",
-  "settings.components.source": "Registry: web/src/lib/componentRegistry.ts",
+  "settings.components.source": "Registry: keel/components.json (refresh after editing)",
+  "settings.components.unregistered": "{count} unregistered",
+  "settings.components.unregisteredHint":
+    "Files on disk but missing from the registry. Register them in keel/components.json or delete them.",
+  "settings.components.unused": "{count} unused",
+  "settings.components.unusedHint":
+    "Registered but imported nowhere. Mark deprecated first, then decide whether to remove.",
+  "settings.components.clean": "Directory and registry agree; every component is referenced",
+  "settings.components.listUnregistered": "Unregistered",
+  "settings.components.listUnused": "Unused",
+  "settings.components.debtHint": "Internal quality debt, shown in dev mode only",
   "settings.components.summary.appShell": "The single app shell hosting three layout modes and global shortcuts",
   "settings.components.summary.sidebarRail": "Main sidebar for frequent destinations, with settings tucked bottom-left",
   "settings.components.summary.sectionCard": "Content section card with a unified title, subtitle and actions",
@@ -523,6 +596,24 @@ export const settingsEn = {
   "settings.components.summary.commandPalette": "Ctrl+K navigation palette",
   "settings.components.summary.openApiViewer":
     "API docs renderer: turns openapi.json into tag → endpoint → detail without Swagger UI",
+  "settings.components.summary.modeBadge":
+    "Dev / prod mode badge; click to switch and see where the decision came from",
+  "settings.components.summary.pageHeader": "Page title block: title, subtitle and right-side actions",
+  "settings.components.summary.searchInput": "Search field with icon and clear button, shared by list pages",
+  "settings.components.summary.toastHost": "Global toasts for success, failure and info messages",
+  "settings.components.summary.skeleton": "Loading skeleton that keeps the layout from jumping",
+  "settings.components.summary.officialActivityStrip":
+    "Official activity banner on the main page with progress and entry",
+  "settings.components.summary.officialCampaignCard":
+    "Card for one official campaign with status and actions",
+  "settings.components.summary.officialCampaignDrawer":
+    "Detail drawer for an official campaign with rules and steps",
+  "settings.components.summary.activityRunsPanel":
+    "Run history panel listing each activity attempt over time",
+  "settings.components.summary.campaignProgress":
+    "Campaign progress bar showing completed vs total and current stage",
+  "settings.components.summary.officialActivitiesPanel": "Official campaign list grouped by status",
+  "settings.components.summary.onboardingChecklist": "First-run checklist guiding setup in order",
 
   "gateway.tab.overview.label": "Overview",
   "gateway.tab.overview.hint": "Run status, usage board and health",
@@ -542,9 +633,9 @@ export const settingsEn = {
 
   // ---- Updates (desktop only) ----
   "settings.update.title": "Version & updates",
-  "settings.update.subtitle": "Checked silently at launch; you can also check any time",
+  "settings.update.subtitle": "Checked and downloaded silently after launch; you can also check any time",
   "settings.update.autoCheck": "Check for updates at launch",
-  "settings.update.autoCheckDesc": "When on, checks silently 8 seconds after launch; new versions show up only in the tray and here, without stealing focus",
+  "settings.update.autoCheckDesc": "When on, new versions are checked and downloaded silently; when ready they show up in the sidebar, tray and here without interrupting you",
   "settings.update.check": "Check for updates",
   "settings.update.download": "Download update",
   "settings.update.restart": "Restart & install",
@@ -570,7 +661,7 @@ export const settingsEn = {
   "settings.update.notesCollapse": "Show less",
   "settings.update.unskip": "Don't skip",
   "settings.update.note":
-    "Packages come from GitHub Releases with integrity checks. If you pick “Later”, the update installs automatically the next time you quit the app.",
+    "Packages come from GitHub Releases with integrity checks. When downloaded, restart to install right away or let it install automatically the next time you quit the app.",
   "settings.update.envChannelValue": "GitHub Releases · Chaierss/workbuddy-trae-assist",
 
   "settings.sync.label": "Session sync",

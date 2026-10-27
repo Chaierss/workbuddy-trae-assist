@@ -1,0 +1,38 @@
+[
+  { "key": "app-shell", "name": "AppShell", "path": "web/src/components/AppShell.vue", "category": "layout", "summaryKey": "settings.components.summary.appShell", "status": "stable", "demo": null },
+  { "key": "sidebar-rail", "name": "SidebarRail", "path": "web/src/components/SidebarRail.vue", "category": "layout", "summaryKey": "settings.components.summary.sidebarRail", "status": "stable", "demo": null },
+  { "key": "page-header", "name": "PageHeader", "path": "web/src/components/PageHeader.vue", "category": "layout", "summaryKey": "settings.components.summary.pageHeader", "status": "stable", "demo": null },
+  { "key": "mode-badge", "name": "ModeBadge", "path": "web/src/components/ModeBadge.vue", "category": "layout", "summaryKey": "settings.components.summary.modeBadge", "status": "stable", "demo": null },
+
+  { "key": "section-card", "name": "SectionCard", "path": "web/src/components/SectionCard.vue", "category": "container", "summaryKey": "settings.components.summary.sectionCard", "status": "stable", "demo": null },
+
+  { "key": "account-card", "name": "AccountCard", "path": "web/src/components/AccountCard.vue", "category": "display", "summaryKey": "settings.components.summary.accountCard", "status": "stable", "demo": null },
+  { "key": "stat-card", "name": "StatCard", "path": "web/src/components/StatCard.vue", "category": "display", "summaryKey": "settings.components.summary.statCard", "status": "stable", "demo": null },
+  { "key": "animated-number", "name": "AnimatedNumber", "path": "web/src/components/AnimatedNumber.vue", "category": "display", "summaryKey": "settings.components.summary.animatedNumber", "status": "stable", "demo": null },
+  { "key": "status-pill", "name": "StatusPill", "path": "web/src/components/StatusPill.vue", "category": "display", "summaryKey": "settings.components.summary.statusPill", "status": "stable", "demo": null },
+  { "key": "empty-state", "name": "EmptyState", "path": "web/src/components/EmptyState.vue", "category": "display", "summaryKey": "settings.components.summary.emptyState", "status": "stable", "demo": null },
+  { "key": "open-api-viewer", "name": "OpenApiViewer", "path": "web/src/components/OpenApiViewer.vue", "category": "display", "summaryKey": "settings.components.summary.openApiViewer", "status": "stable", "demo": null },
+
+  { "key": "toggle-switch", "name": "ToggleSwitch", "path": "web/src/components/ToggleSwitch.vue", "category": "form", "summaryKey": "settings.components.summary.toggleSwitch", "status": "stable", "demo": null },
+  { "key": "select-menu", "name": "SelectMenu", "path": "web/src/components/SelectMenu.vue", "category": "form", "summaryKey": "settings.components.summary.selectMenu", "status": "stable", "demo": null },
+  { "key": "segmented-control", "name": "SegmentedControl", "path": "web/src/components/SegmentedControl.vue", "category": "form", "summaryKey": "settings.components.summary.segmentedControl", "status": "stable", "demo": null },
+  { "key": "search-input", "name": "SearchInput", "path": "web/src/components/SearchInput.vue", "category": "form", "summaryKey": "settings.components.summary.searchInput", "status": "stable", "demo": null },
+
+  { "key": "confirm-dialog", "name": "ConfirmDialog", "path": "web/src/components/ConfirmDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.confirmDialog", "status": "stable", "demo": null },
+  { "key": "note-dialog", "name": "NoteDialog", "path": "web/src/components/NoteDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.noteDialog", "status": "stable", "demo": null },
+  { "key": "switch-dialog", "name": "SwitchDialog", "path": "web/src/components/SwitchDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.switchDialog", "status": "stable", "demo": null },
+  { "key": "oauth-login-dialog", "name": "OAuthLoginDialog", "path": "web/src/components/OAuthLoginDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.oauthLoginDialog", "status": "stable", "demo": null },
+  { "key": "update-dialog", "name": "UpdateDialog", "path": "web/src/components/UpdateDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.updateDialog", "status": "stable", "demo": null },
+  { "key": "command-palette", "name": "CommandPalette", "path": "web/src/components/CommandPalette.vue", "category": "feedback", "summaryKey": "settings.components.summary.commandPalette", "status": "stable", "demo": null },
+  { "key": "toast-host", "name": "ToastHost", "path": "web/src/components/ToastHost.vue", "category": "feedback", "summaryKey": "settings.components.summary.toastHost", "status": "stable", "demo": null },
+  { "key": "skeleton", "name": "Skeleton", "path": "web/src/components/Skeleton.vue", "category": "feedback", "summaryKey": "settings.components.summary.skeleton", "status": "stable", "demo": null },
+  { "key": "official-activity-strip", "name": "OfficialActivityStrip", "path": "web/src/components/OfficialActivityStrip.vue", "category": "business", "summaryKey": "settings.components.summary.officialActivityStrip", "status": "stable", "demo": null },
+
+  { "key": "official-campaign-card", "name": "OfficialCampaignCard", "path": "web/src/components/activity/OfficialCampaignCard.vue", "category": "business", "summaryKey": "settings.components.summary.officialCampaignCard", "status": "stable", "demo": null },
+  { "key": "official-campaign-drawer", "name": "OfficialCampaignDrawer", "path": "web/src/components/activity/OfficialCampaignDrawer.vue", "category": "business", "summaryKey": "settings.components.summary.officialCampaignDrawer", "status": "stable", "demo": null },
+  { "key": "activity-runs-panel", "name": "ActivityRunsPanel", "path": "web/src/components/activity/ActivityRunsPanel.vue", "category": "business", "summaryKey": "settings.components.summary.activityRunsPanel", "status": "stable", "demo": null },
+  { "key": "campaign-progress", "name": "CampaignProgress", "path": "web/src/components/activity/CampaignProgress.vue", "category": "business", "summaryKey": "settings.components.summary.campaignProgress", "status": "stable", "demo": null },
+  { "key": "official-activities-panel", "name": "OfficialActivitiesPanel", "path": "web/src/components/activity/OfficialActivitiesPanel.vue", "category": "business", "summaryKey": "settings.components.summary.officialActivitiesPanel", "status": "stable", "demo": null },
+
+  { "key": "onboarding-checklist", "name": "OnboardingChecklist", "path": "web/src/components/onboarding/OnboardingChecklist.vue", "category": "business", "summaryKey": "settings.components.summary.onboardingChecklist", "status": "stable", "demo": null }
+]

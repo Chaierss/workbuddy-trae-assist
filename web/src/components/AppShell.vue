@@ -120,7 +120,7 @@ function onShortcut(event: KeyboardEvent): void {
 onMounted(() => {
   document.addEventListener("keydown", onShortcut);
   // 更新 store 要尽早初始化：先订阅主进程的 update:state / update:prompt，再拉初值，
-  // 否则启动 8 秒后那次自动检查推来的「发现新版本」会没人接。
+  // 否则启动后那次静默检查推来的「新版本 / 已下载」会没人接。
   initUpdateStore();
   void initTelemetry();
 });
