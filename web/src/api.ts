@@ -935,7 +935,10 @@ export interface ClientSettingsWriteResult {
 
 /** 「待处理」清单里的一项。`action` 描述按钮该做什么，前端不写死跳转。 */
 export interface ActionableItem {
-  /** 服务端取值：credential | checkin | credits_expiring | client_offline；页面本地也补几项引导态。 */
+  /**
+   * 服务端取值：credential | credential_expired | credential_expiring |
+   * checkin | credits_expiring | client_offline；页面本地也补几项引导态。
+   */
   kind: string;
   severity: "high" | "warn" | "info";
   title: string;
@@ -987,6 +990,9 @@ export interface OverviewPulse {
   activityTotal: number;
   credits: number;
   creditsExpiring: number;
+  /** 过期时间已知的凭据里，已经过期 / 7 天内到期的账号数。 */
+  credentialExpired: number;
+  credentialExpiring: number;
   clientsRunning: number;
   gateway: {
     requests: number;

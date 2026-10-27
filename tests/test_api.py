@@ -1094,6 +1094,59 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
     assert body["items"][0]["kind"] == "credential"
 
 
+def test_overview_actionables_reports_credential_expiry(client, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from chaierww.domain.accounts.models import CredentialState
+    from chaierww.domain.switching import encode_token_payload
+
+    now = datetime.now(UTC)
+    expired = client.app.state.repository.upsert(
+        scope=SCOPE,
+        external_id="u-expired",
+        display_name="过期号",
+        credential=encode_token_payload(
+            {"uid": "u-expired", "accessToken": "a", "refreshToken": "b"}
+        ),
+        credential_kind="oauth_token",
+        expires_at=(now - timedelta(hours=2)).replace(microsecond=0).isoformat(),
+    ).account
+    expiring = client.app.state.repository.upsert(
+        scope=SCOPE,
+        external_id="u-expiring",
+        display_name="临期号",
+        credential=encode_token_payload({"uid": "u-expiring", "accessToken": "c"}),
+        credential_kind="oauth_token",
+        expires_at=(now + timedelta(days=2)).replace(microsecond=0).isoformat(),
+    ).account
+    # 新导入的号默认是 unverified，那条规则由上面第 1 类负责，这里要先置为可用。
+    for account in (expired, expiring):
+        client.app.state.repository.set_credential_state(account.id, CredentialState.USABLE)
+
+    _stub_overview(client, monkeypatch, detected=[], credits={}, clients=[_client_row()])
+
+    body = client.get("/api/overview/actionables").json()
+    by_kind = {item["kind"]: item for item in body["items"]}
+    assert set(by_kind) == {"credential_expired", "credential_expiring"}
+
+    expired_item = by_kind["credential_expired"]
+    assert expired_item["severity"] == "high"
+    assert expired_item["accountId"] == expired.id
+    # 有 refreshToken 的号：先引导续期，续期失败再扫码。
+    assert "「续期」" in expired_item["detail"]
+    assert expired_item["action"] == {"type": "navigate", "to": "/accounts"}
+
+    expiring_item = by_kind["credential_expiring"]
+    assert expiring_item["severity"] == "warn"
+    assert expiring_item["accountId"] == expiring.id
+    assert "还剩 2 天到期" in expiring_item["detail"]
+    # 没有 refreshToken 的号：如实说明只能重新扫码，不承诺自动续期。
+    assert "重新扫码登录" in expiring_item["detail"]
+
+    assert body["pulse"]["credentialExpired"] == 1
+    assert body["pulse"]["credentialExpiring"] == 1
+
+
 def test_overview_actionables_empty_when_all_clear(client, monkeypatch):
     from chaierww.domain.accounts.models import CredentialState
     from chaierww.domain.credits import CreditInfo
@@ -1113,6 +1166,8 @@ def test_overview_actionables_empty_when_all_clear(client, monkeypatch):
     assert body["pulse"]["activityActionable"] == 0
     assert body["pulse"]["activityDone"] == 1
     assert body["pulse"]["creditsExpiring"] == 0
+    assert body["pulse"]["credentialExpired"] == 0
+    assert body["pulse"]["credentialExpiring"] == 0
     assert body["pulse"]["clientsRunning"] == 1
     assert body["pulse"]["gateway"]["requests"] == 0
 

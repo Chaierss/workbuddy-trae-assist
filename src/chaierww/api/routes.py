@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import math
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -2167,6 +2168,9 @@ _ATTENTION_STATES: dict[str, tuple[str, str, str]] = {
 
 _SEVERITY_ORDER = {"high": 0, "warn": 1, "info": 2}
 
+#: 凭据到期提醒的提前量：7 天内到期就进待处理清单，别等到最后一天才发现。
+_EXPIRY_WARN_DAYS = 7
+
 
 def _scope_label(scope_key: str) -> str:
     try:
@@ -2177,9 +2181,10 @@ def _scope_label(scope_key: str) -> str:
 
 @router.get("/overview/actionables", summary="概览待处理清单（只读聚合）", tags=["基础"])
 def overview_actionables(request: Request) -> dict[str, Any]:
-    """把「今天该处理的号」聚合成一张只读清单，四类数据源并发取后合成。
+    """把「今天该处理的号」聚合成一张只读清单，五类数据源并发取后合成。
 
     - 凭据状态 → 需重新登录 / 需验证登录态；
+    - 凭据有效期 → 已过期 / 7 天内到期；
     - 活动缓存 → 今日未签到（`state=todo` 且 `automatable`）；
     - 积分缓存 → 积分将过期；
     - 客户端检测 → 客户端未运行。
@@ -2223,7 +2228,65 @@ def overview_actionables(request: Request) -> dict[str, Any]:
             }
         )
 
-    # 2) 今日未签到（同类里也可能有其它可自动完成的活动）
+    # 2) 凭据已过期 / 即将过期（只看时间轴）
+    # 状态类问题（需重新登录 / 需验证）上面已经报过，这里跳过，避免同一个号刷两条；
+    # 过期时间未知的号也不猜 —— 没有时间就不编时间。
+    expiries, refreshable_map = _credential_meta(request, accounts)
+    now = datetime.now(UTC)
+    warn_before = now + timedelta(days=_EXPIRY_WARN_DAYS)
+    expired_count = 0
+    expiring_count = 0
+    for account in accounts:
+        if account.credential_state.value in _ATTENTION_STATES:
+            continue
+        moment = parse_expiry(expiries.get(account.id))
+        if moment is None:
+            continue
+        can_refresh = refreshable_map.get(account.id, False)
+        when = moment.astimezone().strftime("%Y-%m-%d %H:%M")
+        if moment <= now:
+            expired_count += 1
+            hint = (
+                "可在号池点「续期」自动换新令牌，续期失败再重新扫码登录"
+                if can_refresh
+                else "凭据里没有可续期的令牌，请重新扫码登录"
+            )
+            items.append(
+                {
+                    "kind": "credential_expired",
+                    "severity": "high",
+                    "title": "凭据已过期",
+                    "detail": (
+                        f"{account.display_name}（{_scope_label(account.scope)}）："
+                        f"登录态已于 {when} 过期，{hint}"
+                    ),
+                    "accountId": account.id,
+                    "action": {"type": "navigate", "to": "/accounts"},
+                }
+            )
+        elif moment <= warn_before:
+            expiring_count += 1
+            days = max(1, math.ceil((moment - now).total_seconds() / 86_400))
+            hint = (
+                "到期前巡检会自动续期，也可以现在去号池手动续期"
+                if can_refresh
+                else "凭据里没有可续期的令牌，到期后需要重新扫码登录"
+            )
+            items.append(
+                {
+                    "kind": "credential_expiring",
+                    "severity": "warn",
+                    "title": "凭据即将过期",
+                    "detail": (
+                        f"{account.display_name}（{_scope_label(account.scope)}）："
+                        f"还剩 {days} 天到期（{when}），{hint}"
+                    ),
+                    "accountId": account.id,
+                    "action": {"type": "navigate", "to": "/accounts"},
+                }
+            )
+
+    # 3) 今日未签到（同类里也可能有其它可自动完成的活动）
     for account in detected:
         if not account.detectable:
             continue
@@ -2246,7 +2309,7 @@ def overview_actionables(request: Request) -> dict[str, Any]:
             }
         )
 
-    # 3) 积分将过期
+    # 4) 积分将过期
     for account in accounts:
         info = credit_map.get(account.id)
         if info is None or not info.expiring_soon:
@@ -2263,7 +2326,7 @@ def overview_actionables(request: Request) -> dict[str, Any]:
             }
         )
 
-    # 4) 客户端未运行（按客户端而非账号报，避免一台没开就刷出几十条）
+    # 5) 客户端未运行（按客户端而非账号报，避免一台没开就刷出几十条）
     for client in clients:
         if not client["installed"] or client["running"]:
             continue
@@ -2301,6 +2364,8 @@ def overview_actionables(request: Request) -> dict[str, Any]:
             if info.available and not info.error and info.credits
         ),
         "creditsExpiring": sum(1 for info in credit_map.values() if info.expiring_soon),
+        "credentialExpired": expired_count,
+        "credentialExpiring": expiring_count,
         "clientsRunning": sum(1 for client in clients if client["running"]),
         "gateway": {
             "requests": gateway_stats["requests"],
