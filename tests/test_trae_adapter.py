@@ -22,27 +22,41 @@ UID_B = "9999999999999999"
 DEVICE_ID = "8888000011112222"
 
 
-def _cloudide(uid: str) -> str:
-    """造一个真实可解的 cloudide 信封，userId = uid。"""
+def _cloudide(
+    uid: str,
+    *,
+    username: str | None = None,
+    expired_at: str | None = "2026-11-02T01:08:09.789Z",
+) -> str:
+    """造一个真实可解的 cloudide 信封，userId = uid。
+
+    字段名与真机 storage.json 一致（2026-10 实测）：``account.username`` 是客户端
+    展示名，``expiredAt`` 是 access token 到期时间（ISO Z）。
+    """
+    account: dict[str, object] = {"scope": "marscode"}
+    if username is None:
+        username = f"用户{uid[-8:]}"
+    account["username"] = username
     plain = {
         "token": "eyJhbGciOiJSUzI1NiJ9.header.payloadsig",
         "refreshToken": f"rt-{uid}",
-        "expiredAt": "2026-11-02T01:08:09.789Z",
         "refreshExpiredAt": "2027-04-17T01:08:09.789Z",
         "tokenReleaseAt": "2026-10-19T01:08:09.582Z",
         "userId": uid,
         "host": "https://api.trae.cn",
         "userRegion": {"region": "CN", "_aiRegion": "CN"},
-        "account": {"username": f"用户{uid[-8:]}", "scope": "marscode"},
+        "account": account,
     }
+    if expired_at is not None:
+        plain["expiredAt"] = expired_at
     return tc_encrypt(json.dumps(plain, ensure_ascii=False))
 
 
-def storage(uid: str) -> bytes:
+def storage(uid: str, *, cloudide: str | None = None) -> bytes:
     """结构与真实 storage.json 一致：iCubeAuthInfo* 是 tc 信封（可解密）。"""
     data = {
         f"{DC_PREFIX}{DEVICE_ID}": tc_encrypt('{"privateKeyPEM":"pk","publicKeyPEM":"pub"}'),
-        "iCubeAuthInfo://icube.cloudide": _cloudide(uid),
+        "iCubeAuthInfo://icube.cloudide": cloudide or _cloudide(uid),
         "iCubeAuthInfo://usertag": tc_encrypt(json.dumps({uid: "cn"}, ensure_ascii=False)),
         # 用户 IDE 设置，切换时不应被触碰
         "theme": "dark",
@@ -69,9 +83,39 @@ def test_parse_identity_extracts_uid_from_cloudide():
     """账号标识应取自 cloudide 信封的 userId（真正账号），而非 icube-dc 的设备 ID。"""
     external_id, display_name, detail = parse_identity(storage(UID_A))
     assert external_id == UID_A
-    # 展示名由 UID 后 8 位派生，跟着 UID_A 走，避免换测试值时再漏改。
-    assert display_name == f"用户 {UID_A[-8:]}"
+    # 展示名取信封里的 account.username，跟着 UID_A 走，避免换测试值时再漏改。
+    assert display_name == f"用户{UID_A[-8:]}"
     assert detail["uid"] == UID_A
+
+
+def test_parse_identity_prefers_client_username():
+    """真机信封里的 userId 与客户端昵称是两串不同的数字，展示名必须取客户端那个。"""
+    cloudide = _cloudide(UID_A, username="用户1473661267")
+    _, display_name, _ = parse_identity(storage(UID_A, cloudide=cloudide))
+    assert display_name == "用户1473661267"
+
+
+def test_parse_identity_falls_back_without_username():
+    """信封没给 username 时仍要有名字可显示，不能空白或报错。"""
+    _, display_name, _ = parse_identity(
+        storage(UID_A, cloudide=_cloudide(UID_A, username="  "))
+    )
+    assert display_name == f"用户 {UID_A[-8:]}"
+
+
+def test_parse_identity_reports_credential_expiry():
+    """cloudide 的 expiredAt 要落到 detail，供导入时写进 expires_at。"""
+    _, _, detail = parse_identity(storage(UID_A))
+    assert detail["expiresAt"] == "2026-11-02T01:08:09+00:00"
+
+
+def test_parse_identity_omits_unparsable_expiry():
+    """时间形态不对就不带 expiresAt —— 宁可显示「无到期时间」，也不写一个假时间。"""
+    for bad in ("not-a-date", "2026-11-02T01:08:09", ""):
+        _, _, detail = parse_identity(
+            storage(UID_A, cloudide=_cloudide(UID_A, expired_at=bad))
+        )
+        assert "expiresAt" not in detail
 
 
 def test_parse_identity_rejects_not_logged_in():
@@ -110,6 +154,13 @@ def test_import_reports_not_logged_in(adapter):
     adapter._paths.storage_file.write_bytes(json.dumps({"theme": "dark"}).encode("utf-8"))
     with pytest.raises(NotLoggedIn):
         adapter.import_current()
+
+
+def test_import_json_carries_username_and_expiry(adapter):
+    """粘贴导入与文件导入走同一套身份/过期解析，不能一边有一边没有。"""
+    imported = adapter.import_json(storage(UID_A))
+    assert imported.display_name == f"用户{UID_A[-8:]}"
+    assert imported.detail["expiresAt"] == "2026-11-02T01:08:09+00:00"
 
 
 def test_apply_switch_replaces_only_auth_keys(adapter):

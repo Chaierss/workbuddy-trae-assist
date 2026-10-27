@@ -734,6 +734,11 @@ const failedResults = computed(() =>
       <span class="text-caption text-muted">{{ t("activity.cachedSuffix") }}</span>
     </div>
 
+    <!-- 只有一张卡不等于加载失败：Trae 侧目前确实只有签到可自动化 -->
+    <p v-if="platformFilter === 'trae'" class="mt-2 text-caption text-muted">
+      {{ t("activity.traeScopeNote") }}
+    </p>
+
     <div
       v-if="runReport"
       class="mt-3 rounded-card border border-line bg-surface px-5 py-2.5 text-caption"

@@ -608,6 +608,7 @@ def import_account(request: Request, body: ImportRequest) -> dict[str, Any]:
             display_name=imported.display_name,
             credential=encode_payload(imported.payload),
             source="local_import",
+            expires_at=_detail_expiry(imported.detail),
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -617,6 +618,16 @@ def import_account(request: Request, body: ImportRequest) -> dict[str, Any]:
         "restored": result.restored,
         "account": _account_payload(result.account),
     }
+
+
+def _detail_expiry(detail: dict[str, str]) -> str | None:
+    """适配器从登录态里读出的凭据过期时间（UTC ISO）。
+
+    只有适配器**确实解出来了**才带值：WorkBuddy 是 DPAPI 信封、本工具不解密，
+    那里就不带，库里的 `expires_at` 保持为空 —— 界面据此不显示到期行，而不是编一个。
+    """
+    value = detail.get("expiresAt") if detail else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _import_scope(request: Request, scope: str | None) -> str:
@@ -656,6 +667,7 @@ def import_json(request: Request, body: JsonImportRequest) -> dict[str, Any]:
                 display_name=imported.display_name,
                 credential=encode_payload(imported.payload),
                 source="json_import",
+                expires_at=_detail_expiry(imported.detail),
             )
             break
         else:

@@ -275,6 +275,8 @@ const credentialExpiryLabel = computed(() => {
   if (!iso) return "";
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
+  // 已过期就不再说「几号到期」，直接说下一步该怎么办。
+  if (at.getTime() <= Date.now()) return t("accounts.credential.expired");
   return t("accounts.credential.expiry", { time: formatTime(iso) });
 });
 

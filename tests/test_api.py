@@ -371,6 +371,39 @@ def test_import_json_auto_detects_trae(client):
     assert body["account"]["externalId"] == "1111222233334444"
 
 
+def test_import_json_trae_persists_name_and_credential_expiry(client):
+    """Trae 信封里的昵称与到期时间要落到账号上：界面靠 credentialExpiresAt 显示到期行。"""
+    from chaierww.domain.trae_crypto import tc_encrypt
+
+    cloudide = tc_encrypt(
+        json.dumps(
+            {
+                "userId": "2662359380277657",
+                "host": "https://api.trae.cn",
+                "expiredAt": "2026-11-01T08:34:58.000Z",
+                "account": {"username": "用户1473661267"},
+            },
+            ensure_ascii=False,
+        )
+    )
+    content = json.dumps(
+        {
+            "iCubeAuthInfo://icube.cloudide": cloudide,
+            "iCubeAuthInfo://icube-dc:1111222233334444": "dGMFEAAA" + "x" * 100,
+        },
+        ensure_ascii=False,
+    )
+    response = client.post("/api/accounts/import-json", json={"content": content})
+    assert response.status_code == 200
+    account = response.json()["account"]
+    assert account["displayName"] == "用户1473661267"
+
+    # 有效期在列表接口里注入（导入响应只回账号本体，不批量读库）。
+    listed = client.get("/api/accounts/merged").json()["accounts"]
+    matched = next(item for item in listed if item["id"] == account["id"])
+    assert matched["credentialExpiresAt"] == "2026-11-01T08:34:58+00:00"
+
+
 def test_import_json_unrecognized_is_400(client):
     response = client.post("/api/accounts/import-json", json={"content": "{\"foo\": 1}"})
     assert response.status_code == 400

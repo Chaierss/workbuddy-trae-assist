@@ -118,7 +118,8 @@ def parse_identity(raw: bytes) -> tuple[str, str, dict[str, str]]:
     ``iCubeAuthInfo://icube-dc:<deviceId>`` 内嵌的是**设备 ID**（本机客户端固定不变），
     不是账号，不能用它当账号标识，否则「当前登录高亮」与「切换校验」都会错。
 
-    昵称平台未提供明文（信封加密），沿用「用户 <userId>」作为兜底显示名。
+    显示名优先取信封 ``account.username``（实测它就是客户端里显示的那个名字）；
+    解不出才回退「用户 <userId 后 8 位>」。
     """
     try:
         text = raw.decode("utf-8", "replace")
@@ -139,16 +140,25 @@ def parse_identity(raw: bytes) -> tuple[str, str, dict[str, str]]:
     if not external_id:
         raise NotLoggedIn("客户端当前未登录，请先在客户端登录后再导入")
 
-    display_name = f"用户 {external_id[-8:]}"
-    detail = {"uid": external_id}
-    return external_id, display_name, detail
+    return external_id, *_identity_labels(data, external_id)
 
 
-def _cloudide_user_id(data: dict) -> str | None:
-    """从 storage.json 里解出 cloudide 信封的 ``userId``（真正账号 ID）。
+def _identity_labels(data: dict, external_id: str) -> tuple[str, dict[str, str]]:
+    """显示名 + 可落库的凭据元信息（``uid`` / ``expiresAt``）。
 
-    解密失败（信封形态变化/损坏）时返回 ``None``，由调用方决定是否回退设备 ID。
+    显示名优先取信封 ``account.username`` —— 实测它就是客户端里显示的那个名字；
+    解不出才回退「用户 <userId 后 8 位>」（与客户端不是同一串数字，但比空白强）。
+    ``expiresAt`` 只在信封里能读出合法时间时才带，读不出就不带 —— 不猜。
     """
+    detail = {"uid": external_id}
+    expires_at = _cloudide_expiry(data)
+    if expires_at:
+        detail["expiresAt"] = expires_at
+    return _cloudide_username(data) or f"用户 {external_id[-8:]}", detail
+
+
+def _cloudide_payload(data: dict) -> dict | None:
+    """解密 cloudide 信封。信封形态变化/损坏时返回 None，由调用方决定回退。"""
     envelope = data.get(ICUBE_CLOUDIDE_KEY)
     if not isinstance(envelope, str) or not envelope:
         return None
@@ -156,7 +166,46 @@ def _cloudide_user_id(data: dict) -> str | None:
         info = json.loads(tc_decrypt(envelope))
     except (TraeCryptoError, json.JSONDecodeError, ValueError):
         return None
-    if not isinstance(info, dict):
+    return info if isinstance(info, dict) else None
+
+
+def _cloudide_username(data: dict) -> str | None:
+    """cloudide 信封里的 ``account.username``（客户端展示名）。"""
+    info = _cloudide_payload(data) or {}
+    account = info.get("account")
+    name = account.get("username") if isinstance(account, dict) else None
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
+def _cloudide_expiry(data: dict) -> str | None:
+    """cloudide 信封里的 ``expiredAt``（access token 到期，UTC ISO）。
+
+    只认带时区的 ISO 字符串；形态不符就返回 None —— 不把无从验证的字符串写进库里。
+    """
+    info = _cloudide_payload(data)
+    if info is None:
+        return None
+    raw = info.get("expiredAt")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        moment = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        return None
+    return moment.astimezone(UTC).replace(microsecond=0).isoformat()
+
+
+def _cloudide_user_id(data: dict) -> str | None:
+    """从 storage.json 里解出 cloudide 信封的 ``userId``（真正账号 ID）。
+
+    解密失败（信封形态变化/损坏）时返回 ``None``，由调用方决定是否回退设备 ID。
+    """
+    info = _cloudide_payload(data)
+    if info is None:
         return None
     uid = info.get("userId")
     if isinstance(uid, str) and uid.strip():
@@ -379,11 +428,12 @@ class TraeAdapter:
             raise NotLoggedIn("内容里没有 Trae 登录凭据（缺少 iCubeAuthInfo 键）")
 
         auth_blob = json.dumps(_auth_keys(data), ensure_ascii=False).encode("utf-8")
+        display_name, detail = _identity_labels(data, external_id)
         return ImportedAccount(
             external_id=external_id,
-            display_name=f"用户 {external_id[-8:]}",
+            display_name=display_name,
             payload=auth_blob,
-            detail={"uid": external_id},
+            detail=detail,
         )
 
     # ---------- 扫码登录辅助 ----------

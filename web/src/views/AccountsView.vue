@@ -429,9 +429,44 @@ const reloginNames = computed(() => {
 /** 「去登录」按第一个失效号所属平台打开扫码面板。 */
 const reloginPlatform = computed<"workbuddy" | "trae">(() => {
   const first = reloginAccounts.value[0];
-  const matched = accounts.value.find((item) => item.id === first?.accountId);
-  return matched?.platform === "trae" ? "trae" : "workbuddy";
+  return platformOfAccountId(first?.accountId);
 });
+
+/**
+ * 凭据已经过期、又不能自动续期的号：上游不会再认这个令牌，只能重新扫码。
+ * 能续期的号会被续期链路救回来，不进这里；这类号 credentialState 可能还是 usable
+ * （没人去撞 401 就不知道），所以单独看时间。
+ */
+const expiredAccounts = computed(() =>
+  accounts.value.filter((item) => {
+    if (item.credentialRefreshable || !item.credentialExpiresAt) return false;
+    const at = new Date(item.credentialExpiresAt).getTime();
+    return Number.isFinite(at) && at <= Date.now();
+  }),
+);
+
+/** 只报「过期」而没被 relogin_required 覆盖的那部分，避免同一个号提示两次。 */
+const expiredOnlyAccounts = computed(() =>
+  expiredAccounts.value.filter(
+    (item) => !reloginAccounts.value.some((other) => other.accountId === item.id),
+  ),
+);
+
+const expiredNames = computed(() => {
+  const names = expiredOnlyAccounts.value.map((item) => item.displayName);
+  if (names.length <= 3) return names.join("、");
+  return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
+});
+
+const expiredPlatform = computed<"workbuddy" | "trae">(() =>
+  platformOfAccountId(expiredOnlyAccounts.value[0]?.id),
+);
+
+/** 账号所属平台 → 扫码面板类型；查不到时按国内 WorkBuddy 处理（与旧行为一致）。 */
+function platformOfAccountId(accountId: string | undefined): "workbuddy" | "trae" {
+  const matched = accounts.value.find((item) => item.id === accountId);
+  return matched?.platform === "trae" ? "trae" : "workbuddy";
+}
 
 /** 缺口账号的名字，最多列 3 个，剩下的折成「等 N 个」。 */
 const gapOnlyAccounts = computed(() =>
@@ -1353,6 +1388,27 @@ const confirmText = computed(() => {
         type="button"
         class="shrink-0 rounded-control border border-danger/40 bg-surface px-2.5 py-1 text-caption text-danger-dark transition-colors hover:border-danger"
         @click="oauthPlatform = reloginPlatform; oauthOpen = true"
+      >
+        {{ t("accounts.credential.reloginAction") }}
+      </button>
+    </div>
+
+    <!-- 凭据已过期且不能自动续期的号（例如文件导入、没有 refresh token）：只能重新扫码 -->
+    <div
+      v-if="expiredOnlyAccounts.length"
+      class="mt-3 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm leading-relaxed text-danger-dark"
+    >
+      <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
+      <div class="min-w-0 flex-1">
+        <p>{{ t("accounts.credential.expiredBanner", { count: expiredOnlyAccounts.length }) }}</p>
+        <p class="mt-0.5 text-caption opacity-85">
+          {{ expiredNames }} · {{ t("accounts.credential.expiredBannerHint") }}
+        </p>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 rounded-control border border-danger/40 bg-surface px-2.5 py-1 text-caption text-danger-dark transition-colors hover:border-danger"
+        @click="oauthPlatform = expiredPlatform; oauthOpen = true"
       >
         {{ t("accounts.credential.reloginAction") }}
       </button>

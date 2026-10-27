@@ -1738,7 +1738,8 @@ class ActivitiesService:
                     key,
                     title,
                     RESULT_FAILED,
-                    "签到失败：该设备今日已被其它账号签到（设备号冲突）",
+                    "签到失败：该设备今日已被其它账号签到。"
+                    "这套设备号今天只认一个账号，换一台今天没签过的设备，或明天再签这个号",
                 )
             ]
         if code == TRAE_CODE_BUSY:
@@ -1749,7 +1750,7 @@ class ActivitiesService:
                     key,
                     title,
                     RESULT_FAILED,
-                    "签到失败：上游限流（退避重试仍未通过）",
+                    "签到失败：上游限流，已退避重试仍未通过。等几分钟再点一次「一键执行」即可",
                     retryable=True,
                 )
             ]
@@ -1760,7 +1761,8 @@ class ActivitiesService:
                     key,
                     title,
                     RESULT_FAILED,
-                    "签到失败：设备号缺失或不被接受",
+                    "签到失败：设备号缺失或不被接受。"
+                    "请先在 Trae 客户端登录一次让设备号生成，再回来重试",
                 )
             ]
         self._note_auth(account, status_code, body, message)
