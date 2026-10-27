@@ -22,14 +22,19 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: python scripts/check_activity_catalog.py
-      # 失败时把 pytest 尾部输出打成注解：Actions 日志要登录才能看，
+      # 失败时把 pytest 关键行打成注解：Actions 日志要登录才能看，
       # 注解走公开 API 就能读，定位 CI-only 失败不用再本地猜。
+      # 只挑失败用例/超时/断言，不把整段线程栈塞进去——GitHub 每个步骤
+      # 只保留 10 条注解，堆栈会把真正有用的那行挤掉。
       - name: pytest
         shell: pwsh
         run: |
           pytest -q 2>&1 | Tee-Object -FilePath pytest.log
           if ($LASTEXITCODE -ne 0) {
-            Get-Content pytest.log -Tail 40 | ForEach-Object { "::error::$_" }
+            Get-Content pytest.log |
+              Select-String -Pattern 'short test summary|^(FAILED|ERROR)|Timeout|^E\s{2,}|assert' |
+              Select-Object -Last 10 |
+              ForEach-Object { "::error::$($_.Line)" }
             exit 1
           }
       - run: ruff check src tests scripts
