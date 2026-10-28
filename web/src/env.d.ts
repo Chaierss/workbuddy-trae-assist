@@ -15,8 +15,3 @@ declare module "virtual:keel-report" {
   };
   export default report;
 }
-
-interface ImportMetaEnv {
-  /** 可选覆盖构建期形态（`dev` / `prod`）；不设置时按 vite dev / build 推断。 */
-  readonly VITE_APP_MODE?: string;
-}

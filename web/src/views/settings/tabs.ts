@@ -14,7 +14,6 @@ import {
 } from "lucide-vue-next";
 import type { MessageKey } from "../../lib/i18n";
 import { isDesktop } from "../../lib/desktop";
-import { isDev } from "../../lib/devMode";
 import GeneralTab from "./GeneralTab.vue";
 import ClientSettingsTab from "./ClientSettingsTab.vue";
 import ScheduleTab from "./ScheduleTab.vue";
@@ -147,13 +146,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
  * 否则会出现「左栏没有这一项，但地址栏进去是空白」。
  */
 export function visibleSettingsTabs(desktopMode: boolean = isDesktop): SettingsTab[] {
-  return SETTINGS_TABS.filter((tab) => {
-    if (tab.hideOnDesktop && desktopMode) return false;
-    // 组件页展示的是内部质量债（未登记 / 未引用），线上形态整体隐藏。
-    // 可见性矩阵在 lib/devMode.ts，新增内部事实时先改那张表。
-    if (tab.key === "components" && !isDev()) return false;
-    return true;
-  });
+  return SETTINGS_TABS.filter((tab) => !(tab.hideOnDesktop && desktopMode));
 }
 
 /** 在「可见分栏」里查，所以桌面端查不到 api / wiki。 */

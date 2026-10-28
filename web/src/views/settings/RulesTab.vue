@@ -5,7 +5,6 @@ import EmptyState from "../../components/EmptyState.vue";
 import SectionCard from "../../components/SectionCard.vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import { t } from "../../lib/i18n";
-import { isDev } from "../../lib/devMode";
 import {
   PAGE_MODES,
   PROJECT_RULES,
@@ -19,13 +18,12 @@ import {
  * 设置 → 规则：只读展示项目硬性约束与工程约定。
  *
  * 数据来自 `keel/rules.json`，本页不做增删改 —— 规则要变就改 JSON 走评审。
- * 术语表与规则出处属于内部事实，只在开发模式出现；导出的 Markdown 给 AI 当上下文。
+ * 术语表与规则出处一并展示；导出的 Markdown 给 AI 当上下文。
  */
 const keyword = ref("");
 // 分段控件的取值是普通字符串，这里不收紧成联合类型，避免 v-model 类型冲突。
 const category = ref("all");
 
-const dev = isDev();
 const copied = ref(false);
 
 async function exportForAi(): Promise<void> {
@@ -97,9 +95,7 @@ const levelTone: Record<string, string> = {
       </div>
     </div>
 
-    <!-- 术语表只给内部看：线上形态隐藏「专注模式」这类设计语言 -->
     <SectionCard
-      v-if="dev"
       :title="t('settings.rules.glossary')"
       :subtitle="t('settings.rules.glossaryHint')"
       flush
@@ -160,6 +156,6 @@ const levelTone: Record<string, string> = {
       </div>
     </SectionCard>
 
-    <p v-if="dev" class="text-caption leading-relaxed text-muted">{{ t("settings.rules.source") }}</p>
+    <p class="text-caption leading-relaxed text-muted">{{ t("settings.rules.source") }}</p>
   </div>
 </template>

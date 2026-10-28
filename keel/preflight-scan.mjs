@@ -509,7 +509,7 @@ function main() {
       }
 
       console.log(`摘要：error ${counts.error} · warn ${counts.warn} · info ${counts.info}`)
-      if (counts.error) console.log('结论：未通过。error 必须清零才允许切线上模式。')
+      if (counts.error) console.log('结论：未通过。error 必须清零才允许发布。')
       else if (counts.warn) console.log('结论：可上线，但 warn 需逐条确认并记录。')
       else console.log('结论：通过。')
       console.log('\n提醒：本脚本查不出越权(IDOR)、业务逻辑绕过、权限只做在前端。')

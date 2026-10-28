@@ -11,7 +11,6 @@ import {
   listComponents,
   type ComponentStatus,
 } from "../../lib/componentRegistry";
-import { canShow } from "../../lib/devMode";
 import { t } from "../../lib/i18n";
 
 /**
@@ -19,8 +18,6 @@ import { t } from "../../lib/i18n";
  *
  * 数据来自 `keel/components.json`；未登记 / 未引用名单由 `virtual:keel-report`
  * 在构建期扫描真实文件得出，页面不维护任何手写清单。
- *
- * 未登记与未引用属于内部质量债：只在开发模式展示，线上模式连同源码路径一起隐藏。
  */
 const keyword = ref("");
 // 分段控件传的是普通字符串，不收紧联合类型，避免 v-model 类型冲突。
@@ -28,8 +25,6 @@ const category = ref("all");
 
 const components = listComponents();
 
-const showDebt = canShow("componentDebt");
-const showSourcePath = canShow("componentSourcePath");
 const hasDebt = report.unregistered.length > 0 || report.unused.length > 0;
 
 /** 只有非 stable 的状态才显示标签；空串同时作为「不显示」的判定。 */
@@ -78,8 +73,8 @@ const grouped = computed(() =>
       </span>
     </div>
 
-    <!-- 内部质量债：未登记 / 未引用名单由构建期扫描生成，只在开发模式展示 -->
-    <div v-if="showDebt" class="rounded-card border border-line bg-surface p-4">
+    <!-- 内部质量债：未登记 / 未引用名单由构建期扫描生成 -->
+    <div class="rounded-card border border-line bg-surface p-4">
       <p v-if="!hasDebt" class="text-body-sm text-ink-soft">
         {{ t("settings.components.clean") }}
       </p>
@@ -160,7 +155,7 @@ const grouped = computed(() =>
                   {{ t(item.summaryKey) }}
                 </p>
               </div>
-              <code v-if="showSourcePath" class="shrink-0 font-mono text-micro text-muted">
+              <code class="shrink-0 font-mono text-micro text-muted">
                 {{ item.path }}
               </code>
             </li>
@@ -169,7 +164,7 @@ const grouped = computed(() =>
       </div>
     </SectionCard>
 
-    <p v-if="showSourcePath" class="text-caption leading-relaxed text-muted">
+    <p class="text-caption leading-relaxed text-muted">
       {{ t("settings.components.source") }}
     </p>
   </div>

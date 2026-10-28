@@ -28,18 +28,6 @@ export const settingsZh = {
   "settings.rail.title": "设置",
   "settings.rail.subtitle": "返回主站",
 
-  "settings.mode.dev": "开发模式",
-  "settings.mode.prod": "线上模式",
-  "settings.mode.devTemp": "开发模式（临时）",
-  "settings.mode.hint": "判定来源：{source}",
-  "settings.mode.hintElevated": " · 本机临时升权，看完请切回",
-  "settings.mode.toggle": "点击切换",
-  "settings.mode.denied": "当前访问方式不允许升权到开发模式",
-  "settings.mode.source.build": "构建期常量",
-  "settings.mode.source.url": "URL 参数",
-  "settings.mode.source.storage": "本地存储",
-  "settings.mode.source.default": "默认值",
-
   "settings.backup.backupNow": "立即备份",
   "settings.backup.fileCount": "{count} 个文件",
   "settings.backup.verified": "已校验",
@@ -141,7 +129,7 @@ export const settingsZh = {
   "settings.rules.exportDone": "规则 Markdown 已复制",
   "settings.rules.exportFailed": "复制失败，请手动重试",
   "settings.rules.glossary": "术语与页面形态",
-  "settings.rules.glossaryHint": "内部设计语言，只在开发模式展示",
+  "settings.rules.glossaryHint": "内部设计语言，用来统一页面形态的叫法",
   "settings.rules.definition": "定义",
   "settings.rules.signal": "界面信号",
   "settings.rules.avoid": "不要这样理解",
@@ -228,7 +216,7 @@ export const settingsZh = {
   "settings.components.clean": "目录与注册表一致，所有组件都有引用",
   "settings.components.listUnregistered": "未登记",
   "settings.components.listUnused": "未被引用",
-  "settings.components.debtHint": "内部质量债，只在开发模式展示",
+  "settings.components.debtHint": "内部质量债：目录里有没登记的，或登记了没人用的",
   "settings.components.summary.appShell": "唯一的壳层，承载三种布局形态与全局快捷键",
   "settings.components.summary.sidebarRail": "主侧栏：高频业务入口，设置收在左下角",
   "settings.components.summary.sectionCard": "内容分区卡片，统一标题、副标题与操作区",
@@ -249,7 +237,6 @@ export const settingsZh = {
   "settings.components.summary.commandPalette": "Ctrl+K 页面跳转面板",
   "settings.components.summary.openApiViewer":
     "接口文档渲染器：把 openapi.json 画成「标签 → 接口 → 详情」，不依赖 Swagger UI",
-  "settings.components.summary.modeBadge": "开发 / 线上模式角标，点击切换并说明判定来源",
   "settings.components.summary.pageHeader": "页面标题区，统一标题、副标题与右侧操作",
   "settings.components.summary.searchInput": "带图标与清空按钮的搜索框，列表页共用",
   "settings.components.summary.toastHost": "全局轻提示，统一成功 / 失败 / 信息的出现与消失",
@@ -378,18 +365,6 @@ export const settingsEn = {
 
   "settings.rail.title": "Settings",
   "settings.rail.subtitle": "Back to main site",
-
-  "settings.mode.dev": "Dev mode",
-  "settings.mode.prod": "Prod mode",
-  "settings.mode.devTemp": "Dev mode (temporary)",
-  "settings.mode.hint": "Decided by: {source}",
-  "settings.mode.hintElevated": " · locally elevated; switch back when done",
-  "settings.mode.toggle": "Click to switch",
-  "settings.mode.denied": "This access path may not elevate to dev mode",
-  "settings.mode.source.build": "build-time constant",
-  "settings.mode.source.url": "URL parameter",
-  "settings.mode.source.storage": "local storage",
-  "settings.mode.source.default": "default value",
 
   "settings.backup.backupNow": "Back up now",
   "settings.backup.fileCount": "{count} files",
@@ -604,8 +579,6 @@ export const settingsEn = {
   "settings.components.summary.commandPalette": "Ctrl+K navigation palette",
   "settings.components.summary.openApiViewer":
     "API docs renderer: turns openapi.json into tag → endpoint → detail without Swagger UI",
-  "settings.components.summary.modeBadge":
-    "Dev / prod mode badge; click to switch and see where the decision came from",
   "settings.components.summary.pageHeader": "Page title block: title, subtitle and right-side actions",
   "settings.components.summary.searchInput": "Search field with icon and clear button, shared by list pages",
   "settings.components.summary.toastHost": "Global toasts for success, failure and info messages",

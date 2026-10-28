@@ -2,7 +2,6 @@
   { "key": "app-shell", "name": "AppShell", "path": "web/src/components/AppShell.vue", "category": "layout", "summaryKey": "settings.components.summary.appShell", "status": "stable", "demo": null },
   { "key": "sidebar-rail", "name": "SidebarRail", "path": "web/src/components/SidebarRail.vue", "category": "layout", "summaryKey": "settings.components.summary.sidebarRail", "status": "stable", "demo": null },
   { "key": "page-header", "name": "PageHeader", "path": "web/src/components/PageHeader.vue", "category": "layout", "summaryKey": "settings.components.summary.pageHeader", "status": "stable", "demo": null },
-  { "key": "mode-badge", "name": "ModeBadge", "path": "web/src/components/ModeBadge.vue", "category": "layout", "summaryKey": "settings.components.summary.modeBadge", "status": "stable", "demo": null },
 
   { "key": "section-card", "name": "SectionCard", "path": "web/src/components/SectionCard.vue", "category": "container", "summaryKey": "settings.components.summary.sectionCard", "status": "stable", "demo": null },
 

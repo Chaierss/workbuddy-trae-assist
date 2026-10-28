@@ -68,7 +68,7 @@ export const PROJECT_RULES: ProjectRule[] = rawRules.rules.map((rule) => ({
   source: rule.source,
 }));
 
-/** 内部设计术语。线上形态不展示（见 naming-focus-mode），导出给 AI 时保留。 */
+/** 内部设计术语（页面形态）。导出给 AI 时一并保留。 */
 export const PAGE_MODES: PageModeTerm[] = rawRules.pageModes as PageModeTerm[];
 
 /**

@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { t } from "../../lib/i18n";
-import ModeBadge from "../../components/ModeBadge.vue";
 import { SETTINGS_ROUTE, resolveSettingsKey, visibleSettingsTabs } from "./tabs";
 
 /** 壳层在 `shell` 态渲染这个左栏（240px），设置页自己只负责右侧内容。 */
@@ -59,10 +58,5 @@ function backToMain(): void {
         </span>
       </button>
     </nav>
-
-    <!-- 模式角标常驻左下角：四件套的哪些内容可见由它决定，不能藏起来 -->
-    <div class="shrink-0 border-t border-line-soft p-2">
-      <ModeBadge />
-    </div>
   </aside>
 </template>
