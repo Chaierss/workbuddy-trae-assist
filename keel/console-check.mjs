@@ -12,6 +12,7 @@
  * 设计原则：只有"机器能确定错了"的项才是 error。未使用组件需要人判断，永远是 warn。
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, resolve, relative, extname, basename, dirname } from 'node:path'
 import process from 'node:process'
 
@@ -61,6 +62,17 @@ function readJson(path) {
   } catch (error) {
     return { ok: false, error: error.message }
   }
+}
+
+/**
+ * 文件是否被 .gitignore 排除（相对项目根）。
+ * 用途：docs/ 下有一部分文档是「本地保留、不进版本库」的内部资料，CI 检出后
+ * 本来就没有它们；这属于设计如此，不能当成缺失。只有「没被忽略却不在」
+ * 才是真的丢文件。git 不可用或不是仓库时返回 false（退化为原来的严格判断）。
+ */
+function isGitIgnored(root, rel) {
+  const res = spawnSync('git', ['check-ignore', '-q', '--', rel], { cwd: root })
+  return res.status === 0
 }
 
 function walkFiles(root, dirs, exts, excludeDirs, acc = []) {
@@ -266,14 +278,25 @@ function main() {
     } else {
       const files = Array.isArray(loaded.data) ? loaded.data : []
       const missing = []
+      const ignored = []
       const empty = []
       for (const item of files) {
         const abs = resolve(root, config.wikiDir, item.name)
-        if (!existsSync(abs)) missing.push(item.name)
-        else if (readFileSync(abs, 'utf8').trim().length < 50) empty.push(item.name)
+        if (!existsSync(abs)) {
+          // 被 .gitignore 排除的内部文档在 CI 检出里天然不存在，不算缺失；
+          // 否则每次 CI 都会因为「本地有、仓库没有」而误红。
+          if (isGitIgnored(root, posix(join(config.wikiDir, item.name)))) ignored.push(item.name)
+          else missing.push(item.name)
+        } else if (readFileSync(abs, 'utf8').trim().length < 50) empty.push(item.name)
       }
+      const localOnly = ignored.length
+        ? `；另 ${ignored.length} 篇为 .gitignore 排除的内部文档（本地留存，检出后不存在属正常）：${ignored.join('、')}`
+        : ''
+      const problems = []
+      if (missing.length) problems.push(`清单里的文档不存在：${missing.join('、')}`)
+      if (empty.length) problems.push(`文档内容过少（<50 字符）：${empty.join('、')}`)
       push('WIKI-01', missing.length ? 'error' : empty.length ? 'warn' : 'ok',
-        missing.length ? `清单里的文档不存在：${missing.join('、')}` : empty.length ? `文档内容过少（<50 字符）：${empty.join('、')}` : `${files.length} 篇 wiki 文档就位`)
+        problems.length ? problems.join('；') + localOnly : `${files.length - ignored.length} 篇 wiki 文档就位${localOnly}`)
       if (!missing.length) {
         // 用相对 wikiDir 的完整路径比对，而不是 basename —— 否则 policies/ 这类
         // 子目录文档永远匹配不上清单，每次体检都误报「未登记」。
