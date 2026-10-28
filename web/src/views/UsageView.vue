@@ -16,8 +16,8 @@
  *   4. 「对话」依赖本机 jsonl：云端只回计费行，requestId 与本机
  *      conversationRequestId 对得上才展示正文；对不上就如实说「本机无记录」。
  */
-import { computed, onMounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
   BarChart3,
@@ -95,7 +95,27 @@ const summary = ref<UsageSummary | null>(null);
 const busy = ref(false);
 const error = ref<string | null>(null);
 const platformFilter = ref<"all" | "workbuddy" | "trae">("all");
-const view = ref<UsageTab>("overview");
+
+const route = useRoute();
+const router = useRouter();
+
+const TAB_KEYS = VIEWS.map((item) => item.key);
+
+/**
+ * 视角读写 URL：`?tab=compare` 直达对比视角，非法值归一为总览。
+ * 概览的「积分临期」深链靠它把用户直接落在对比表，而不是停在总览再手点一次。
+ */
+const view = computed<UsageTab>({
+  get: () => {
+    const raw = route.query.tab;
+    return typeof raw === "string" && (TAB_KEYS as string[]).includes(raw)
+      ? (raw as UsageTab)
+      : "overview";
+  },
+  set: (next) => {
+    void router.replace({ query: { ...route.query, tab: next } });
+  },
+});
 
 // 分段控件的选项（标签走 i18n，值保持字符串，回写时再收窄类型）。
 const viewOptions = computed(() => VIEWS.map((item) => ({ value: item.key, label: t(item.labelKey) })));
@@ -683,6 +703,53 @@ function toggleSort(key: CompareColumn): void {
   }
 }
 
+/* ---------- 深链聚焦（?account=<id>） ---------- */
+
+/** 概览点「积分临期」带过来的账号：对比表对应行高亮并滚到可视区。 */
+const focusedAccountId = computed(() =>
+  typeof route.query.account === "string" ? route.query.account : null,
+);
+const focusedAccount = computed(() => {
+  const id = focusedAccountId.value;
+  if (!id) return null;
+  return pool.value.find((account) => account.accountId === id) ?? null;
+});
+/** 已滚动过的账号：避免数据/排序变化引起重复滚动，路由变化时清空。 */
+let focusedApplied: string | null = null;
+
+function scrollToFocusedAccount(): void {
+  const id = focusedAccountId.value;
+  if (!id || view.value !== "compare" || id === focusedApplied) return;
+  void nextTick(() => {
+    const row = document.getElementById(`usage-account-${id}`);
+    if (!row) return; // 数据还没到，等下一次触发
+    focusedApplied = id;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
+function focusAccountsPath(): string {
+  return `${scopedPath("/accounts")}?risk=credential&account=${encodeURIComponent(
+    focusedAccountId.value ?? "",
+  )}`;
+}
+
+watch(
+  () => [route.query.tab, route.query.account],
+  ([tab]) => {
+    // 非法视角归一为总览，并把 URL 改回去，免得刷新一次又跳回同一个坏值。
+    if (tab !== undefined && (typeof tab !== "string" || !(TAB_KEYS as string[]).includes(tab))) {
+      void router.replace({ query: { ...route.query, tab: "overview" } });
+    }
+    focusedApplied = null;
+    scrollToFocusedAccount();
+  },
+  { immediate: true },
+);
+
+// 用量数据是异步返回的：表格真正渲染出来后再定位一次。
+watch([compareRows, view], () => scrollToFocusedAccount());
+
 // ---------- 明细：筛选 / 排序 / 分页 ----------
 
 const modelOptions = computed(() => {
@@ -946,6 +1013,21 @@ onMounted(() => {
         </button>
       </template>
     </PageHeader>
+
+    <div
+      v-if="focusedAccount"
+      class="mt-3 flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface px-3 py-2 text-body-sm"
+    >
+      <span class="text-ink-soft">
+        {{ t("usage.focus.banner", { name: focusedAccount.displayName }) }}
+      </span>
+      <RouterLink
+        :to="focusAccountsPath()"
+        class="text-brand transition-colors hover:text-brand-dark"
+      >
+        {{ t("overview.focus.account") }}
+      </RouterLink>
+    </div>
 
     <div v-if="view === 'overview'" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <StatCard
@@ -1694,8 +1776,14 @@ onMounted(() => {
             <tbody>
               <tr
                 v-for="row in compareRows"
+                :id="`usage-account-${row.account.accountId}`"
                 :key="row.account.accountId"
                 class="border-b border-line-soft last:border-b-0"
+                :class="
+                  focusedAccountId === row.account.accountId
+                    ? 'bg-brand-soft'
+                    : 'transition-colors hover:bg-line-soft'
+                "
               >
                 <td class="px-5 py-2.5">
                   <div class="flex items-center gap-2">

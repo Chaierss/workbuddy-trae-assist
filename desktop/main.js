@@ -88,6 +88,9 @@ let backendProcess = null;
 let mainWindow = null;
 let webLoginWindow = null;
 let tray = null;
+/** 托盘「切换账号」子菜单的数据源：只存 id / name / platform，由渲染进程同步。 */
+let trayAccounts = [];
+let trayCurrentId = '';
 let quitting = false;
 
 // ---------------------------------------------------------------------------
@@ -384,13 +387,34 @@ function createTray() {
 /**
  * 托盘右键菜单。
  *
- * 平时只有「打开」和「退出」两项 —— 更新是一年点不了几次的事，不该常驻占一格。
+ * 平时只有「打开」「切换账号」和「退出」—— 更新是一年点不了几次的事，不该常驻占一格。
  * 只有真的有待处理更新（有新版本 / 已下载待重启）时才临时插一行，
  * 点它就唤回窗口并弹更新弹窗。
  */
 function refreshTrayMenu() {
   if (!tray) return;
   const items = [{ label: '打开 chaierww', click: () => showWindow() }];
+  // 有号才渲染子菜单：没有账号时不给一个点开全是空的入口。
+  if (trayAccounts.length) {
+    items.push({
+      label: '切换账号',
+      submenu: [
+        ...trayAccounts.map((account) => ({
+          label: account.name,
+          type: 'radio',
+          checked: account.id === trayCurrentId,
+          click: () => {
+            showWindow();
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('tray:switch-account', account.id);
+            }
+          },
+        })),
+        { type: 'separator' },
+        { label: '打开号池', click: () => showWindow() },
+      ],
+    });
+  }
   if (hasPendingUpdate()) {
     const label =
       updateState.status === 'downloaded'
@@ -831,6 +855,24 @@ function setupAutoUpdater() {
 // ---------------------------------------------------------------------------
 // 渲染进程 IPC
 // ---------------------------------------------------------------------------
+/**
+ * 托盘账号摘要同步：只认主窗口发来的消息，字段走白名单，最多 8 条。
+ * 渲染进程给的 name 可能是任意长度，截断后进菜单，避免托盘菜单被撑爆。
+ */
+ipcMain.on('tray:sync-accounts', (event, payload) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+  trayAccounts = rawItems
+    .filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string')
+    .slice(0, 8)
+    .map((item) => ({
+      id: item.id,
+      name: item.name.slice(0, 60),
+      platform: typeof item.platform === 'string' ? item.platform : '',
+    }));
+  trayCurrentId = typeof payload?.currentId === 'string' ? payload.currentId : '';
+  refreshTrayMenu();
+});
 ipcMain.handle('update:get', () => updateState);
 // 备份恢复只在下次启动时生效：界面确认后调它重启应用（不重开新实例）。
 ipcMain.handle('app:relaunch', () => {

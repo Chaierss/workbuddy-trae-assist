@@ -19,11 +19,25 @@ import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
+import RunReportPanel from "../components/RunReportPanel.vue";
+import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
 import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type ActivityCampaign, type OverviewPulse, type Snapshot } from "../api";
-import { accounts, attentionCount, clientDetections, detection, scopedPath } from "../stores/app";
+import {
+  accounts,
+  attentionCount,
+  clientDetections,
+  credentialIssueCounts,
+  detection,
+  scopedPath,
+} from "../stores/app";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
+import {
+  normalizeActivityReport,
+  normalizeCredentialReport,
+  type RunReportView,
+} from "../lib/runReport";
 import { t } from "../lib/i18n";
 
 const router = useRouter();
@@ -60,7 +74,11 @@ const pulse = ref<OverviewPulse | null>(null);
 /** 官方活动速览：与待处理清单同一次请求返回，不额外打上游。 */
 const campaigns = ref<ActivityCampaign[]>([]);
 const loadError = ref("");
+const actionablesLoading = ref(true);
 const busy = ref<string | null>(null);
+/** 执行回执：执行完不只是一句 toast，用户能回看成功 / 跳过 / 失败。 */
+const runReport = ref<RunReportView | null>(null);
+const runError = ref("");
 /** 客户端登录态目录默认收成一行，点开才铺完整路径 —— 它不是常用信息。 */
 const expandedClients = ref<Set<string>>(new Set());
 
@@ -124,6 +142,8 @@ const groups = computed<ActionGroup[]>(() => {
         type: "run",
         endpoint: found.action.endpoint,
         accountIds: Array.from(new Set([...found.action.accountIds, ...item.action.accountIds])),
+        mode: found.action.mode,
+        scope: found.action.scope,
       };
     }
   }
@@ -140,6 +160,7 @@ const affectedAccounts = computed(() => {
 });
 
 async function load(): Promise<void> {
+  actionablesLoading.value = true;
   try {
     const next = await api.overviewActionables();
     actionables.value = next.items;
@@ -149,6 +170,8 @@ async function load(): Promise<void> {
   } catch (cause) {
     // 读不到就说读不到，不能渲染成「暂无待处理」——那等于骗用户一切正常。
     loadError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionablesLoading.value = false;
   }
 }
 
@@ -165,7 +188,10 @@ function severityLabel(severity: ActionableItem["severity"]): string {
 }
 
 function actionLabel(group: ActionGroup): string {
-  if (group.action.type === "run") return t("overview.action.run");
+  if (group.action.type === "run") {
+    if (group.action.endpoint === "/clients/launch") return t("overview.action.launch");
+    return t("overview.action.run");
+  }
   if (group.kind === "onboarding") return t("overview.action.accounts");
   return t("overview.action.handle");
 }
@@ -207,16 +233,49 @@ async function runGroup(group: ActionGroup): Promise<void> {
   // 跳页类在一开始就分流了，走到这里的只可能是执行类；显式守住类型。
   if (action.type !== "run") return;
   busy.value = group.kind;
+  runError.value = "";
   try {
     if (action.endpoint === "/activities/run") {
-      await api.runActivities(action.accountIds);
+      runReport.value = normalizeActivityReport(await api.runActivities(action.accountIds));
     } else if (action.endpoint === "/credentials/refresh") {
       const mode = (action.mode as "due" | "force" | "check" | undefined) ?? "due";
-      await api.refreshCredentials(mode, action.accountIds);
+      runReport.value = normalizeCredentialReport(
+        await api.refreshCredentials(mode, action.accountIds),
+      );
+    } else if (action.endpoint === "/clients/launch" && action.scope) {
+      const result = await api.launchClient(action.scope);
+      if (!result.launched && !result.alreadyRunning) {
+        runError.value = result.message;
+      } else {
+        // 启动是异步的：留一点时间让检测结果翻成「运行中」，否则清单还是旧状态。
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
     }
     await load();
   } catch (cause) {
-    loadError.value = cause instanceof Error ? cause.message : String(cause);
+    runError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    busy.value = null;
+  }
+}
+
+/** 回执里的单行重试：沿用原报告的模式，只重跑这一个号。 */
+async function retryRunRow(accountId: string): Promise<void> {
+  const current = runReport.value;
+  if (!current) return;
+  busy.value = "retry";
+  runError.value = "";
+  try {
+    if (current.kind === "activity") {
+      runReport.value = normalizeActivityReport(await api.runActivities([accountId]));
+    } else {
+      runReport.value = normalizeCredentialReport(
+        await api.refreshCredentials(current.mode ?? "force", [accountId]),
+      );
+    }
+    await load();
+  } catch (cause) {
+    runError.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
     busy.value = null;
   }
@@ -248,14 +307,20 @@ const runningClients = computed(() => clientDetections.value.filter((item) => it
  * 概览这里跟着改成读全局备份，KPI 与「最近备份」区块的数字、跳转才和那一页对得上。
  */
 const globalSnapshots = ref<Snapshot[]>([]);
+const backupsLoading = ref(true);
+const backupsError = ref("");
 
 async function loadGlobalBackups(): Promise<void> {
+  backupsLoading.value = true;
+  backupsError.value = "";
   try {
     const data = await api.globalBackups();
     globalSnapshots.value = data.snapshots;
-  } catch {
-    // 读不到就留空，KPI 显示 0、区块显示空态，不冒充「没有备份」。
-    globalSnapshots.value = [];
+  } catch (cause) {
+    // 读不到就说读不到：不能把失败渲染成 0 / 空态，那等于骗用户「没有备份」。
+    backupsError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    backupsLoading.value = false;
   }
 }
 </script>
@@ -282,17 +347,30 @@ async function loadGlobalBackups(): Promise<void> {
         :number="attentionCount"
         :icon="AlertTriangle"
         :tone="attentionCount ? 'warn' : undefined"
-        :hint="attentionCount ? t('overview.stat.credentialIssueHint') : t('overview.stat.allGood')"
-        :to="navTo('/accounts?risk=relogin')"
+        :hint="
+          attentionCount
+            ? t('overview.stat.credentialIssueSplit', {
+                relogin: credentialIssueCounts.relogin,
+                expired: credentialIssueCounts.expired,
+                expiring: credentialIssueCounts.expiring,
+              })
+            : t('overview.stat.allGood')
+        "
+        :to="navTo('/accounts?risk=credential')"
       />
       <StatCard
         :label="t('overview.stat.snapshots')"
-        :number="globalSnapshots.length"
+        :number="backupsError || backupsLoading ? undefined : globalSnapshots.length"
+        :value="backupsError ? '—' : backupsLoading ? '…' : undefined"
         :icon="Database"
         :hint="
-          latestSnapshot
-            ? t('overview.stat.lastBackup', { time: formatTime(latestSnapshot.createdAt) })
-            : t('overview.stat.noBackups')
+          backupsError
+            ? t('overview.stat.backupsUnavailable')
+            : backupsLoading
+              ? t('common.loading')
+              : latestSnapshot
+                ? t('overview.stat.lastBackup', { time: formatTime(latestSnapshot.createdAt) })
+                : t('overview.stat.noBackups')
         "
       />
       <StatCard
@@ -303,6 +381,18 @@ async function loadGlobalBackups(): Promise<void> {
         :to="navTo('/accounts')"
       />
     </div>
+
+    <RunReportPanel
+      v-if="runReport"
+      :report="runReport"
+      :busy="busy !== null"
+      class="mt-3"
+      @close="runReport = null"
+      @retry="retryRunRow"
+    />
+    <p v-if="runError" class="mt-3 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm text-danger">
+      {{ runError }}
+    </p>
 
     <SectionCard
       class="mt-4"
@@ -317,6 +407,10 @@ async function loadGlobalBackups(): Promise<void> {
       <p v-if="loadError" class="px-5 py-3.5 text-body-sm text-danger">
         {{ t("overview.actionables.error", { message: loadError }) }}
       </p>
+      <div v-else-if="actionablesLoading" class="space-y-1 px-5 py-2">
+        <Skeleton variant="row" :lines="2" />
+        <Skeleton variant="row" :lines="2" />
+      </div>
       <div
         v-else-if="!groups.length"
         class="flex items-center gap-2.5 px-5 py-8 text-body text-ink-soft"
@@ -500,7 +594,20 @@ async function loadGlobalBackups(): Promise<void> {
             {{ t("overview.snapshots.viewAll") }}
           </RouterLink>
         </template>
-        <div v-if="!globalSnapshots.length" class="px-5 py-8 text-center text-body text-muted">
+        <div v-if="backupsError" class="flex flex-wrap items-center gap-2 px-5 py-3.5 text-body-sm text-danger">
+          <span class="min-w-0 flex-1">{{ t("overview.backups.error", { message: backupsError }) }}</span>
+          <button
+            type="button"
+            class="inline-flex shrink-0 items-center rounded-badge border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            @click="loadGlobalBackups"
+          >
+            {{ t("common.retry") }}
+          </button>
+        </div>
+        <div v-else-if="backupsLoading" class="space-y-1 px-5 py-2">
+          <Skeleton variant="row" :lines="2" />
+        </div>
+        <div v-else-if="!globalSnapshots.length" class="px-5 py-8 text-center text-body text-muted">
           {{ t("overview.snapshots.empty") }}
         </div>
         <ul v-else class="divide-y divide-line-soft">

@@ -119,7 +119,33 @@ jobs:
             fi
           done
 
-          gh release create "$tag" --title "${tag#v}" --notes "详见 CHANGELOG.md"
+          # Release 正文不由人手写，也不允许写「详见 CHANGELOG.md」：
+          # 从 CHANGELOG 里抽出当前 tag 对应的版本段落，原样作为正文。
+          # 抽不到就红掉——宁可不发，也不发一个看不出改了什么版本的 Release。
+          version="${tag#v}"
+          notes_file="$(mktemp)"
+          awk -v ver="$version" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "## [" ver "]") == 1) { found = 1; print; next }
+            }
+            found { print }
+          ' ../CHANGELOG.md > "$notes_file"
+
+          if ! grep -q '^## \[' "$notes_file"; then
+            echo "✗ CHANGELOG.md 缺少 [$version] 段落，拒绝发布没有正文的 Release"
+            exit 1
+          fi
+          if [ "$(grep -cve '^[[:space:]]*$' "$notes_file")" -lt 4 ]; then
+            echo "✗ CHANGELOG.md 的 [$version] 段落内容过少，请写清本版改了什么"
+            exit 1
+          fi
+          if grep -Eq '详见[[:space:]]*CHANGELOG|见[[:space:]]*CHANGELOG\.md' "$notes_file"; then
+            echo "✗ Release 正文不能只写「详见 CHANGELOG.md」，必须直接列出本版变化"
+            exit 1
+          fi
+
+          gh release create "$tag" --title "${tag#v}" --notes-file "$notes_file"
 
           files=(release/*.exe release/*.blockmap release/latest*.yml)
           for f in "${files[@]}"; do

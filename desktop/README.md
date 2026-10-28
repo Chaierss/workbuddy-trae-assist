@@ -200,9 +200,10 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron
 
 ## 自动更新发布
 
-1. 改 `desktop/package.json` 的 `version`
-2. 打标签（`git tag v0.9.2 && git push origin v0.9.2`）→ CI 构建并上传 Release
-3. 旧版客户端启动后自动检查 → 静默下载 → 完成才提示 → 重启升级
+1. 改 `desktop/package.json` 的 `version`，并在 `CHANGELOG.md` 写好对应版本段落
+2. 打标签（`git tag v0.10.0 && git push origin v0.10.0`）→ CI 构建并上传 Release
+3. Release 正文由 CI 从 CHANGELOG 对应版本段落抽取，不是「详见 CHANGELOG.md」；段落缺失或过短会让流水线失败
+4. 旧版客户端启动后自动检查 → 静默下载 → 完成才提示 → 重启升级
 
 发布通道配置在 `desktop/package.json` 的 `build.publish`（GitHub: `Chaierss/workbuddy-trae-assist`）。
 这个仓库名同时决定了安装包里 `app-update.yml` 指向哪里——写错不会报错，只会静默地永远查不到更新。

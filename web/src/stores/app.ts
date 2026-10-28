@@ -107,9 +107,46 @@ export async function loadActivityActionable(): Promise<void> {
   }
 }
 
-export const attentionCount = computed(
-  () => accounts.value.filter((item) => item.credentialState !== "usable").length,
-);
+const CREDENTIAL_WARN_MS = 7 * 24 * 60 * 60 * 1000;
+
+function credentialExpiryMs(account: Account): number | null {
+  if (!account.credentialExpiresAt) return null;
+  const ms = new Date(account.credentialExpiresAt).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * 凭据问题号的唯一口径：状态不可用，或 7 天内到期 / 已过期。
+ * 概览 KPI、号池健康卡与号池筛选都从这里取，避免三处数字各算各的。
+ */
+export const credentialIssueAccounts = computed(() => {
+  const now = Date.now();
+  return accounts.value.filter((item) => {
+    if (item.credentialState !== "usable") return true;
+    const expiresAt = credentialExpiryMs(item);
+    return expiresAt !== null && expiresAt <= now + CREDENTIAL_WARN_MS;
+  });
+});
+
+/** 互斥拆分：需重登 / 已过期 / 7 天内到期。 */
+export const credentialIssueCounts = computed(() => {
+  const now = Date.now();
+  const counts = { relogin: 0, expired: 0, expiring: 0 };
+  for (const item of credentialIssueAccounts.value) {
+    if (item.credentialState === "relogin_required") {
+      counts.relogin += 1;
+      continue;
+    }
+    if (item.credentialState !== "usable") continue;
+    const expiresAt = credentialExpiryMs(item);
+    if (expiresAt === null) continue;
+    if (expiresAt < now) counts.expired += 1;
+    else counts.expiring += 1;
+  }
+  return counts;
+});
+
+export const attentionCount = computed(() => credentialIssueAccounts.value.length);
 
 export const clientRunning = computed(() => detection.value?.running === true);
 

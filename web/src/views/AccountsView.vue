@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
   AlertTriangle,
@@ -33,25 +33,24 @@ import NoteDialog from "../components/NoteDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
 import OAuthLoginDialog from "../components/OAuthLoginDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
-import SwitchDialog from "../components/SwitchDialog.vue";
 import {
   api,
   formatAmount,
   type Account,
   type ActivityBrief,
-  type ClientSlot,
   type CredentialHealth,
   type CredentialRefreshReport,
   type MigrationPreview,
   type OverviewPulse,
   type RecycleBinAccount,
-  type SwitchReport,
   type SyncAccountStatus,
 } from "../api";
 import {
   accounts,
   attentionCount,
   clientDetections,
+  credentialIssueAccounts,
+  credentialIssueCounts,
   credits,
   creditsLoading,
   detection,
@@ -60,8 +59,8 @@ import {
   refreshAll,
   switchBlockedReason,
 } from "../stores/app";
-import { refreshOnboarding } from "../lib/onboarding";
 import { track } from "../lib/metrics";
+import { openSwitch, switchFlow } from "../lib/switchFlow";
 import { localeTag, t, type MessageKey } from "../lib/i18n";
 
 const keyword = ref("");
@@ -75,11 +74,11 @@ const toast = ref<string | null>(null);
 
 /**
  * 筛选口径：点顶部健康度卡片或卡片上的风险徽标即可筛出同一类账号。
- * - 风险（relogin / expiring / low）：只在有值时筛，没值禁用整块点击；
+ * - 风险（credential / expiring / low）：只在有值时筛，没值禁用整块点击；
  * - 正面口径（usable / today）：筛可用账号 / 有活动余量的账号；
  * - total 是「号池总数」专用：点它不是筛，而是清空筛选回到全部。
  */
-type RiskKey = "" | "relogin" | "expiring" | "low" | "usable" | "today";
+type RiskKey = "" | "credential" | "expiring" | "low" | "usable" | "today";
 type FilterKey = RiskKey | "total";
 const riskFilter = ref<RiskKey>("");
 
@@ -115,8 +114,12 @@ function readViewPrefs(): void {
     if (["all", "workbuddy", "trae"].includes(data.platform ?? "")) {
       platformFilter.value = data.platform as PoolViewPrefs["platform"];
     }
-    if (["", "relogin", "expiring", "low", "usable", "today"].includes(data.risk ?? "")) {
-      riskFilter.value = (data.risk ?? "") as RiskKey;
+    // 0.9.x 存的是 relogin，0.10.0 起统一叫 credential。
+    const storedRisk = data.risk as string | undefined;
+    if (storedRisk === "relogin") {
+      riskFilter.value = "credential";
+    } else if (["", "credential", "expiring", "low", "usable", "today"].includes(storedRisk ?? "")) {
+      riskFilter.value = (storedRisk ?? "") as RiskKey;
     }
   } catch {
     localStorage.removeItem(VIEW_KEY);
@@ -128,8 +131,13 @@ readViewPrefs();
 // URL 上的 ?risk= 预置筛选优先级高于 localStorage：概览等页面点「凭据异常」跳过来
 // 时带上参数，号池页直接落到对应筛选，不用再手点一次。合法值才认，非法忽略。
 const route = useRoute();
-const RISK_KEYS: RiskKey[] = ["relogin", "expiring", "low", "usable", "today"];
-if (typeof route.query.risk === "string" && (RISK_KEYS as string[]).includes(route.query.risk)) {
+const RISK_KEYS: RiskKey[] = ["credential", "expiring", "low", "usable", "today"];
+if (route.query.risk === "relogin") {
+  riskFilter.value = "credential";
+} else if (
+  typeof route.query.risk === "string" &&
+  (RISK_KEYS as string[]).includes(route.query.risk)
+) {
   riskFilter.value = route.query.risk as RiskKey;
 }
 
@@ -302,23 +310,6 @@ function openJsonImport(): void {
   jsonDialog.error = "";
   jsonDialog.open = true;
 }
-
-const dialog = reactive({
-  open: false,
-  busy: false,
-  report: null as SwitchReport | null,
-  error: null as string | null,
-  /** 迁移预检结果（确认态）。 */
-  preview: null as MigrationPreview | null,
-  /** true = 处于「预检确认」态，尚未真正切换。 */
-  confirming: false,
-  /** 待切换的账号（确认态需要它来执行切换）。 */
-  account: null as Account | null,
-  /** 目标账号所属平台登记的程序位（只读 / 未适配的位置会灰掉）。 */
-  slots: [] as ClientSlot[],
-  /** 选中的程序位 key；空串 = 该平台不区分程序位，按默认位切换。 */
-  slot: "",
-});
 
 const confirm = reactive({
   open: false,
@@ -493,8 +484,9 @@ const visible = computed(() => {
     list = list.filter((item) => item.platform === platformFilter.value);
   }
 
-  if (riskFilter.value === "relogin") {
-    list = list.filter((item) => item.credentialState !== "usable");
+  if (riskFilter.value === "credential") {
+    // 概览 KPI、号池健康卡、这里三处共用同一份集合，数字必须一致。
+    list = list.filter((item) => credentialIssueAccounts.value.includes(item));
   } else if (riskFilter.value === "usable") {
     list = list.filter((item) => item.credentialState === "usable");
   } else if (riskFilter.value === "expiring") {
@@ -567,6 +559,57 @@ const hasMore = computed(() => visible.value.length > pageSize.value);
 function loadMore(): void {
   pageSize.value += PAGE_SIZE;
 }
+
+/* ---------- 深链定位（?account=<id>） ---------- */
+
+/**
+ * 概览的待处理项、用量页的「去号池处理」都会带 ?account=<id> 跳过来。
+ * 落到页面后要能看见那个号：滚到卡片、高亮 3 秒；号被分页挤到后面时先展开。
+ */
+const focusedId = computed(() =>
+  typeof route.query.account === "string" ? route.query.account : null,
+);
+const highlightId = ref<string | null>(null);
+let highlightTimer: number | null = null;
+/** 已经定位过的账号：避免筛选/加载引起重复滚动，路由变化时清空。 */
+let focusedApplied: string | null = null;
+
+function scrollToFocused(): void {
+  const id = focusedId.value;
+  if (!id || id === focusedApplied) return;
+  const index = visible.value.findIndex((item) => item.id === id);
+  if (index < 0) return; // 账号还没加载完或被筛掉，等下一次触发
+  if (index >= pageSize.value) pageSize.value = index + 1;
+  void nextTick(() => {
+    const target = document.getElementById(`account-${id}`);
+    if (!target) return; // 还没渲染出来，等下一次触发
+    focusedApplied = id;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    highlightId.value = id;
+    if (highlightTimer !== null) window.clearTimeout(highlightTimer);
+    highlightTimer = window.setTimeout(() => {
+      highlightId.value = null;
+      highlightTimer = null;
+    }, 3000);
+  });
+}
+
+// 同页二次深链（路由变化）重新应用筛选与定位。
+watch(
+  () => [route.query.risk, route.query.account],
+  ([risk]) => {
+    if (risk === "relogin") riskFilter.value = "credential";
+    else if (typeof risk === "string" && (RISK_KEYS as string[]).includes(risk)) {
+      riskFilter.value = risk as RiskKey;
+    }
+    focusedApplied = null;
+    scrollToFocused();
+  },
+  { immediate: true },
+);
+
+// 账号清单是异步加载的：数据到了再定位一次。
+watch(shown, () => scrollToFocused());
 
 /**
  * 全选 = 选中「当前筛选结果」的全部账号，而不是只选已渲染的那一页。
@@ -642,7 +685,7 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
   if (!selectedIds.value.size) return;
-  if (jsonDialog.open || dialog.open || noteDialog.open || oauthOpen.value) return;
+  if (jsonDialog.open || switchFlow.open || noteDialog.open || oauthOpen.value) return;
   clearSelection();
 }
 
@@ -666,7 +709,6 @@ const TONE_TEXT: Record<HealthStat["tone"], string> = {
 
 const health = computed<HealthStat[]>(() => {
   const usable = accounts.value.filter((item) => item.credentialState === "usable").length;
-  const relogin = accounts.value.length - usable;
   const expiring = Object.values(credits.value).filter((item) => item.expiringSoon).length;
   const low = accounts.value.filter((item) => {
     const info = credits.value[item.id];
@@ -692,12 +734,12 @@ const health = computed<HealthStat[]>(() => {
       risk: "usable",
     },
     {
-      key: "relogin",
-      label: t("accounts.health.relogin"),
-      value: relogin,
-      hint: t("accounts.health.reloginHint"),
-      tone: relogin ? "warn" : "neutral",
-      risk: relogin ? "relogin" : undefined,
+      key: "credential",
+      label: t("accounts.health.credential"),
+      value: attentionCount.value,
+      hint: t("accounts.health.credentialHint", credentialIssueCounts.value),
+      tone: attentionCount.value ? "warn" : "neutral",
+      risk: attentionCount.value ? "credential" : undefined,
     },
     {
       key: "expiring",
@@ -738,7 +780,7 @@ function applyRisk(risk?: FilterKey): void {
 }
 
 const riskLabel = computed(() => {
-  if (riskFilter.value === "relogin") return t("accounts.health.relogin");
+  if (riskFilter.value === "credential") return t("accounts.health.credential");
   if (riskFilter.value === "expiring") return t("accounts.health.expiring");
   if (riskFilter.value === "low") return t("accounts.health.low");
   if (riskFilter.value === "usable") return t("accounts.health.usable");
@@ -962,9 +1004,11 @@ onMounted(() => {
   // 回收站只在打开弹层时才需要明细，但按钮上的角标要有数，所以启动时拉一次。
   void loadRecycleBin();
   void loadCredentialHealth();
+  scrollToFocused();
 });
 onBeforeUnmount(() => {
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
+  if (highlightTimer !== null) window.clearTimeout(highlightTimer);
   window.removeEventListener("keydown", onKeydown);
 });
 
@@ -1115,31 +1159,6 @@ async function onJsonImport(): Promise<void> {
   }
 }
 
-/**
- * 切换：直接打开预检弹层并拉取只读预检，用户确认后才真正执行。
- * 预检本身就是「确认步骤」，所以不再走通用 ConfirmDialog（那会变成连点两次确认）。
- */
-async function askSwitch(account: Account): Promise<void> {
-  dialog.open = true;
-  dialog.account = account;
-  dialog.report = null;
-  dialog.error = null;
-  dialog.preview = null;
-  dialog.confirming = true;
-  // 程序位来自该平台最新的检测结果；默认选第一个**可写**的位。
-  dialog.slots = clientDetections.value.find((item) => item.scope === account.scope)?.slots ?? [];
-  dialog.slot = dialog.slots.find((item) => item.writable)?.key ?? "";
-  dialog.busy = true;
-  try {
-    dialog.preview = await api.migrationPreview(account.id, account.scope);
-    track("switch_previewed", { platform: account.platform, method: "manual" });
-  } catch (error) {
-    dialog.error = (error as Error).message;
-  } finally {
-    dialog.busy = false;
-  }
-}
-
 function askDelete(account: Account): void {
   confirm.mode = "delete";
   confirm.account = account;
@@ -1227,41 +1246,6 @@ async function onConfirm(): Promise<void> {
   } finally {
     confirm.busy = false;
   }
-}
-
-/** 预检确认后，真正执行切换。 */
-async function onSwitchConfirm(): Promise<void> {
-  const account = dialog.account;
-  if (!account) return;
-  dialog.confirming = false;
-  dialog.busy = true;
-  dialog.report = null;
-  dialog.error = null;
-  try {
-    dialog.report = await api.switchAccount(account.id, undefined, true, dialog.slot || undefined);
-    if (dialog.report?.succeeded) {
-      track("switch_completed", { platform: account.platform, method: "manual" });
-      // firstSwitchAt 由切换引擎写入，本地快照要跟上，清单才会打勾。
-      void refreshOnboarding();
-    }
-    await refreshAll();
-  } catch (error) {
-    dialog.error = (error as Error).message;
-  } finally {
-    dialog.busy = false;
-  }
-}
-
-/** 关闭切换弹层并复位状态。 */
-function closeSwitchDialog(): void {
-  dialog.open = false;
-  dialog.confirming = false;
-  dialog.preview = null;
-  dialog.report = null;
-  dialog.error = null;
-  dialog.account = null;
-  dialog.slots = [];
-  dialog.slot = "";
 }
 
 const confirmText = computed(() => {
@@ -1775,27 +1759,38 @@ const confirmText = computed(() => {
     </EmptyState>
 
     <div v-else class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-      <AccountCard
+      <div
         v-for="account in shown"
+        :id="`account-${account.id}`"
         :key="account.id"
-        :account="account"
-        :is-current="isCurrent(account)"
-        :switch-blocked-reason="switchBlockedReason"
-        :busy="importing"
-        :credit="credits[account.id] ?? null"
-        :activity="activityBriefs[account.id] ?? null"
-        :selected="selectedIds.has(account.id)"
-        :preview="previews[account.id] ?? null"
-        :sync="syncRows[account.id] ?? null"
-        :density="density"
-        @switch="askSwitch"
-        @remove="askDelete"
-        @toggle="toggleSelect"
-        @edit-note="openNote"
-        @filter="applyRisk"
-        @preview="loadPreview"
-        @refresh-credential="(item) => runCredentialSweep('due', [item.id])"
-      />
+        class="min-w-0 rounded-card transition-[outline] duration-300"
+        :class="
+          highlightId === account.id
+            ? 'outline outline-2 outline-brand outline-offset-2'
+            : 'outline outline-2 outline-transparent outline-offset-2'
+        "
+      >
+        <AccountCard
+          :account="account"
+          :is-current="isCurrent(account)"
+          :switch-blocked-reason="switchBlockedReason"
+          :busy="importing"
+          :credit="credits[account.id] ?? null"
+          :activity="activityBriefs[account.id] ?? null"
+          :selected="selectedIds.has(account.id)"
+          :preview="previews[account.id] ?? null"
+          :sync="syncRows[account.id] ?? null"
+          :density="density"
+          class="h-full"
+          @switch="(account) => openSwitch(account, 'manual')"
+          @remove="askDelete"
+          @toggle="toggleSelect"
+          @edit-note="openNote"
+          @filter="applyRisk"
+          @preview="loadPreview"
+          @refresh-credential="(item) => runCredentialSweep('due', [item.id])"
+        />
+      </div>
     </div>
 
     <div v-if="hasMore" class="mt-4 flex justify-center">
@@ -1833,16 +1828,6 @@ const confirmText = computed(() => {
       @cancel="confirm.open = false"
     />
 
-    <SwitchDialog
-      :open="dialog.open"
-      :report="dialog.report"
-      :busy="dialog.busy"
-      :error="dialog.error"
-      :preview="dialog.preview"
-      :confirming="dialog.confirming"
-      @close="closeSwitchDialog"
-      @confirm="onSwitchConfirm"
-    />
 
     <!-- 扫码登录：OAuth 采集 -->
     <OAuthLoginDialog

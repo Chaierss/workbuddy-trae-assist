@@ -151,6 +151,9 @@ export const settingsZh = {
   "settings.rules.items.releaseVersionBump.title": "打包前刷新版本号",
   "settings.rules.items.releaseVersionBump.detail":
     "同版本号覆盖安装会触发 NSIS 安装器冲突导致安装失败，每次打包前都要生成一个新的唯一版本号。",
+  "settings.rules.items.releaseNotesSubstance.title": "发版说明必须有实质内容",
+  "settings.rules.items.releaseNotesSubstance.detail":
+    "GitHub Release 正文要直接写清本版改了什么、对用户有什么影响，覆盖实际发生的「新增 / 改进 / 修复」；禁止只写「详见 CHANGELOG.md」或留空。正文由 CI 从 CHANGELOG 对应版本段落抽取，段落缺失或过短直接让流水线失败。",
   "settings.rules.items.namingProject.title": "项目命名与署名",
   "settings.rules.items.namingProject.detail":
     "项目统一为 workbuddy-trae-assist，内部引用旧名 trae-workbuddy-switch 的地方全部改掉；LICENSE 里的上游署名行与外部项目引用保持原样。",
@@ -240,6 +243,7 @@ export const settingsZh = {
   "settings.components.summary.confirmDialog": "确认弹窗，承载危险操作的最后一步",
   "settings.components.summary.noteDialog": "备注编辑弹窗",
   "settings.components.summary.switchDialog": "切号结果弹窗，拆开成功与失败原因",
+  "settings.components.summary.runReportPanel": "执行回执面板，复用活动 / 凭据巡检的成功、跳过、失败明细",
   "settings.components.summary.oauthLoginDialog": "扫码登录弹窗，两个平台共用一套交互",
   "settings.components.summary.updateDialog": "版本更新弹窗，含进度与更新说明",
   "settings.components.summary.commandPalette": "Ctrl+K 页面跳转面板",
@@ -500,6 +504,9 @@ export const settingsEn = {
   "settings.rules.items.releaseVersionBump.title": "Bump the version before packaging",
   "settings.rules.items.releaseVersionBump.detail":
     "Installing over the same version triggers an NSIS installer conflict and fails; generate a new, unique version number before every build.",
+  "settings.rules.items.releaseNotesSubstance.title": "Release notes must say what changed",
+  "settings.rules.items.releaseNotesSubstance.detail":
+    "GitHub Release notes must state what changed and what it means for users, covering the actual New / Improved / Fixed items; “see CHANGELOG.md” or an empty body is forbidden. CI extracts the matching CHANGELOG section and fails the pipeline when it is missing or too short.",
   "settings.rules.items.namingProject.title": "Project name and attribution",
   "settings.rules.items.namingProject.detail":
     "The project is workbuddy-trae-assist; replace internal references to the old name trae-workbuddy-switch, but leave the LICENSE upstream attribution and external project references untouched.",
@@ -591,6 +598,7 @@ export const settingsEn = {
   "settings.components.summary.confirmDialog": "Confirmation dialog for the last step of risky actions",
   "settings.components.summary.noteDialog": "Note editing dialog",
   "settings.components.summary.switchDialog": "Switch-result dialog separating success from failure causes",
+  "settings.components.summary.runReportPanel": "Run receipt panel shared by activity and credential sweeps (ok / skipped / failed)",
   "settings.components.summary.oauthLoginDialog": "QR login dialog shared by both platforms",
   "settings.components.summary.updateDialog": "Version update dialog with progress and release notes",
   "settings.components.summary.commandPalette": "Ctrl+K navigation palette",

@@ -346,6 +346,68 @@ def test_detection_lists_implemented_clients_with_download_urls(client, monkeypa
         assert item["installed"] is False
 
 
+def _stub_launch_adapter(client, monkeypatch, *, installed: bool, running: bool):
+    from chaierww.adapters.base import Detection
+
+    adapter = client.app.state.adapters[SCOPE]
+    calls: list[str] = []
+    monkeypatch.setattr(
+        adapter,
+        "detect",
+        lambda: Detection(
+            installed=installed,
+            running=running,
+            logged_in=True,
+            state_dir=None,
+            app_path=None,
+            current_external_id=None,
+        ),
+    )
+    monkeypatch.setattr(adapter, "launch", lambda: calls.append("launch") or True)
+    return calls
+
+
+def test_launch_client_not_installed_returns_reason(client, monkeypatch):
+    calls = _stub_launch_adapter(client, monkeypatch, installed=False, running=False)
+    body = client.post("/api/clients/launch", params={"scope": SCOPE}).json()
+    assert body == {
+        "scope": SCOPE,
+        "launched": False,
+        "alreadyRunning": False,
+        "message": "未检测到客户端安装",
+    }
+    assert calls == []
+
+
+def test_launch_client_running_does_not_launch_again(client, monkeypatch):
+    calls = _stub_launch_adapter(client, monkeypatch, installed=True, running=True)
+    body = client.post("/api/clients/launch", params={"scope": SCOPE}).json()
+    assert body == {
+        "scope": SCOPE,
+        "launched": False,
+        "alreadyRunning": True,
+        "message": "",
+    }
+    assert calls == []
+
+
+def test_launch_client_starts_when_installed_and_stopped(client, monkeypatch):
+    calls = _stub_launch_adapter(client, monkeypatch, installed=True, running=False)
+    body = client.post("/api/clients/launch", params={"scope": SCOPE}).json()
+    assert body == {
+        "scope": SCOPE,
+        "launched": True,
+        "alreadyRunning": False,
+        "message": "",
+    }
+    assert calls == ["launch"]
+
+
+def test_launch_client_rejects_unimplemented_scope(client):
+    response = client.post("/api/clients/launch", params={"scope": "qoder-cn"})
+    assert response.status_code == 501
+
+
 def test_import_json_auto_detects_workbuddy(client):
     content = json.dumps(
         {"account": {"uid": "u-json-1", "uin": "330000"}, "auth": {}},
@@ -1070,11 +1132,10 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
 
     assert by_kind["credential"]["severity"] == "high"
     assert by_kind["credential"]["accountId"] == account_id
+    # 需重新登录：发起不了续期，直接落到这个号的卡片上。
     assert by_kind["credential"]["action"] == {
-        "type": "run",
-        "endpoint": "/credentials/refresh",
-        "mode": "due",
-        "accountIds": [account_id],
+        "type": "navigate",
+        "to": f"/accounts?risk=credential&account={account_id}",
     }
 
     assert by_kind["checkin"]["accountId"] == account_id
@@ -1085,13 +1146,45 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
     }
 
     assert by_kind["credits_expiring"]["detail"].startswith("账号甲")
-    assert by_kind["credits_expiring"]["action"] == {"type": "navigate", "to": "/usage"}
+    assert by_kind["credits_expiring"]["action"] == {
+        "type": "navigate",
+        "to": f"/usage?tab=compare&account={account_id}",
+    }
 
-    # 客户端按平台报一次，不带 accountId。
+    # 客户端按平台报一次，不带 accountId；动作是一键启动该客户端。
     assert by_kind["client_offline"]["accountId"] is None
+    assert by_kind["client_offline"]["action"] == {
+        "type": "run",
+        "endpoint": "/clients/launch",
+        "scope": SCOPE,
+        "accountIds": [],
+    }
 
     # 高优先级排最前。
     assert body["items"][0]["kind"] == "credential"
+
+
+def test_overview_actionables_unverified_checks_login(client, monkeypatch):
+    from chaierww.domain.accounts.models import CredentialState
+
+    account_id = _seed_id(client, CredentialState.UNVERIFIED)
+    _stub_overview(
+        client,
+        monkeypatch,
+        detected=[],
+        credits={},
+        clients=[_client_row()],
+    )
+
+    body = client.get("/api/overview/actionables").json()
+    item = next(entry for entry in body["items"] if entry["kind"] == "credential")
+    # 没校验过的号：先验活一次，不直接要求重登。
+    assert item["action"] == {
+        "type": "run",
+        "endpoint": "/credentials/refresh",
+        "mode": "check",
+        "accountIds": [account_id],
+    }
 
 
 def test_overview_actionables_reports_credential_expiry(client, monkeypatch):
@@ -1132,9 +1225,14 @@ def test_overview_actionables_reports_credential_expiry(client, monkeypatch):
     expired_item = by_kind["credential_expired"]
     assert expired_item["severity"] == "high"
     assert expired_item["accountId"] == expired.id
-    # 有 refreshToken 的号：先引导续期，续期失败再扫码。
+    # 有 refreshToken 的号：直接一键续期；必须 force，due 在过期后不会真正换令牌。
     assert "「续期」" in expired_item["detail"]
-    assert expired_item["action"] == {"type": "navigate", "to": "/accounts"}
+    assert expired_item["action"] == {
+        "type": "run",
+        "endpoint": "/credentials/refresh",
+        "mode": "force",
+        "accountIds": [expired.id],
+    }
 
     expiring_item = by_kind["credential_expiring"]
     assert expiring_item["severity"] == "warn"
@@ -1142,6 +1240,10 @@ def test_overview_actionables_reports_credential_expiry(client, monkeypatch):
     assert "还剩 2 天到期" in expiring_item["detail"]
     # 没有 refreshToken 的号：如实说明只能重新扫码，不承诺自动续期。
     assert "重新扫码登录" in expiring_item["detail"]
+    assert expiring_item["action"] == {
+        "type": "navigate",
+        "to": f"/accounts?risk=credential&account={expiring.id}",
+    }
 
     assert body["pulse"]["credentialExpired"] == 1
     assert body["pulse"]["credentialExpiring"] == 1

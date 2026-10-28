@@ -3,12 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 import CommandPalette from "./CommandPalette.vue";
 import SidebarRail from "./SidebarRail.vue";
+import SwitchDialog from "./SwitchDialog.vue";
 import ToastHost from "./ToastHost.vue";
 import UpdateDialog from "./UpdateDialog.vue";
+import { closeSwitch, confirmSwitch, openSwitch, switchFlow } from "../lib/switchFlow";
 import { initUpdateStore } from "../stores/update";
 import { resolveFocusModule } from "../lib/focusMode";
 import { NAV_DESTINATIONS } from "../lib/nav";
 import {
+  accounts,
   changeScope,
   clientDetections,
   isImplementedScope,
@@ -16,6 +19,7 @@ import {
   scopedPath,
 } from "../stores/app";
 import { api } from "../api";
+import { desktop } from "../lib/desktop";
 import { setMetricsEnabled, track } from "../lib/metrics";
 import { ensureOnboarding } from "../lib/onboarding";
 
@@ -117,14 +121,64 @@ function onShortcut(event: KeyboardEvent): void {
   goTo(target.path);
 }
 
+// ---------- 桌面托盘：账号摘要与换号 ----------
+
+let unsubscribeTray: (() => void) | null = null;
+
+/** 托盘选中态要的是账号 id；检测结果给的是 externalId，这里翻译一次。 */
+const currentAccountId = computed(() => {
+  const externalIds = clientDetections.value
+    .map((client) => client.currentAccountId)
+    .filter((id): id is string => Boolean(id));
+  if (!externalIds.length) return "";
+  return accounts.value.find((item) => externalIds.includes(item.externalId))?.id ?? "";
+});
+
+/**
+ * 同步给托盘：最近使用的 8 个号，顺序与号池列表一致。
+ * 只传 id / name / platform —— 凭据与路径一律不出渲染进程；浏览器形态没有托盘，整块跳过。
+ */
+watch(
+  [accounts, currentAccountId],
+  () => {
+    desktop?.tray?.syncAccounts({
+      items: [...accounts.value]
+        .sort((a, b) => (b.lastUsedAt ?? "").localeCompare(a.lastUsedAt ?? ""))
+        .slice(0, 8)
+        .map((account) => ({
+          id: account.id,
+          name: account.displayName,
+          platform: account.platform,
+        })),
+      currentId: currentAccountId.value,
+    });
+  },
+  { immediate: true },
+);
+
+/** 托盘里点了某个号：走和页面完全相同的预检流程，不另开一条快捷路径。 */
+function subscribeTraySwitch(): void {
+  unsubscribeTray =
+    desktop?.tray?.onSwitchAccount((id) => {
+      const account = accounts.value.find((item) => item.id === id);
+      // 清单可能已过期（号刚被删）：静默忽略，不弹一个点不动的错误。
+      if (account) openSwitch(account, "tray");
+    }) ?? null;
+}
+
 onMounted(() => {
   document.addEventListener("keydown", onShortcut);
   // 更新 store 要尽早初始化：先订阅主进程的 update:state / update:prompt，再拉初值，
   // 否则启动后那次静默检查推来的「新版本 / 已下载」会没人接。
   initUpdateStore();
   void initTelemetry();
+  subscribeTraySwitch();
 });
-onBeforeUnmount(() => document.removeEventListener("keydown", onShortcut));
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", onShortcut);
+  unsubscribeTray?.();
+  unsubscribeTray = null;
+});
 
 // ---------- 本地体验数据 + 首启引导 ----------
 
@@ -189,6 +243,17 @@ watch(
     </div>
 
     <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
+    <!-- 换号弹层挂在壳层：命令面板 / 托盘发起时，切到任何页面都不会丢流程 -->
+    <SwitchDialog
+      :open="switchFlow.open"
+      :report="switchFlow.report"
+      :busy="switchFlow.busy"
+      :error="switchFlow.error"
+      :preview="switchFlow.preview"
+      :confirming="switchFlow.confirming"
+      @close="closeSwitch"
+      @confirm="confirmSwitch"
+    />
     <!-- 更新弹窗挂在壳层：不依赖任何路由，主进程一推 update:prompt 就能弹 -->
     <UpdateDialog />
     <!-- 全局轻提示：所有页面的成功/失败反馈都走这一个容器 -->

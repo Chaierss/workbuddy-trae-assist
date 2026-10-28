@@ -21,6 +21,7 @@
   { "key": "confirm-dialog", "name": "ConfirmDialog", "path": "web/src/components/ConfirmDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.confirmDialog", "status": "stable", "demo": null },
   { "key": "note-dialog", "name": "NoteDialog", "path": "web/src/components/NoteDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.noteDialog", "status": "stable", "demo": null },
   { "key": "switch-dialog", "name": "SwitchDialog", "path": "web/src/components/SwitchDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.switchDialog", "status": "stable", "demo": null },
+  { "key": "run-report-panel", "name": "RunReportPanel", "path": "web/src/components/RunReportPanel.vue", "category": "feedback", "summaryKey": "settings.components.summary.runReportPanel", "status": "stable", "demo": null },
   { "key": "oauth-login-dialog", "name": "OAuthLoginDialog", "path": "web/src/components/OAuthLoginDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.oauthLoginDialog", "status": "stable", "demo": null },
   { "key": "update-dialog", "name": "UpdateDialog", "path": "web/src/components/UpdateDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.updateDialog", "status": "stable", "demo": null },
   { "key": "command-palette", "name": "CommandPalette", "path": "web/src/components/CommandPalette.vue", "category": "feedback", "summaryKey": "settings.components.summary.commandPalette", "status": "stable", "demo": null },

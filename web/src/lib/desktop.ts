@@ -89,6 +89,18 @@ export interface DesktopBridge {
     /** 打开内置 WorkBuddy 网页版，登录态独立保存，可手动做活动。 */
     openApp: () => Promise<{ ok: boolean; error?: string }>;
   };
+  /**
+   * 托盘换号：同步号池摘要给主进程，并接收托盘发起的切换。
+   * 只传账号标识与展示名，凭据、路径不出渲染进程。
+   */
+  tray?: {
+    syncAccounts: (payload: {
+      items: { id: string; name: string; platform: string }[];
+      currentId: string;
+    }) => void;
+    /** 返回取消订阅函数，组件卸载时必须调用。 */
+    onSwitchAccount: (handler: (id: string) => void) => () => void;
+  };
 }
 
 declare global {

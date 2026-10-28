@@ -35,9 +35,11 @@ import SectionCard from "../components/SectionCard.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import StatusPill from "../components/StatusPill.vue";
+import RunReportPanel from "../components/RunReportPanel.vue";
 import OfficialActivitiesPanel from "../components/activity/OfficialActivitiesPanel.vue";
 import ActivityRunsPanel from "../components/activity/ActivityRunsPanel.vue";
 import { safeActivityUrl } from "../lib/activity";
+import { normalizeActivityReport } from "../lib/runReport";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { t, type MessageKey } from "../lib/i18n";
 import {
@@ -581,8 +583,9 @@ onBeforeUnmount(() => {
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
 });
 
-const failedResults = computed(() =>
-  (runReport.value?.results ?? []).filter((result) => result.status === "failed"),
+/** 回执视图与概览共用；活动页只负责执行与重试。 */
+const runReportView = computed(() =>
+  runReport.value ? normalizeActivityReport(runReport.value) : null,
 );
 </script>
 
@@ -739,55 +742,14 @@ const failedResults = computed(() =>
       {{ t("activity.traeScopeNote") }}
     </p>
 
-    <div
-      v-if="runReport"
-      class="mt-3 rounded-card border border-line bg-surface px-5 py-2.5 text-caption"
-    >
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-muted">{{ t("activity.accountResultLabel") }}</span>
-        <StatusPill v-if="runReport.summary.ok" tone="brand">
-          {{ t("activity.resultOkCount", { count: runReport.summary.ok }) }}
-        </StatusPill>
-        <StatusPill v-if="runReport.summary.skipped" tone="neutral">
-          {{ t("activity.resultSkippedCount", { count: runReport.summary.skipped }) }}
-        </StatusPill>
-        <StatusPill v-if="runReport.summary.failed" tone="danger">
-          {{ t("activity.resultFailedCount", { count: runReport.summary.failed }) }}
-        </StatusPill>
-        <button
-          type="button"
-          class="ml-auto text-caption text-muted transition-colors hover:text-ink"
-          @click="runReport = null"
-        >
-          {{ t("activity.hide") }}
-        </button>
-      </div>
-
-      <!-- 失败明细：最多列 3 条；可重试的（网络 / 上游 5xx / Trae 9074）给一键重试。 -->
-      <div v-if="failedResults.length" class="mt-1.5 space-y-1">
-        <div
-          v-for="item in failedResults.slice(0, 3)"
-          :key="`${item.accountId}-${item.key}`"
-          class="flex flex-wrap items-center gap-1.5 text-caption text-danger"
-        >
-          <span class="min-w-0 flex-1 truncate" :title="`${item.displayName}：${item.message}`">
-            {{ item.displayName }}：{{ item.message }}
-          </span>
-          <button
-            v-if="item.retryable"
-            type="button"
-            class="shrink-0 rounded-badge border border-line px-1.5 py-0.5 text-caption text-ink-soft transition-colors hover:border-brand hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-45"
-            :disabled="running || busy"
-            @click="runTargets([item.accountId])"
-          >
-            {{ t("activity.retryAccount") }}
-          </button>
-        </div>
-        <div v-if="failedResults.length > 3" class="text-caption text-muted">
-          {{ t("activity.moreFailures", { count: failedResults.length - 3 }) }}
-        </div>
-      </div>
-    </div>
+    <RunReportPanel
+      v-if="runReportView"
+      :report="runReportView"
+      :busy="running || busy"
+      class="mt-3"
+      @close="runReport = null"
+      @retry="runTargets([$event])"
+    />
 
     <div v-if="!visibleAccounts.length" class="mt-4">
       <SectionCard>

@@ -29,7 +29,7 @@ import {
 import { t, type MessageKey } from "../lib/i18n";
 
 /** 卡片上的风险筛选口径，与号池页顶部的健康度卡片一致。 */
-export type RiskKey = "relogin" | "expiring" | "low";
+export type RiskKey = "credential" | "expiring" | "low";
 const LOW_CREDITS = 100;
 
 const props = defineProps<{
@@ -209,8 +209,8 @@ const risks = computed<Array<{ key: RiskKey; label: string; tone: string }>>(() 
   const out: Array<{ key: RiskKey; label: string; tone: string }> = [];
   if (props.account.credentialState !== "usable") {
     out.push({
-      key: "relogin",
-      label: t("accounts.health.relogin"),
+      key: "credential",
+      label: t("accounts.health.credential"),
       tone: "border-warn/30 bg-warn-soft text-warn",
     });
   }

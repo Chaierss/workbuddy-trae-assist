@@ -399,6 +399,34 @@ def _slot_items(adapter: Any) -> list[dict[str, Any]]:
         return []
 
 
+@router.post("/clients/launch", summary="启动未运行的客户端", tags=["基础"])
+def launch_client(request: Request, scope: str) -> dict[str, Any]:
+    """一键启动客户端；先检测，已运行 / 未安装都不重复拉起。"""
+    try:
+        adapter = request.app.state.adapters.get(scope)
+        if adapter is None:
+            raise ScopeNotImplemented(f"作用域 {scope} 尚未实现")
+        result = adapter.detect()
+        if not result.installed:
+            return {
+                "scope": scope,
+                "launched": False,
+                "alreadyRunning": False,
+                "message": "未检测到客户端安装",
+            }
+        if result.running:
+            return {"scope": scope, "launched": False, "alreadyRunning": True, "message": ""}
+        launched = adapter.launch()
+        return {
+            "scope": scope,
+            "launched": bool(launched),
+            "alreadyRunning": False,
+            "message": "" if launched else "启动失败，请手动打开客户端",
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.get("/detection", summary="合并检测所有已实现客户端，含引导下载链接", tags=["基础"])
 def detect_all(request: Request) -> dict[str, Any]:
     """一次返回所有已实现平台的安装/运行/登录状态 + 引导下载链接。
@@ -2212,6 +2240,20 @@ def overview_actionables(request: Request) -> dict[str, Any]:
         if hit is None:
             continue
         severity, title, reason = hit
+        if account.credential_state.value == CredentialState.RELOGIN_REQUIRED.value:
+            # 重登发起不了任何请求，直接落到这个号的卡片上。
+            action: dict[str, Any] = {
+                "type": "navigate",
+                "to": f"/accounts?risk=credential&account={account.id}",
+            }
+        else:
+            # 未验证：先验活一次；失败再引导重登。
+            action = {
+                "type": "run",
+                "endpoint": "/credentials/refresh",
+                "mode": "check",
+                "accountIds": [account.id],
+            }
         items.append(
             {
                 "kind": "credential",
@@ -2219,12 +2261,7 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 "title": title,
                 "detail": f"{account.display_name}（{_scope_label(account.scope)}）：{reason}",
                 "accountId": account.id,
-                "action": {
-                    "type": "run",
-                    "endpoint": "/credentials/refresh",
-                    "mode": "due",
-                    "accountIds": [account.id],
-                },
+                "action": action,
             }
         )
 
@@ -2261,7 +2298,19 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                         f"登录态已于 {when} 过期，{hint}"
                     ),
                     "accountId": account.id,
-                    "action": {"type": "navigate", "to": "/accounts"},
+                    "action": (
+                        {
+                            "type": "run",
+                            "endpoint": "/credentials/refresh",
+                            "mode": "force",
+                            "accountIds": [account.id],
+                        }
+                        if can_refresh
+                        else {
+                            "type": "navigate",
+                            "to": f"/accounts?risk=credential&account={account.id}",
+                        }
+                    ),
                 }
             )
         elif moment <= warn_before:
@@ -2282,7 +2331,19 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                         f"还剩 {days} 天到期（{when}），{hint}"
                     ),
                     "accountId": account.id,
-                    "action": {"type": "navigate", "to": "/accounts"},
+                    "action": (
+                        {
+                            "type": "run",
+                            "endpoint": "/credentials/refresh",
+                            "mode": "force",
+                            "accountIds": [account.id],
+                        }
+                        if can_refresh
+                        else {
+                            "type": "navigate",
+                            "to": f"/accounts?risk=credential&account={account.id}",
+                        }
+                    ),
                 }
             )
 
@@ -2322,7 +2383,10 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 "title": "积分将过期",
                 "detail": f"{account.display_name}：{amount}即将到期，建议优先使用",
                 "accountId": account.id,
-                "action": {"type": "navigate", "to": "/usage"},
+                "action": {
+                    "type": "navigate",
+                    "to": f"/usage?tab=compare&account={account.id}",
+                },
             }
         )
 
@@ -2339,7 +2403,12 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                     f"{client['label']} 未运行，该平台的签到与切换需要客户端处于运行状态"
                 ),
                 "accountId": None,
-                "action": {"type": "navigate", "to": "/accounts"},
+                "action": {
+                    "type": "run",
+                    "endpoint": "/clients/launch",
+                    "scope": client["scope"],
+                    "accountIds": [],
+                },
             }
         )
 

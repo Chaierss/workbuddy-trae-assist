@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { CornerDownLeft, Search } from "lucide-vue-next";
+import { CornerDownLeft, Search, Users } from "lucide-vue-next";
 import { t } from "../lib/i18n";
-import { NAV_DESTINATIONS, SETTINGS_DESTINATION, type NavDestination } from "../lib/nav";
-import { scopedPath } from "../stores/app";
+import { NAV_DESTINATIONS, SETTINGS_DESTINATION } from "../lib/nav";
+import { matchPalette, type PaletteResult } from "../lib/paletteResults";
+import { openSwitch } from "../lib/switchFlow";
+import { accounts, scopedPath } from "../stores/app";
 
 /**
- * `Ctrl+K` 的落点：页面跳转面板（没有跨页搜索，就只做导航，不摆假搜索框）。
+ * `Ctrl+K` 的落点：页面跳转 + 账号换号。
  * 由 AppShell 控制挂载，打开即聚焦输入框、Esc 关闭。
  */
 const emit = defineEmits<{ close: [] }>();
@@ -17,26 +19,33 @@ const keyword = ref("");
 const cursor = ref(0);
 const inputRef = ref<HTMLInputElement | null>(null);
 
-const all: NavDestination[] = [...NAV_DESTINATIONS, SETTINGS_DESTINATION];
+const destinations = [...NAV_DESTINATIONS, SETTINGS_DESTINATION];
 
-const matches = computed(() => {
-  const query = keyword.value.trim().toLowerCase();
-  if (!query) return all;
-  return all.filter(
-    (item) =>
-      t(item.labelKey).toLowerCase().includes(query) ||
-      item.key.includes(query) ||
-      item.path.includes(query),
-  );
-});
+const matches = computed<PaletteResult[]>(() =>
+  matchPalette(keyword.value, destinations, accounts.value),
+);
 
 onMounted(() => inputRef.value?.focus());
+
+/** 分组标题只在类型第一次出现时显示。 */
+function showGroup(index: number): boolean {
+  if (index === 0) return true;
+  return matches.value[index].kind !== matches.value[index - 1].kind;
+}
+
+function groupLabel(item: PaletteResult): string {
+  return item.kind === "nav" ? t("palette.groupPages") : t("palette.groupAccounts");
+}
 
 function go(index: number): void {
   const target = matches.value[index];
   if (!target) return;
   emit("close");
-  void router.push(scopedPath(target.path));
+  if (target.kind === "nav") {
+    void router.push(scopedPath(target.path));
+    return;
+  }
+  void openSwitch(target.account, "command");
 }
 
 function move(step: number): void {
@@ -78,7 +87,7 @@ function onInput(): void {
     @click.self="emit('close')"
   >
     <div
-      class="w-full max-w-[420px] overflow-hidden rounded-card border border-line bg-surface shadow-float"
+      class="w-full max-w-[440px] overflow-hidden rounded-card border border-line bg-surface shadow-float"
     >
       <div class="flex items-center gap-2.5 border-b border-line-soft px-4">
         <Search :size="15" :stroke-width="1.9" class="shrink-0 text-muted" />
@@ -97,27 +106,43 @@ function onInput(): void {
       </div>
 
       <p v-if="!matches.length" class="px-4 py-6 text-center text-body-sm text-muted">
-        {{ t("palette.empty") }}
+        {{ keyword.trim() ? t("palette.empty") : t("palette.searchAccounts") }}
       </p>
 
       <ul v-else class="max-h-[320px] overflow-y-auto p-1.5">
-        <li v-for="(item, index) in matches" :key="item.key">
-          <button
-            type="button"
-            class="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left text-body transition-colors"
-            :class="
-              index === cursor
-                ? 'bg-brand-soft font-medium text-brand-dark'
-                : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-            "
-            @mousemove="cursor = index"
-            @click="go(index)"
+        <template v-for="(item, index) in matches" :key="item.key">
+          <li
+            v-if="showGroup(index)"
+            class="px-2.5 pb-1 pt-2 text-micro font-medium uppercase tracking-wide text-muted"
           >
-            <component :is="item.icon" :size="16" :stroke-width="1.9" class="shrink-0" />
-            <span class="flex-1 truncate">{{ t(item.labelKey) }}</span>
-            <CornerDownLeft v-if="index === cursor" :size="13" :stroke-width="1.9" />
-          </button>
-        </li>
+            {{ groupLabel(item) }}
+          </li>
+          <li>
+            <button
+              type="button"
+              class="flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-left text-body transition-colors"
+              :class="
+                index === cursor
+                  ? 'bg-brand-soft font-medium text-brand-dark'
+                  : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+              "
+              @mousemove="cursor = index"
+              @click="go(index)"
+            >
+              <component
+                :is="item.kind === 'nav' ? item.icon : Users"
+                :size="16"
+                :stroke-width="1.9"
+                class="shrink-0"
+              />
+              <span class="flex-1 truncate">{{ item.label }}</span>
+              <span v-if="item.kind === 'account'" class="shrink-0 text-micro text-muted">
+                {{ item.hint }}
+              </span>
+              <CornerDownLeft v-if="index === cursor" :size="13" :stroke-width="1.9" />
+            </button>
+          </li>
+        </template>
       </ul>
     </div>
   </div>

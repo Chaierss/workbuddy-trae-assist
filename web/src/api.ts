@@ -560,6 +560,14 @@ export interface ClientDetection {
   slots: ClientSlot[];
 }
 
+/** 一键启动客户端的结果：已运行 / 未安装都不算失败，`message` 给人看。 */
+export interface ClientLaunchResult {
+  scope: string;
+  launched: boolean;
+  alreadyRunning: boolean;
+  message: string;
+}
+
 export interface Snapshot {
   id: string;
   scope: string;
@@ -946,7 +954,7 @@ export interface ActionableItem {
   accountId: string | null;
   action:
     | { type: "navigate"; to: string }
-    | { type: "run"; endpoint: string; accountIds: string[]; mode?: string };
+    | { type: "run"; endpoint: string; accountIds: string[]; mode?: string; scope?: string };
 }
 
 /** 凭据巡检的单号结论：`status` 是后端定值，前端只负责翻译。 */
@@ -1313,6 +1321,12 @@ export const api = {
 
   /** 合并检测：一次返回所有已实现客户端的安装/运行/登录状态 + 引导下载链接。 */
   detectAll: () => request<{ clients: ClientDetection[] }>("/api/detection"),
+
+  /** 启动未运行的客户端；已运行 / 未安装会原样返回原因，不重复拉起。 */
+  launchClient: (scope: string) =>
+    request<ClientLaunchResult>(`/api/clients/launch?scope=${encodeURIComponent(scope)}`, {
+      method: "POST",
+    }),
 
   preferences: () => request<Preferences>("/api/preferences"),
 

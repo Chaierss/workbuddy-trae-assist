@@ -61,6 +61,15 @@
       "source": "web/src/lib/locales/settings.ts"
     },
     {
+      "id": "release-notes-substance",
+      "category": "release",
+      "severity": "must",
+      "title": "settings.rules.items.releaseNotesSubstance.title",
+      "summary": "settings.rules.items.releaseNotesSubstance.title",
+      "detail": "settings.rules.items.releaseNotesSubstance.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
       "id": "naming-project",
       "category": "naming",
       "severity": "must",

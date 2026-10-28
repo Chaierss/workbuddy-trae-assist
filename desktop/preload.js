@@ -63,6 +63,19 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
   },
 
   /**
+   * 托盘换号：把号池摘要同步给主进程，并接收托盘发起的切换请求。
+   * 只传 id / name / platform，凭据与路径一律不出渲染进程。
+   */
+  tray: {
+    syncAccounts: (payload) => ipcRenderer.send('tray:sync-accounts', payload),
+    onSwitchAccount: (handler) => {
+      const listener = (_event, id) => handler(id);
+      ipcRenderer.on('tray:switch-account', listener);
+      return () => ipcRenderer.removeListener('tray:switch-account', listener);
+    },
+  },
+
+  /**
    * 内嵌登录窗口：把官方授权页放进我们自己的窗口里，用户不离开应用就能登录。
    * 只接受 WorkBuddy / CodeBuddy 的登录地址，主进程会再校验一次。
    */
