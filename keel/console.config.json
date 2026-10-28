@@ -1,6 +1,7 @@
 {
-  "$comment": "keel 的扫描范围。路径一律相对仓库根、正斜杠。",
+  "$comment": "keel 的扫描范围。路径一律相对仓库根、正斜杠。version = 本文件结构版本；keelVersion = 这份模板来自哪个技能版本，升级体检靠它比对（见 references/upgrading.md）。",
   "version": 1,
+  "keelVersion": "2.1.0",
   "consoleDir": "keel",
   "srcDir": "web/src",
   "scanDirs": ["web/src", "src", "desktop"],

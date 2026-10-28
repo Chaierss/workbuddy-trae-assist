@@ -8,6 +8,7 @@
  *   node keel/console-check.mjs --json          机器可读（给设置页 / dashboard）
  *   node keel/console-check.mjs --fail-on-unused 未使用组件也算失败（默认只 warn）
  *   node keel/console-check.mjs --root ../proj  指定项目根
+ *   node keel/console-check.mjs --version       打印脚本版本（与 package.json 必须一致，有测试守着）
  *
  * 设计原则：只有"机器能确定错了"的项才是 error。未使用组件需要人判断，永远是 warn。
  */
@@ -16,11 +17,15 @@ import { spawnSync } from 'node:child_process'
 import { join, resolve, relative, extname, basename, dirname } from 'node:path'
 import process from 'node:process'
 
+/** 技能版本。改这里必须同步改 package.json / SKILL.md frontmatter，测试会校验三者一致。 */
+const KEEL_VERSION = '2.1.0'
+
 const HELP = `keel 体检
   --root <dir>       项目根（默认 cwd）
   --strict           error 级问题导致退出码 1
   --fail-on-unused   未使用组件也导致退出码 1（隐含 --strict，别以为不写 --strict 就没门禁）
   --json             输出 JSON
+  --version          打印脚本版本
   -h, --help         显示帮助`
 
 const DEFAULT_CONFIG = {
@@ -43,6 +48,10 @@ function parseArgs(argv) {
     else if (arg === '--strict') out.strict = true
     else if (arg === '--json') out.json = true
     else if (arg === '--fail-on-unused') out.failOnUnused = true
+    else if (arg === '--version') {
+      console.log(`keel ${KEEL_VERSION}`)
+      process.exit(0)
+    }
     else if (arg === '-h' || arg === '--help') {
       console.log(HELP)
       process.exit(0)
@@ -53,6 +62,17 @@ function parseArgs(argv) {
 }
 
 const posix = (p) => p.split('\\').join('/')
+
+/** 三段式版本比较，够用即可（本技能不会出现 prerelease）。返回 -1 / 0 / 1 */
+function compareVersion(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0)
+    if (diff !== 0) return diff < 0 ? -1 : 1
+  }
+  return 0
+}
 
 function readJson(path) {
   try {
@@ -113,18 +133,39 @@ function main() {
   const push = (id, level, message, items = []) => issues.push({ id, level, message, items })
 
   // ---------- 配置 ----------
+  // 叫 CFG-01 而不是 MODE-01：这里查的是"配置就位且可解析"，与可见性边界无关。
+  // 边界（哪些产物 / 谁能开 / 哪些字段）是人的判断，机器判定不了内容对错，所以不设门禁项，
+  // 只把它写进 references/visibility.md 的验收清单，由人工逐条过。
   const consoleDir = resolve(root, DEFAULT_CONFIG.consoleDir)
   const configPath = join(consoleDir, 'console.config.json')
   let config = { ...DEFAULT_CONFIG }
+  let configReady = false
   if (!existsSync(consoleDir)) {
-    push('MODE-01', 'error', `缺少 ${DEFAULT_CONFIG.consoleDir}/ 目录（唯一真相源应集中在此）`)
+    push('CFG-01', 'error', `缺少 ${DEFAULT_CONFIG.consoleDir}/ 目录（唯一真相源应集中在此）`)
   } else {
     const loaded = readJson(configPath)
     if (loaded.ok) {
       config = { ...DEFAULT_CONFIG, ...loaded.data }
-      push('MODE-01', 'ok', 'console.config.json 已就位')
+      configReady = true
+      push('CFG-01', 'ok', 'console.config.json 已就位')
     } else {
-      push('MODE-01', 'error', `console.config.json ${existsSync(configPath) ? '解析失败：' + loaded.error : '不存在，使用默认扫描范围'}`)
+      push('CFG-01', 'error', `console.config.json ${existsSync(configPath) ? '解析失败：' + loaded.error : '不存在，使用默认扫描范围'}`)
+    }
+  }
+
+  // ---------- 模板版本（提醒升级，不阻断） ----------
+  // 拷贝制的代价：技能更新了，项目里的 keel/ 不会自动变。这里只负责"告诉你现在差多少"，
+  // 不替用户改文件——模板只是起点，用户可能已经改过一半，自动合并的风险远大于收益。
+  if (configReady) {
+    const declared = typeof config.keelVersion === 'string' ? config.keelVersion.trim() : ''
+    if (!declared) {
+      push('VER-01', 'warn', `未声明模板版本（当前技能 ${KEEL_VERSION}），无法判断是否需要迁移；在 console.config.json 加 "keelVersion": "${KEEL_VERSION}"`)
+    } else if (compareVersion(declared, KEEL_VERSION) === 0) {
+      push('VER-01', 'ok', `模板版本 ${declared}（最新）`)
+    } else if (compareVersion(declared, KEEL_VERSION) < 0) {
+      push('VER-01', 'warn', `模板版本 ${declared}，当前技能 ${KEEL_VERSION}：有更新，先看 references/upgrading.md 再改，别整目录覆盖`)
+    } else {
+      push('VER-01', 'warn', `模板版本 ${declared} 比本脚本 ${KEEL_VERSION} 新：脚本该更新了，否则会漏检新增检查项`)
     }
   }
 
@@ -143,10 +184,11 @@ function main() {
     } else {
       rules = loaded.data
       const modes = Array.isArray(rules.pageModes) ? rules.pageModes : []
+      const terms = Array.isArray(rules.terms) ? rules.terms : []
       const list = Array.isArray(rules.rules) ? rules.rules : []
       const missingVersion = !rules.version
       push('RULE-01', missingVersion ? 'warn' : 'ok',
-        `rules.json：${modes.length} 个页面形态 / ${list.length} 条规则${missingVersion ? '（缺 version，AI 上下文无法判断新旧）' : ` · 版本 ${rules.version}`}`)
+        `rules.json：${modes.length} 个页面形态 / ${terms.length} 条术语 / ${list.length} 条规则${missingVersion ? '（缺 version，AI 上下文无法判断新旧）' : ` · 版本 ${rules.version}`}`)
 
       const ids = new Set()
       const badIds = []
@@ -160,16 +202,27 @@ function main() {
         if (!rule.source) noSource.push(rule.id || '(空 id)')
         if (!['must', 'should'].includes(rule.severity)) badFields.push(`${rule.id}(severity=${rule.severity})`)
       }
-      for (const mode of modes) {
-        if (!mode.name || !mode.definition) badFields.push(`形态 ${mode.key || '?'}`)
-        if (!mode.avoid || !mode.avoid.length) missingAvoid.push(mode.name || mode.key || '?')
+      // 页面形态与术语是同一类东西（共同语言），字段要求一致：正名 + 定义 + 不要怎么叫
+      for (const entry of [...modes.map((m) => ({ ...m, kind: '形态' })), ...terms.map((t) => ({ ...t, kind: '术语' }))]) {
+        if (!entry.name || !entry.definition) badFields.push(`${entry.kind} ${entry.key || '?'}`)
+        if (!entry.avoid || !entry.avoid.length) missingAvoid.push(entry.name || entry.key || '?')
       }
       push('RULE-02', badIds.length || badFields.length ? 'error' : 'ok',
         badIds.length ? `规则 id 重复/缺失：${badIds.join('、')}` : badFields.length ? `规则字段不完整：${badFields.join('、')}` : '规则 id 唯一、必填字段齐全')
       push('RULE-03', missingAvoid.length ? 'warn' : 'ok',
-        missingAvoid.length ? `术语缺 avoid（最容易产生误解的字段）：${missingAvoid.join('、')}` : '术语均含 definition / signal / avoid')
+        missingAvoid.length ? `词条缺 avoid（最容易产生误解的字段）：${missingAvoid.join('、')}` : '词条均含 definition / signal / avoid')
       push('RULE-04', noSource.length ? 'warn' : 'ok',
         noSource.length ? `规则缺 source（无法核对出处）：${noSource.join('、')}` : '规则均带 source')
+
+      // AI 归纳出来的候选条目一律 status: draft —— 没有出处的候选就是幻觉，不能进 AI 上下文
+      const drafts = [...list, ...modes, ...terms].filter((e) => e.status === 'draft')
+      const noEvidence = drafts.filter((e) => !Array.isArray(e.evidence) || !e.evidence.length)
+      push('RULE-05', noEvidence.length ? 'warn' : 'ok',
+        noEvidence.length
+          ? `${noEvidence.length} 条 draft 缺 evidence（AI 归纳的条目必须能指回具体文件）：${noEvidence.map((e) => e.id || e.name || e.key || '?').join('、')}`
+          : drafts.length
+            ? `${drafts.length} 条待确认（draft），确认前不进 AI 上下文导出`
+            : '没有待确认条目')
     }
   }
 
@@ -309,6 +362,45 @@ function main() {
       }
     }
   }
+
+  // ---------- Wiki 代码引用（引用式内联） ----------
+  // 手粘贴的代码会过期，而且过期了没人发现。所以 wiki 里贴真实实现一律用引用：
+  //   <!-- keel:code src/core/rank.ts 12-40 -->
+  // 页面按行号内联渲染，源文件改了页面跟着变。这里只做一件事：确认引用还指得着。
+  const CODE_REF = /<!--\s*keel:code\s+([^\s>]+)(?:\s+(\d+)\s*-\s*(\d+))?\s*-->/g
+  const wikiFiles = walkFiles(root, [config.wikiDir], ['.md'], config.excludeDirs)
+  const badRefs = []
+  const longRefs = []
+  let refCount = 0
+  for (const file of wikiFiles) {
+    for (const match of safeRead(file.abs).matchAll(CODE_REF)) {
+      refCount += 1
+      const [, target, from, to] = match
+      const abs = resolve(root, target)
+      if (!existsSync(abs)) {
+        badRefs.push(`${file.rel} → ${target}（文件不存在）`)
+        continue
+      }
+      if (!from || !to) continue
+      const total = safeRead(abs).split('\n').length
+      const start = Number(from)
+      const end = Number(to)
+      if (start < 1 || end < start || end > total) {
+        badRefs.push(`${file.rel} → ${target}:${start}-${end}（行号越界，该文件共 ${total} 行）`)
+      } else if (end - start + 1 > 120) {
+        longRefs.push(`${file.rel} → ${target}:${start}-${end}（${end - start + 1} 行）`)
+      }
+    }
+  }
+  push('WIKI-03', badRefs.length ? 'error' : longRefs.length ? 'warn' : 'ok',
+    badRefs.length
+      ? `代码引用已失效（页面会显示空白或错行）：${badRefs.join('；')}`
+      : longRefs.length
+        ? `代码引用过长，读者会直接跳过：${longRefs.join('；')}`
+        : refCount
+          ? `${refCount} 处代码引用均指向真实文件与行号`
+          : '还没有代码引用（贴真实实现时用 <!-- keel:code 路径 起-止 -->，别手粘贴）',
+    badRefs)
 
   // ---------- 接口文档（仅探测） ----------
   const apiHints = []

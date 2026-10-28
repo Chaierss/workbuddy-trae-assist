@@ -6,6 +6,30 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.11.1] - 2026-10-28
+
+内部工具链对齐：仓库里的 keel 底座升到技能 2.1.0，体检能自己提醒「该迁移了」。
+对使用者没有功能变化，只影响开发侧的检查项。
+
+### 改进
+
+- **keel 体检升级到 2.1.0**：`console-check.mjs` 与上游 2.1.0 对齐，新增模板版本对账
+  （`VER-01`，读 `console.config.json` 的 `keelVersion`）、wiki 代码引用校验（`WIKI-03`，
+  引用失效或行号越界直接报 error）、AI 候选条目 `draft` 必须带 `evidence` 的校验（`RULE-05`）。
+- **配置项改名**：`MODE-01` 改为 `CFG-01`，只查「配置就位且可解析」，不再挂在已删除的模式概念下。
+  若有脚本按 ID 过滤输出，需要同步改名；退出码语义未变。
+- **版本提醒不阻断**：`VER-01` 落后或缺失时只 warn。升级提醒让 CI 变红，会把真正该看的 error 一起淹没。
+- **保留本项目三处本地修复**：`WIKI-01` 用 `git check-ignore` 区分被 `.gitignore` 排除的内部文档、
+  `WIKI-02` 按相对路径比对（否则 `policies/` 子目录永远误报未登记）、组件引用扫描允许 `.vue` 等后缀。
+  这三处上游没有，覆盖脚本时不能丢。
+- **`keel/README.md` 补升级口径**：写明拷贝制、`keelVersion` 对账，以及「别整目录覆盖
+  `rules.json` / `components.json` / `wiki.json`」。
+
+### 验证
+
+- `node keel/console-check.mjs --strict`：error 0 · warn 0（`VER-01` 模板版本 2.1.0 最新）。
+- `node keel/preflight-scan.mjs --strict`：error 0 · warn 6（既有条目，逐条确认后放行）。
+
 ## [0.11.0] - 2026-10-28
 
 设置页不再有「开发模式 / 线上模式」：内部信息不用先切个开关才看得到。

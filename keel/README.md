@@ -7,11 +7,11 @@
 
 | 文件 | 是什么 | 谁消费 |
 |---|---|---|
-| `console.config.json` | 扫描范围（源码目录、组件目录、wiki 目录、排除项） | 体检脚本 |
+| `console.config.json` | 扫描范围（源码目录、组件目录、wiki 目录、排除项）+ 模板版本号 | 体检脚本 |
 | `rules.json` | 项目规则 + 页面形态术语（`title`/`summary`/`detail` 存 i18n key） | 设置 → 规则；导出给 AI |
 | `components.json` | 前端组件注册表（准入名单，不是说明书） | 设置 → 组件；体检脚本；`virtual:keel-report` |
 | `wiki.json` | 门禁清单：`docs/` 下每篇 `.md` 登记一行（校验存在、非空、无漏登记） | 体检脚本 |
-| `console-check.mjs` | 四件套完整性体检 | CI / 本地提交前 |
+| `console-check.mjs` | 四件套完整性体检（`CFG` / `VER` / `RULE` / `COMP` / `WIKI`） | CI / 本地提交前 |
 | `preflight-scan.mjs` | 上线前静态漏洞扫描（17 条规则 + `.preflightignore`） | CI / 发布门禁 |
 
 接口文档**不在这里**：真相源是后端路由与类型，运行期由 FastAPI 生成 `/api/openapi.json`，
@@ -42,6 +42,22 @@ node keel/preflight-scan.mjs --include-dist  # 连构建产物一起扫，查前
 `.preflightignore` 的每一条豁免都必须写明原因；没有原因的豁免等于关掉检测。
 
 **发布顺序**：四件套体检 → 漏洞扫描 → 依赖审计 → 人工五项（越权 IDOR / 权限只在前端 / 逻辑绕过 / 上传 / SSRF）→ 产物扫描。顺序不可颠倒。
+
+## 升级技能后怎么迁移
+
+这套目录是**拷贝制**：技能本体（全局 `skills/keel`）更新了，这里不会自动跟着变，两者只靠
+`console.config.json` 的 `keelVersion` 对账。`node keel/console-check.mjs` 的 `VER-01` 会给三种状态：
+
+| 输出 | 含义 |
+|---|---|
+| `ok 模板版本 2.1.0（最新）` | 对齐了 |
+| `warn 模板版本 2.0.0，当前技能 2.1.0` | 有更新，按技能里的 `references/upgrading.md` 逐段迁移 |
+| `warn 未声明模板版本` | 老文件缺字段，补 `"keelVersion"` |
+
+它是 **warn 不是 error**：升级提醒不该让 CI 变红，红的东西会被整体忽略。
+
+迁移口径：**别整目录覆盖**。`rules.json` / `components.json` / `wiki.json` 是本项目事实，
+工具无权判断该留哪条；只搬脚本与本项目相关的配置项，搬完自己跑一遍体检和扫描。
 
 ## 加东西的流程
 

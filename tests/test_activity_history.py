@@ -77,6 +77,10 @@ def test_uncatalogued_stays_last():
 def client(tmp_path):
     app = create_app(Settings(home=tmp_path))
     with TestClient(app) as test_client:
+        # 调度器起线程后立刻跑一轮 tick：只要这轮落在线程建号之后，就会把
+        # 「跳过签到」写进今天的流水，与下面按天聚合的断言抢时序。
+        # 断言要的是自己写进去的那几条，所以在建号前先停掉调度器。
+        app.state.scheduler.stop()
         yield test_client
 
 
