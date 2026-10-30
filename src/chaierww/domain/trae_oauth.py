@@ -72,6 +72,10 @@ CREDENTIAL_MARKERS = (
     "refresh_token",
 )
 
+#: 换 token 响应里 access / refresh 的候选键。大小写不敏感匹配（见 ``_find_token_value``）。
+ACCESS_TOKEN_KEYS = ("AccessToken", "access_token", "token", "Jwt", "JWT")
+REFRESH_TOKEN_KEYS = ("RefreshToken", "refresh_token")
+
 
 class TraeOAuthError(RuntimeError):
     """Trae 扫码登录的可预期失败。消息面向用户。"""
@@ -178,22 +182,62 @@ class TraeOAuthSession:
 
 
 def _find_token_value(body: Any, keys: tuple[str, ...]) -> str | None:
-    """在 JSON 树中递归查找指定键的首个非空字符串值。"""
+    """在 JSON 树中递归查找指定键（**大小写不敏感**）的首个非空字符串值。
+
+    先查 ``Result`` / ``data`` / ``Data`` 容器，再全树深挖：上游不同版本对响应的
+    包裹层并不统一（2026-10-30 新版实测为 ``{"Result": {"Token": ...}}``，键名首字母
+    大写），按精确键名匹配会把「换了个包裹层」表现成「响应里没有 Token」。
+    """
+
+    def search(value: Any) -> str | None:
+        if isinstance(value, dict):
+            for key in keys:
+                raw = value.get(key)
+                if isinstance(raw, str) and raw.strip():
+                    return raw.strip()
+            for actual, raw in value.items():
+                if any(str(actual).lower() == key.lower() for key in keys):
+                    if isinstance(raw, str) and raw.strip():
+                        return raw.strip()
+            for child in value.values():
+                found = search(child)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for item in value:
+                found = search(item)
+                if found:
+                    return found
+        return None
+
     if isinstance(body, dict):
-        for key in keys:
-            value = body.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        for child in body.values():
-            found = _find_token_value(child, keys)
-            if found:
-                return found
-    elif isinstance(body, list):
-        for item in body:
-            found = _find_token_value(item, keys)
-            if found:
-                return found
-    return None
+        for wrapper in ("Result", "data", "Data"):
+            container = body.get(wrapper)
+            if container is not None:
+                found = search(container)
+                if found:
+                    return found
+    return search(body)
+
+
+def _key_paths(body: Any) -> str:
+    """收集 JSON 的键路径（只有键名、不含值），用于「找不到 Token」时的诊断。"""
+    paths: list[str] = []
+
+    def walk(value: Any, prefix: str, depth: int) -> None:
+        if depth > 6 or len(paths) >= 40:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                path = f"{prefix}.{key}" if prefix else str(key)
+                paths.append(path)
+                walk(child, path, depth + 1)
+        elif isinstance(value, list):
+            for index, child in enumerate(value[:3]):
+                walk(child, f"{prefix}[{index}]", depth + 1)
+
+    walk(body, "", 0)
+    return " | ".join(paths)
 
 
 def _dig_string(body: Any, path: list[str]) -> str | None:
@@ -563,15 +607,24 @@ class TraeOAuth:
             message = body.get("message") or "未知错误"
             raise TraeOAuthError(f"code={body['code']}: {message}")
 
-        access = _find_token_value(body, ("AccessToken", "access_token", "token", "Jwt", "JWT"))
-        refresh = _find_token_value(body, ("RefreshToken", "refresh_token"))
+        # 新版把业务错误放在 Data.__Message.error（不在火山引擎信封里）。
+        upstream_error = _dig_string(
+            body, ["Data", "__Message", "error"]
+        ) or _dig_string(body, ["data", "__Message", "error"])
+        if upstream_error:
+            raise TraeOAuthError(f"上游拒绝: {upstream_error}")
+
+        access = _find_token_value(body, ACCESS_TOKEN_KEYS)
+        refresh = _find_token_value(body, REFRESH_TOKEN_KEYS)
         if access and refresh:
             return access, refresh
         if access and not refresh:
             raise TraeOAuthError(
                 f"{tag}: 响应缺少 RefreshToken（该账号将无法自动续期，已拒绝写库）"
             )
-        raise TraeOAuthError(f"{tag}: 响应中未找到 Token 字段")
+        raise TraeOAuthError(
+            f"{tag}: 响应中未找到 Token 字段（响应键：{_key_paths(body)}）"
+        )
 
     # ---------- 取消 / 清理 ----------
 

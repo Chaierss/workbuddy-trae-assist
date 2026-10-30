@@ -31,7 +31,7 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 | 措施 | 实现位置 |
 | :-- | :-- |
 | **数据只在本机** | 全部落在 `~/.chaierww`（`CHAIERWW_HOME` 可覆盖），没有服务端，不上报任何遥测 |
-| **凭据加密存储** | `infra/secrets.py`：Windows 走 DPAPI，密钥由系统按当前登录用户派生，**不落文件** |
+| **凭据加密存储** | `infra/secrets.py`：Windows 走 DPAPI，密钥由系统按当前登录用户派生，**不落文件**；Linux 走 AES-256-GCM，密钥由 `/etc/machine-id` + uid 派生，同样不落文件（边界见[不算漏洞](#这些不算漏洞)第 1 条） |
 | **日志脱敏** | `logging_setup.py`：写盘与上屏前对整条消息做值级脱敏——`Bearer` / `sk-` / GitHub / AWS / Slack 令牌、JWT、`token=` 式键值、`envelope` 密文、邮箱（`a***@domain`）、手机号（`138****1234`）、本机用户名路径。新增日志调用点自动生效，无需逐处处理 |
 | **网关日志脱敏** | `domain/gateway.py`：落盘与回读两端都把账号名里的邮箱/手机号打码，prompt 预览与错误文本过值级规则 |
 | **网关只对内** | `domain/gateway.py`：默认 `127.0.0.1:8788`，`loopbackOnly` 生效；对外暴露要显式改配置 |
@@ -59,7 +59,10 @@ https://github.com/Chaierss/workbuddy-trae-assist/security/advisories/new
 
 写下来是为了省掉双方的时间——以下是**已知设计**，不是缺陷：
 
-1. **需要「本机同一用户权限」才能触发的攻击。** DPAPI 的密钥绑定当前 Windows 用户，
+1. **需要「本机同一用户权限」才能触发的攻击。** Windows 上 DPAPI 的密钥绑定当前用户；
+   Linux 上的 AES 密钥由 `/etc/machine-id` + uid 派生，**故意不防本机 root**——root 能读
+   机器标识、库文件和进程内存，CentOS 7 也没有可用的系统密钥服务。这条只保证「密文被
+   拷到另一台机器 / 另一个用户下解不开」，不承诺抵抗本机提权。
    `~/.chaierww` 也归当前用户。已经能以你的身份执行代码的攻击者，直接读客户端自己的
    登录态就行，绕不绕开本工具没有区别。
 

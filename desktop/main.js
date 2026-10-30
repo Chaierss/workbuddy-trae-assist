@@ -738,6 +738,18 @@ async function checkForUpdates({ manual = false } = {}) {
     return updateState;
   }
 
+  // Linux 的应用内更新只对 AppImage 生效：electron-updater 靠 `APPIMAGE` 环境变量
+  // 定位并替换镜像。deb 安装 / 解包运行都没有它，硬查会抛一串英文 "Not an AppImage"。
+  // 这里先给出明确结论，别让用户对着看不懂的报错排查。
+  if (process.platform === 'linux' && !process.env.APPIMAGE) {
+    setUpdateState({
+      status: 'disabled',
+      message: 'Linux 只有在以 AppImage 方式运行时才能应用内更新；deb 安装请到 Releases 手动下载新版。',
+    });
+    if (manual) sendPrompt('unavailable');
+    return updateState;
+  }
+
   // downloaded 之后没必要再查：包已经在本地，重查只会把状态打回 checking。
   if (
     updateState.status === 'checking' ||

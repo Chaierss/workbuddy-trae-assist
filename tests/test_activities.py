@@ -162,6 +162,8 @@ def _fake_calls(monkeypatch, *, status: tuple, claim: tuple | None = None) -> li
         # 额外活动：默认「接口未开放」，用来验证它们只会被记为跳过。
         if url.endswith(extras.HEATMAP_PATH):
             return 200, {"code": 0, "data": {"cells": []}}, ""
+        if url.endswith(extras.REPORT_PATH):
+            return 200, {"code": 0, "data": {}}, ""
         if url.endswith(extras.CLAIM_GIFT_PATH) or url.endswith(extras.CLAIM_COMPENSATION_PATH):
             return 404, {"code": 404, "msg": "not found"}, ""
         if url.endswith(extras.TRAVEL_PREFIX + "/config") or url.endswith(
@@ -637,7 +639,8 @@ def test_catalog_keys_match_parser_outputs():
         parse_wb_tasks([{"task_code": "chat_5", "accept_status": "not_accepted"}]).key,
         parse_wb_streak({}).key,
         parse_trae_checkin({"checked_in": True}).key,
-        # 由 wb_extras 检测、经 _extra_item 输出的三项
+        # 由 wb_extras 检测、经 _extra_item 输出的四项
+        "workbuddy.active_map",
         "workbuddy.travel",
         "workbuddy.black_cat",
         "workbuddy.school",

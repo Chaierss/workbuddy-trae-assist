@@ -25,12 +25,14 @@ logger = logging.getLogger("chaierww")
 FILENAME = "preferences.json"
 
 #: 首启引导的步骤 id。前端据此推进清单，后端只负责持久化与白名单校验。
-#: ``retention`` 是可选项（开自动签到 / 签发网关 Key），前 3 步完成后才出现。
+#: ``retention`` 是可选项（开自动签到 / 签发网关 Key），前 3 步完成后才出现；
+#: ``daily_run``（0.12.0）是「每天一键执行活动」，``retention`` 完成后才解锁。
 ONBOARDING_STEPS: tuple[str, ...] = (
     "install",
     "signin",
     "first_switch",
     "retention",
+    "daily_run",
 )
 
 #: 自动备份的默认分区，与 backup.DEFAULT_GLOBAL_PARTS 保持一致（只有不含凭据的 config）。

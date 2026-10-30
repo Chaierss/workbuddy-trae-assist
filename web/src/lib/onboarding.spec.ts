@@ -28,6 +28,7 @@ describe("onboarding", () => {
       "signin",
       "first_switch",
       "retention",
+      "daily_run",
     ]);
   });
 

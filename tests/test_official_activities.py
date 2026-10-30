@@ -39,7 +39,7 @@ from chaierww.main import create_app
 def test_official_catalog_passes_validation():
     """目录字段、主题/图标枚举、官方入口白名单全部合法。"""
     mod.validate_official_catalog()
-    assert len(mod.ACTIVITY_CATALOG) == 7
+    assert len(mod.ACTIVITY_CATALOG) == 8
     assert {entry["key"] for entry in mod.ACTIVITY_CATALOG} == mod.ACTIVITY_KEYS
 
 
@@ -466,3 +466,70 @@ def test_api_activity_runs_keep_ended_title(client):
     runs = client.get("/api/activities/runs").json()["runs"]
     assert runs[0]["title"] == "开学季活动"
     assert runs[0]["ended"] is True
+
+
+# ---------- 活跃地图（0.12.0） ----------
+
+
+def _today_str() -> str:
+    return datetime.now(extras.CST).strftime("%Y-%m-%d")
+
+
+def _heatmap_stub(score: int | None, *, fail: bool = False):
+    def call(method: str, url: str, headers: dict[str, str], body=None):
+        if fail:
+            return 500, None
+        assert method == "GET" and url.endswith(extras.HEATMAP_PATH)
+        cells = [] if score is None else [{"date": _today_str(), "score": score}]
+        return 200, {"code": 0, "data": {"cells": cells}}
+
+    return call
+
+
+def test_detect_active_map_reads_today_score():
+    todo = extras.detect_active_map(_heatmap_stub(0), "https://www.workbuddy.cn", {})
+    assert todo.state == "todo" and todo.automatable is True
+    done = extras.detect_active_map(_heatmap_stub(4), "https://www.workbuddy.cn", {})
+    assert done.state == "done"
+    missing = extras.detect_active_map(
+        _heatmap_stub(None, fail=True), "https://www.workbuddy.cn", {}
+    )
+    assert missing.state == "unavailable"
+
+
+def test_run_active_map_reports_event_and_confirms():
+    state = {"score": 0}
+    posts: list = []
+
+    def call(method: str, url: str, headers: dict[str, str], body=None):
+        if method == "GET":
+            return 200, {
+                "code": 0,
+                "data": {"cells": [{"date": _today_str(), "score": state["score"]}]},
+            }
+        posts.append(body)
+        state["score"] = 1
+        return 200, {"code": 0, "data": {}}
+
+    step = extras.run_active_map(call, "https://www.workbuddy.cn", {}, "u1")
+    assert step.status == "ok"
+    assert posts and posts[0][0]["userId"] == "u1"
+    assert posts[0][0]["eventCode"] == "chat_request_send"
+
+
+def test_run_active_map_skips_when_already_lit():
+    posts: list = []
+
+    def call(method: str, url: str, headers: dict[str, str], body=None):
+        if method == "GET":
+            return 200, {
+                "code": 0,
+                "data": {"cells": [{"date": _today_str(), "score": 2}]},
+            }
+        posts.append(body)
+        return 200, {"code": 0, "data": {}}
+
+    step = extras.run_active_map(call, "https://www.workbuddy.cn", {}, "u1")
+    assert step.status == "skipped"
+    assert posts == []
+

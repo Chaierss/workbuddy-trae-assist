@@ -18,8 +18,13 @@ from chaierww.domain.trae_crypto import (
     tc_decrypt,
 )
 from chaierww.domain.trae_oauth import (
+    ACCESS_TOKEN_KEYS,
     CALLBACK_PORT,
     CLIENT_ID,
+    REFRESH_TOKEN_KEYS,
+    TraeOAuth,
+    TraeOAuthError,
+    _find_token_value,
     _parse_jwt_uid,
     _parse_query,
     _pkce_pair,
@@ -160,3 +165,60 @@ def test_parse_jwt_uid_missing():
     assert _parse_jwt_uid("h.notbase64.sig") is None
     payload = base64.urlsafe_b64encode(json.dumps({"foo": 1}).encode()).rstrip(b"=").decode()
     assert _parse_jwt_uid(f"h.{payload}.sig") is None
+
+
+# ---------- 换 token 响应解析 ----------
+
+
+def test_find_token_value_reads_new_result_envelope():
+    """2026-10-30 新版响应：``Result`` 容器 + 首字母大写的 ``Token``。"""
+    body = {"Result": {"Token": "jwt-1", "RefreshToken": "rt-1"}}
+    assert _find_token_value(body, ACCESS_TOKEN_KEYS) == "jwt-1"
+    assert _find_token_value(body, REFRESH_TOKEN_KEYS) == "rt-1"
+
+
+def test_find_token_value_is_case_insensitive_in_nested_data():
+    body = {"data": {"tokens": [{"accessToken": "jwt-2"}]}}
+    assert _find_token_value(body, ("AccessToken", "access_token", "token")) == "jwt-2"
+
+
+def test_exchange_accepts_new_result_envelope(monkeypatch):
+    """主变体返回 ``Result.Token`` 时应直接成功，而不是落到旧端点兜底。"""
+    oauth = TraeOAuth()
+    calls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"Result": {"Token": "jwt-new", "RefreshToken": "rt-new"}}
+
+    class FakeClient:
+        def post(self, url, json=None, headers=None):  # noqa: A002
+            calls.append(url)
+            return FakeResponse()
+
+    monkeypatch.setattr(oauth, "_client", FakeClient())
+    payload = {"ClientID": CLIENT_ID, "AuthCode": "ac-1", "CodeVerifier": "v-1"}
+    jwt, refresh = oauth._try_exchange("ExchangeToken/DeviceInfo", "http://x/exchange", payload, "dev-1", True)
+    assert (jwt, refresh) == ("jwt-new", "rt-new")
+    assert len(calls) == 1
+
+
+def test_exchange_reports_upstream_field_error(monkeypatch):
+    """新版把业务错误放 ``Data.__Message.error``：要原样报出来，别再兜底重试。"""
+    oauth = TraeOAuth()
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"Data": {"__Message": {"error": "invalid field: AuthCode"}}}
+
+    class FakeClient:
+        def post(self, url, json=None, headers=None):  # noqa: A002
+            return FakeResponse()
+
+    monkeypatch.setattr(oauth, "_client", FakeClient())
+    with pytest.raises(TraeOAuthError, match="invalid field: AuthCode"):
+        oauth._try_exchange("ExchangeToken/DeviceInfo", "http://x/exchange", {}, "dev-1", True)

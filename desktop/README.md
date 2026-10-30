@@ -2,8 +2,8 @@
 
 把 chaierww 的 Web 前端 + FastAPI 后端套成桌面安装包，带应用内更新。
 
-**只有 Windows。** Electron 外壳本身是跨平台的，但后端只实现了 Windows
-（DPAPI 加密 + `APPDATA` 目录定位），所以不发 mac/Linux 包。详见[平台](#平台)。
+**Windows 与 Linux。** macOS 仍未支持（后端没有 Keychain 实现），不发下了用不了的包。
+详见[平台](#平台)。
 
 ## 架构
 
@@ -74,31 +74,60 @@ release notes、也没有进度条。现在由 `web/src/components/UpdateDialog.
 | 平台 | 产物 | 更新 |
 | --- | --- | --- |
 | Windows 10 / 11 x64 | `chaierww-Setup-<版本号>.exe`（NSIS，默认仅当前用户、免管理员） | ✅ 支持 |
+| Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+） | `chaierww-x64.AppImage`、`chaierww-x64.deb` | ✅ 支持（CentOS 见下） |
+| macOS | — | ❌ 不发 |
 
-**为什么不做 macOS / Linux。** Electron 外壳是跨平台的——托盘、窗口、进程回收、更新
-都写了平台分支，安装包也能打出来。但后端只有 Windows 实现：`infra/secrets.py` 的凭据
-加密是 DPAPI，两个 adapter 的 `default_paths()` 依赖 `APPDATA` / `LOCALAPPDATA`。
-所以 mac/Linux 装完启动时后端抛 `PlatformNotSupported`，外壳弹「后端服务已意外退出」。
+**Linux 上的三个实现差异**（不是配置文件，是代码里的平台分支）：
 
-发一个下了用不了的包没有意义，CI 矩阵只留了 `windows-latest`。要补的话按这个顺序：
+| 层 | Windows | Linux |
+| --- | --- | --- |
+| 凭据加密（`infra/secrets.py`） | DPAPI，系统按用户派生密钥 | AES-256-GCM，密钥 = SHA-256(`/etc/machine-id` + uid + 固定盐)，不落盘 |
+| 登录态定位（`adapters/*.py`） | `APPDATA` / `LOCALAPPDATA` | `XDG_CONFIG_HOME`（缺省 `~/.config`）+ 产品目录名候选 |
+| 客户端进程名 | `trae cn.exe` / `workbuddy.exe` | 同名二进制去掉 `.exe`；另试 `trae-cn` / `trae` |
 
-1. `secrets.py` 换跨平台加密（macOS Keychain / Linux Secret Service 或 libsodium）
-2. `adapters/` 按平台解析目录
-3. `CLIENT_EXE_NAMES` 去掉 `.exe` 硬编码
-4. `domain/wb_tasks.py` 里 `os` / `arch` 的上报值改真实值
-5. CI 矩阵加回 `macos-latest` / `ubuntu-latest`，其余构建步骤不用改
+Linux 的登录态路径与覆盖变量：
 
-`package.json` 里的 `dist:mac` / `dist:linux` 脚本保留着，配合上面的工作用。
-`main.js` 里已有的跨平台分支（mac 关窗不退、Linux 托盘依赖 `libappindicator`、
-`kill(-pid)` 收进程组等）也先留着，不是死代码。
+| 客户端 | 默认路径 | 覆盖变量 |
+| --- | --- | --- |
+| Trae CN | `~/.config/Trae CN/User/globalStorage`（找不到时试 `~/.config/Trae`） | `CHAIERWW_TRAE_STATE_DIR` |
+| WorkBuddy | `~/.config/CodeBuddyExtension/Data/Public/auth` | `CHAIERWW_WORKBUDDY_STATE_DIR` |
+
+客户端主程序位置猜不中时，用 `CHAIERWW_TRAE_APP` / `CHAIERWW_WORKBUDDY_APP` 显式指定。
+
+> **Linux 凭据加密的能力边界（写代码里也写这里）：** 它挡得住「密文被拷到另一台机器 /
+> 另一个用户下」——派生不出同一把密钥；**挡不住本机 root**（机器标识、库文件、进程内存
+> 都在 root 手里，CentOS 7 也没有可用的 Secret Service）；`/etc/machine-id` 被重置后
+> 旧密文全部解不开，表现为「凭据无法解密」，需要重新导入账号。
+
+### CentOS 用户先读这一段
+
+CI 跑在 `ubuntu-latest`，产物的 Electron 与 Python 二进制链接的是 **glibc 2.31+**：
+
+- **CentOS 7（glibc 2.17）**：Desktop 包**起不来**（`GLIBC_2.28 not found`）。
+  现实路径是**源码跑后端**：`pip install -e .` → `python -m chaierww.main`，
+  前端 `npm run build` 后用浏览器访问 `http://127.0.0.1:57910`；
+  或 `cd desktop && npm start`（Electron 用系统自带的，同样是新版才有的依赖，
+  CentOS 7 上的老 Electron 未必满足 43 的 GLIBC 要求，优先用浏览器路径）。
+- **CentOS 8+**：用 AppImage。没有 FUSE 时（容器、精简系统常见）加环境变量
+  `APPIMAGE_EXTRACT_AND_RUN=1` 直接解包运行，不需要装 FUSE。
+  `.deb` 是给 Debian 系的，CentOS 上别用。
+- 想在老系统上跑，唯一办法是**在那台机器上自己打包**（PyInstaller 不能交叉编译），
+  仓库不提供 glibc 2.17 的预编译产物。
+
+### macOS
+
+Electron 外壳能打出来，但后端没有 Keychain 实现，`default_box()` 会抛
+`PlatformNotSupported`。`dist:mac` 脚本保留着，补完加密层再启用。
 
 > 产物名**带版本号**（`chaierww-Setup-0.1.6.exe`）：手动下载时从文件名就能分清新旧，
-> 浏览器缓存 / 镜像也不会拿旧文件糊你。`latest.yml` 里的 `path` 自动跟着产物名走
-> （取的是产物 basename，不是 `artifactName` 模板），electron-updater 照常工作，
-> 不用额外维护。
+> 浏览器缓存 / 镜像也不会拿旧文件糊你。`latest.yml` / `latest-linux.yml` 里的 `path`
+> 自动跟着产物名走（取的是产物 basename，不是 `artifactName` 模板），electron-updater
+> 照常工作，不用额外维护。
 
 **PyInstaller 不能交叉编译。** 打哪个平台的包就要在哪个平台上跑，所以构建放在
-`.github/workflows/build-desktop.yml` 里；推 `v*` 标签自动构建并发版。
+`.github/workflows/build-desktop.yml` 里（矩阵：`windows-latest` + `ubuntu-latest`）；
+推 `v*` 标签自动构建并发版。Linux 产物要求构建机有 `libfuse2` 才能**运行** AppImage，
+构建本身不需要。
 
 ## 安装包向导
 
@@ -172,8 +201,9 @@ npm run dist:win
 
 产物在 `desktop/release/` 下。
 
-`package.json` 里 `dist:mac` / `dist:linux` 的脚本还在（配合将来补 mac/Linux 时用），
-但现在打出来的包启动不了，见上面的[平台](#平台)一节。
+`package.json` 里 `dist:linux` 的脚本可以直接用（**必须在 Linux 机器上跑**，PyInstaller
+不能交叉编译），产物是 `chaierww-x64.AppImage` 与 `chaierww-x64.deb`；`dist:mac` 仍不可用，
+见上面的[平台](#平台)一节。
 
 ### 国内网络 / 非管理员账户的两个坑（Windows）
 

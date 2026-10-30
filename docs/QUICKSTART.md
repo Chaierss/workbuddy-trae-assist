@@ -2,14 +2,17 @@
 
 从下载到第一次成功切号。全程不需要命令行，也不需要管理员权限。
 
-> 平台只有 **Windows 10 / 11 (x64)**。非官方第三方工具，使用前请先读
-> [免责声明](policies/DISCLAIMER.md)。
+> 平台：**Windows 10 / 11 (x64)**，以及 **Linux x64**（AppImage / deb，CentOS 7 除外，
+> 见下方说明）。非官方第三方工具，使用前请先读 [免责声明](policies/DISCLAIMER.md)。
 
 ---
 
 ## 0. 先确认前置条件（约 20 秒）
 
-- Windows 10 1809 及以上，或 Windows 11，64 位。
+- Windows 10 1809 及以上，或 Windows 11，64 位；
+  或 Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+）。
+  **CentOS 7 的 glibc 2.17 跑不起桌面包**，只能用源码跑后端，见
+  [桌面端说明](../desktop/README.md#centos-用户先读这一段)。
 - 至少装过一个客户端：WorkBuddy 国内版或 Trae 国内版，且能正常登录。
 - 切号会重启目标客户端：**切换前请自己退出它**。工具检测到客户端仍在运行时会拒绝写入，
   这是保护，不是故障。
@@ -18,12 +21,17 @@
 
 ## 1. 下载并安装（约 40 秒）
 
-1. 到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新的
-   `chaierww-Setup-<版本号>.exe`。
-2. 双击安装。默认只装给当前用户、免管理员，向导会先展示许可要点与免责声明。
-3. 首次启动 Windows 会拦一次（安装包没有代码签名）：点「更多信息 → 仍要运行」。
+1. 到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新版：
+   - Windows：`chaierww-Setup-<版本号>.exe`，双击安装。默认只装给当前用户、免管理员，
+     向导会先展示许可要点与免责声明。
+   - Linux：`chaierww-x64.AppImage` 或 `chaierww-x64.deb`。
+     AppImage 先 `chmod +x` 再双击 / 运行；缺 FUSE 时用
+     `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x64.AppImage`。
+     deb 用 `sudo apt install ./chaierww-x64.deb`（Debian / Ubuntu）。
+2. 首次启动 Windows 会拦一次（安装包没有代码签名）：点「更多信息 → 仍要运行」。
+   Linux 桌面首次运行 AppImage 可能需要允许「执行」权限。
 
-装完托盘常驻，关掉窗口不会退出程序。
+装完托盘常驻，关掉窗口不会退出程序（Linux 托盘需要 `libappindicator` / `gir1.2-appindicator3`）。
 
 ---
 

@@ -10,7 +10,8 @@ chaierww 是一个**只在本机运行**的多账号切换工具。你在官方�
 
 - 没有我们自己的服务器，没有云端中转，断网也能切号
 - 账号必须是你自己的，不提供共享、租借或代登录
-- 凭据由系统 DPAPI 绑定当前 Windows 用户加密，密钥不落磁盘
+- 凭据加密后落盘：Windows 由系统 DPAPI 绑定当前用户，Linux 用 AES-256-GCM 按机器 + 用户
+  派生密钥（不防本机 root，见 [SECURITY.md](../SECURITY.md)）
 
 非官方第三方工具，与 WorkBuddy / Trae 及其权利人无隶属、授权或背书关系。
 使用前请读 **[免责声明](./policies/DISCLAIMER.md)**。

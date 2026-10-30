@@ -35,6 +35,9 @@ skill_1、black_cat、Sequential_*、school_season —— 上游没有对应动�
 
 from __future__ import annotations
 
+import os
+import platform
+import sys
 import threading
 import time
 import uuid
@@ -211,6 +214,7 @@ class _Proto:
         ``reportDelay`` 用 2000（真实客户端的批量上报延迟语义），不是 0。
         """
         now = int(time.time() * 1000)
+        facts = _desktop_facts()
         return {
             "timezone": "Asia/Shanghai",
             "reportDelay": 2000,
@@ -227,11 +231,7 @@ class _Proto:
             "sessionId": _stable_hex(self.uid, "session"),
             "extName": "workbuddy-desktop",
             "extVersion": "5.5.6",
-            "os": "win32",
-            "arch": "x64",
-            "osVersion": "10.0.26220",
-            "cpuCores": 20,
-            "memorySize": 24,
+            **facts,
             "timestamp": now,
             "presentAt": now,
         }
@@ -476,6 +476,41 @@ def _stable_id(seed: str, tag: str) -> str:
 
     digest = hashlib.sha256(f"{tag}:{seed}".encode()).hexdigest()
     return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
+
+
+def _memory_gb() -> int:
+    """物理内存 GB 数；读不到就回落到 Windows 上一直用的 24，不让指纹中断上报。"""
+    try:
+        import psutil
+
+        return max(1, int(psutil.virtual_memory().total // (1024**3)))
+    except Exception:  # noqa: BLE001 - 指纹是尽力而为，取不到不值得让整次上报失败
+        return 24
+
+
+def _desktop_facts() -> dict[str, Any]:
+    """上报指纹里的平台字段，按**真实运行平台**取，不再一律报 Windows。
+
+    上游按这套字段识别桌面客户端；在 Linux 上继续报 ``os=win32`` /
+    ``osVersion=10.0.26220`` 等于把自己伪装成另一台机器，一旦上游做一致性校验就是
+    异常样本。默认值是尽力而为，读不到也不阻断上报。
+    """
+    system = sys.platform
+    os_name = {"win32": "win32", "darwin": "darwin"}.get(system, "linux")
+    machine = platform.machine().lower()
+    arch = {
+        "amd64": "x64",
+        "x86_64": "x64",
+        "aarch64": "arm64",
+        "arm64": "arm64",
+    }.get(machine, machine or "x64")
+    return {
+        "os": os_name,
+        "arch": arch,
+        "osVersion": platform.version() or platform.release() or "",
+        "cpuCores": os.cpu_count() or 1,
+        "memorySize": _memory_gb(),
+    }
 
 
 def _stable_hex(seed: str, tag: str) -> str:

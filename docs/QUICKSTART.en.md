@@ -2,14 +2,18 @@
 
 From download to your first successful account switch. No terminal, no admin rights.
 
-> Windows 10 / 11 (x64) only. This is an unofficial third-party tool — read the
+> Windows 10 / 11 (x64), plus Linux x64 (AppImage / deb; every distro except CentOS 7 —
+> see below). This is an unofficial third-party tool — read the
 > [disclaimer](policies/DISCLAIMER.md) first.
 
 ---
 
 ## 0. Check the prerequisites (~20 seconds)
 
-- Windows 10 1809+ or Windows 11, 64-bit.
+- Windows 10 1809+ or Windows 11, 64-bit; or Linux x64
+  (Ubuntu 20.04+ / Debian 11+ / CentOS 8+). **CentOS 7 (glibc 2.17) cannot run the
+  desktop build** — run the backend from source instead, see
+  [desktop notes](../desktop/README.md#centos-用户先读这一段).
 - At least one client installed and signed in: WorkBuddy (China) or Trae (China).
 - Switching restarts the target client: **quit it yourself first**. The tool refuses to
   write while the client is running — that is a safeguard, not a bug.
@@ -18,14 +22,18 @@ From download to your first successful account switch. No terminal, no admin rig
 
 ## 1. Download and install (~40 seconds)
 
-1. Get the latest `chaierww-Setup-<version>.exe` from
-   [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases).
-2. Run it. It installs per-user without admin rights and shows the licence highlights and
-   disclaimer first.
-3. Windows SmartScreen warns once (the installer is not code-signed): click
+1. Get the latest build from
+   [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases):
+   - Windows: `chaierww-Setup-<version>.exe` — run it. It installs per-user without admin
+     rights and shows the licence highlights and disclaimer first.
+   - Linux: `chaierww-x64.AppImage` or `chaierww-x64.deb`. `chmod +x` the AppImage first;
+     without FUSE run it as `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x64.AppImage`. On
+     Debian / Ubuntu install the deb with `sudo apt install ./chaierww-x64.deb`.
+2. Windows SmartScreen warns once (the installer is not code-signed): click
    "More info → Run anyway".
 
-The app lives in the system tray; closing the window does not quit it.
+The app lives in the system tray; closing the window does not quit it (Linux needs
+`libappindicator` / `gir1.2-appindicator3` for the tray).
 
 ---
 

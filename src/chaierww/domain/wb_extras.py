@@ -42,6 +42,9 @@ LOTTERY_DRAW_PATH = "/activity/growth/lottery/draw"
 CLAIM_GIFT_PATH = "/billing/meter/claim-gift"
 CLAIM_COMPENSATION_PATH = "/billing/meter/claim-compensation"
 REPORT_PATH = "/v2/report"
+#: 活跃地图：热力图今日分数 > 0 即算点亮；未点亮时最多补发这么多次对话事件。
+#: 上限是为了在「上游计分异步、刚上报还没落库」时也不无限重试。
+ACTIVE_MAP_MAX_REPORTS = 2
 TASKS_PATH = "/v2/activity/growth/tasks"
 ACCEPT_PATH = "/v2/activity/growth/tasks/accept"
 CAT_CLAIM_PATH = "/activity/growth/tasks/black_cat/claim"
@@ -243,24 +246,30 @@ def _eligible_tier(
     return (best[1], best[2]) if best is not None else None
 
 
-def _heatmap_missed_yesterday(
-    call: Call, origin: str, headers: dict[str, str]
-) -> bool | None:
-    """昨日热力格是否为 0；``None`` = 查不到（无判据，不补签）。"""
+def heatmap_day_score(
+    call: Call, origin: str, headers: dict[str, str], day: str
+) -> int | None:
+    """热力图某天的分数；``None`` = 查不到或没有该天的格子（无判据）。"""
     status_code, body = call("GET", f"{origin}{HEATMAP_PATH}", headers, None)
     if not _ok(body, status_code):
         return None
     cells = _data(body).get("cells")
     if not isinstance(cells, list):
         return None
-    yesterday = _yesterday()
     for cell in cells:
         if not isinstance(cell, dict):
             continue
-        date = _text(cell.get("date"))
-        if date[:10] == yesterday:
-            return (_int(cell.get("score")) or 0) == 0
+        if _text(cell.get("date"))[:10] == day:
+            return _int(cell.get("score")) or 0
     return None
+
+
+def _heatmap_missed_yesterday(
+    call: Call, origin: str, headers: dict[str, str]
+) -> bool | None:
+    """昨日热力格是否为 0；``None`` = 查不到（无判据，不补签）。"""
+    score = heatmap_day_score(call, origin, headers, _yesterday())
+    return None if score is None else score == 0
 
 
 def run_streak_rewards(
@@ -689,6 +698,89 @@ def run_black_cat(
             return ExtraStep(key, title, "skipped", message or "奖励已领取")
         return ExtraStep(key, title, "failed", message or "领取失败")
     return ExtraStep(key, title, "skipped", f"进度 {current}/{target}，本次已补过一次")
+
+
+# ---------- 活跃地图 ----------
+
+
+def detect_active_map(
+    call: Call, origin: str, headers: dict[str, str]
+) -> ExtraActivity:
+    """活跃地图：热力图今日分数 > 0 即点亮；查不到返回不可用（不猜「已完成」）。"""
+    growth = growth_headers(headers, origin)
+    score = heatmap_day_score(call, origin, growth, _today())
+    if score is None:
+        return ExtraActivity(state="unavailable", note="热力图读取失败，无法判断今日活跃")
+    if score > 0:
+        return ExtraActivity(state="done", note=f"今日活跃已点亮（分数 {score}）")
+    return ExtraActivity(
+        state="todo",
+        automatable=True,
+        progress_current=0,
+        progress_target=1,
+        progress_text="未点亮",
+        note="今日活跃地图还没点亮，可一键补一次对话事件",
+    )
+
+
+def _craft_event(uid: str, conversation_id: str) -> dict[str, Any]:
+    """一条 CLI/craft 口径的 ``chat_request_send``（活跃地图的最小计分事件）。
+
+    ``userId`` 必填：参考实现实测缺它时上游返回 200 但静默丢弃，热力图不点亮。
+    """
+    now = _now_ms()
+    return {
+        "eventCode": "chat_request_send",
+        "timestamp": now,
+        "reportDelay": 0,
+        "mode": "craft",
+        "conversationId": conversation_id,
+        "requestId": conversation_id,
+        "inputLength": 12,
+        "requestModelId": "deepseek-v4-flash",
+        "requestModelName": "DeepSeek V4 Flash",
+        "presentAt": now,
+        "rootRequestId": conversation_id,
+        "parentConversationId": conversation_id,
+        "agentName": "default",
+        "agentType": "conversation",
+        "userId": uid,
+    }
+
+
+def run_active_map(
+    call: Call, origin: str, headers: dict[str, str], uid: str
+) -> ExtraStep:
+    """点亮今日活跃地图：未点亮时补发对话事件，回读热力图确认后再汇报。
+
+    上游计分是异步的，刚上报不一定立刻落库，所以最多补发
+    ``ACTIVE_MAP_MAX_REPORTS`` 次；回读仍为 0 时如实写「已上报、待计分」。
+    """
+    key, title = "workbuddy.active_map", "活跃地图"
+    growth = growth_headers(headers, origin)
+    before = heatmap_day_score(call, origin, growth, _today())
+    if before is not None and before > 0:
+        return ExtraStep(key, title, "skipped", f"今日已点亮（分数 {before}）")
+
+    reported = 0
+    score = before
+    for _ in range(ACTIVE_MAP_MAX_REPORTS):
+        cid = f"wbmap-{_now_ms()}-{uuid.uuid4().hex[:6]}"
+        status_code, _ = call("POST", f"{origin}{REPORT_PATH}", growth, [_craft_event(uid, cid)])
+        reported += 1
+        if status_code != 200:
+            break
+        score = heatmap_day_score(call, origin, growth, _today())
+        if score is not None and score > 0:
+            return ExtraStep(key, title, "ok", f"已点亮今日活跃（分数 {score}）")
+
+    if reported == 0:
+        return ExtraStep(key, title, "failed", "活跃事件上报失败")
+    if score is None:
+        return ExtraStep(key, title, "skipped", "已上报活跃事件，热力图暂时读不到，稍后刷新")
+    return ExtraStep(
+        key, title, "skipped", f"已上报 {reported} 次，上游计分异步尚未落库，稍后刷新再看"
+    )
 
 
 # ---------- 开学季 ----------

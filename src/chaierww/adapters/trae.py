@@ -54,7 +54,8 @@ ICUBE_CLOUDIDE_KEY = "iCubeAuthInfo://icube.cloudide"
 ICUBE_USERTAG_KEY = "iCubeAuthInfo://usertag"
 # 同 WorkBuddy：只按文件名匹配客户端，禁止子串匹配整条路径
 # （`~/.trae-cn/...` 这类路径同样含 "trae"，会误杀 IDE 等无关进程）。
-CLIENT_EXE_NAMES = ("trae cn.exe",)
+# Linux 版客户端二进制没有 .exe 后缀，产品名可能是 `trae-cn` 或 `trae`。
+CLIENT_EXE_NAMES = ("trae cn.exe",) if os.name == "nt" else ("trae cn", "trae-cn", "trae")
 
 
 def _is_client_process(name: str, exe: str) -> bool:
@@ -71,6 +72,16 @@ def _appdata() -> Path:
     return Path(raw)
 
 
+def _config_home() -> Path:
+    """Linux 的配置根：XDG_CONFIG_HOME，缺省 ``~/.config``。"""
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    return Path(raw) if raw else Path.home() / ".config"
+
+
+#: Linux 上客户端的配置目录名候选：优先国内版，其次国际版命名。
+_TRAE_PRODUCT_DIRS = ("Trae CN", "Trae")
+
+
 @dataclass(frozen=True, slots=True)
 class TraePaths:
     state_dir: Path
@@ -79,6 +90,12 @@ class TraePaths:
 
 
 def default_paths() -> TraePaths:
+    if os.name == "nt":
+        return _windows_paths()
+    return _linux_paths()
+
+
+def _windows_paths() -> TraePaths:
     state_dir = _appdata() / "Trae CN" / "User" / "globalStorage"
     local_raw = os.environ.get("LOCALAPPDATA")
     local_appdata = Path(local_raw) if local_raw else None
@@ -96,6 +113,47 @@ def default_paths() -> TraePaths:
             else None,
             local_candidate,
             Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Trae CN" / "Trae CN.exe",
+        )
+        if c is not None
+    )
+    return TraePaths(
+        state_dir=state_dir,
+        storage_file=state_dir / STORAGE_FILENAME,
+        app_candidates=candidates,
+    )
+
+
+def _linux_paths() -> TraePaths:
+    """Linux：配置在 ``~/.config/<产品名>/User/globalStorage``，客户端多为 AppImage/deb。
+
+    配置目录名两种叫法都试一遍——客户端是 Electron 应用，Linux 下配置目录名取自
+    产品名，国内版与社区版未必一致；哪个目录存在就用哪个，都不存在按国内版建。
+    """
+    override_dir = os.environ.get("CHAIERWW_TRAE_STATE_DIR")
+    if override_dir:
+        state_dir = Path(override_dir)
+    else:
+        base = _config_home()
+        state_dir = next(
+            (
+                base / name / "User" / "globalStorage"
+                for name in _TRAE_PRODUCT_DIRS
+                if (base / name / "User" / "globalStorage").is_dir()
+            ),
+            base / _TRAE_PRODUCT_DIRS[0] / "User" / "globalStorage",
+        )
+    candidates = tuple(
+        c
+        for c in (
+            Path(os.environ["CHAIERWW_TRAE_APP"])
+            if os.environ.get("CHAIERWW_TRAE_APP")
+            else None,
+            # deb 包常见的落点：/usr/bin/trae-cn，或解包到 /opt 下。
+            Path("/usr/bin/trae-cn"),
+            Path("/usr/bin/trae"),
+            Path("/opt/trae-cn/trae-cn"),
+            Path("/opt/Trae CN/trae-cn"),
+            Path("/opt/trae/trae"),
         )
         if c is not None
     )

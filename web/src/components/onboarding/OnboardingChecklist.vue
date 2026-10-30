@@ -112,16 +112,12 @@ async function markDone(step: OnboardingStep): Promise<void> {
 
         <div v-if="!item.done" class="flex shrink-0 items-center gap-2">
           <span v-if="item.locked" class="text-caption text-muted">
-            {{ t("onboarding.retention.later") }}
+            {{
+              item.step === "daily_run"
+                ? t("onboarding.dailyRun.later")
+                : t("onboarding.retention.later")
+            }}
           </span>
-
-          <RouterLink
-            v-else-if="item.step !== 'retention'"
-            :to="to(item.to)"
-            class="inline-flex items-center rounded-control border border-line px-2.5 py-1.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          >
-            {{ item.cta }}
-          </RouterLink>
 
           <template v-else>
             <RouterLink
@@ -131,11 +127,16 @@ async function markDone(step: OnboardingStep): Promise<void> {
               {{ item.cta }}
             </RouterLink>
             <button
+              v-if="item.step === 'retention' || item.step === 'daily_run'"
               type="button"
               class="inline-flex items-center rounded-control px-2.5 py-1.5 text-caption text-brand transition-colors hover:bg-brand-soft"
-              @click="markDone('retention')"
+              @click="markDone(item.step)"
             >
-              {{ t("onboarding.retention.markDone") }}
+              {{
+                item.step === "retention"
+                  ? t("onboarding.retention.markDone")
+                  : t("onboarding.dailyRun.markDone")
+              }}
             </button>
           </template>
         </div>

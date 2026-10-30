@@ -59,7 +59,8 @@ OBSERVATION_SUFFIX = ".observation.json"
 # 只按可执行文件名匹配客户端主程序，禁止用子串匹配整条路径：
 # `~/.workbuddy/binaries/python/...` 这类运行时路径同样含 "workbuddy"，
 # 子串判断会把 chaierww 自身后端等无关进程一并杀掉。
-CLIENT_EXE_NAMES = ("workbuddy.exe",)
+# Linux 上同一个二进制没有 .exe 后缀，按小写产品名匹配。
+CLIENT_EXE_NAMES = ("workbuddy.exe",) if os.name == "nt" else ("workbuddy",)
 _BOM = b"\xef\xbb\xbf"
 
 
@@ -207,6 +208,12 @@ def _local_appdata() -> Path:
     return Path(raw)
 
 
+def _config_home() -> Path:
+    """Linux 的配置根：XDG_CONFIG_HOME，缺省 ``~/.config``。"""
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    return Path(raw) if raw else Path.home() / ".config"
+
+
 @dataclass(frozen=True, slots=True)
 class WorkBuddyPaths:
     state_dir: Path
@@ -270,6 +277,12 @@ def _registry_app_candidates() -> tuple[Path, ...]:
 
 
 def default_paths() -> WorkBuddyPaths:
+    if os.name == "nt":
+        return _windows_paths()
+    return _linux_paths()
+
+
+def _windows_paths() -> WorkBuddyPaths:
     state_dir = _local_appdata() / "CodeBuddyExtension" / "Data" / "Public" / "auth"
     # 装在非默认位置（比如自选盘符）的用户用这个变量指定，比猜路径可靠。
     override = os.environ.get("CHAIERWW_WORKBUDDY_APP")
@@ -284,6 +297,36 @@ def default_paths() -> WorkBuddyPaths:
                 / "WorkBuddy"
                 / "WorkBuddy.exe"
             ),
+        )
+        if c is not None
+    )
+    return WorkBuddyPaths(
+        state_dir=state_dir,
+        state_file=state_dir / STATE_FILENAME,
+        app_candidates=candidates,
+    )
+
+
+def _linux_paths() -> WorkBuddyPaths:
+    """Linux：Electron 的 appData 落在 ``~/.config``，与 Windows 的 LocalAppData 对齐。
+
+    客户端若没有 Linux 版，这里会表现为「未安装」——检测只看路径存不存在，
+    不会因为猜不到目录就报错；路径确实不同时用 ``CHAIERWW_WORKBUDDY_STATE_DIR`` 覆盖。
+    """
+    override_dir = os.environ.get("CHAIERWW_WORKBUDDY_STATE_DIR")
+    state_dir = (
+        Path(override_dir)
+        if override_dir
+        else _config_home() / "CodeBuddyExtension" / "Data" / "Public" / "auth"
+    )
+    override_app = os.environ.get("CHAIERWW_WORKBUDDY_APP")
+    candidates = tuple(
+        c
+        for c in (
+            Path(override_app) if override_app else None,
+            Path("/usr/bin/workbuddy"),
+            Path("/opt/WorkBuddy/WorkBuddy"),
+            Path("/opt/workbuddy/workbuddy"),
         )
         if c is not None
     )

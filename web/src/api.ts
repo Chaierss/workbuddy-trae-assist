@@ -783,7 +783,7 @@ export interface Preferences {
   autoGlobalParts: string[];
   /** 首启引导版本：0 = 还没判定过，1 = 已初始化（老用户会自动置为完成）。 */
   onboardingVersion: number;
-  /** 已完成的引导步骤 id（后端白名单：install / signin / first_switch / retention）。 */
+  /** 已完成的引导步骤 id（后端白名单：install / signin / first_switch / retention / daily_run）。 */
   onboardingCompleted: string[];
   /** 用户跳过/收起引导的时间；非空 = 不再自动展示。 */
   onboardingDismissedAt: string | null;

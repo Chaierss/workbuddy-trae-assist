@@ -1,12 +1,16 @@
-# Windows 桌面端构建。
+# 桌面端构建。
 #
 # 为什么用 CI 而不是本机打：PyInstaller 不能交叉编译，产物必须和目标平台一致；
 # 放在 runner 上能保证「干净环境 + 可复现」，也免去本机装一堆构建依赖。
 #
-# 为什么只有 Windows：凭据加密（`infra/secrets.py` 的 DPAPI）与客户端登录态定位
-# （`APPDATA` / `LOCALAPPDATA`）目前只有 Windows 实现。macOS / Linux 的包能打出来，
-# 但装完启动会失败——与其发一个「下了用不了」的产物，不如先不发。补完这两层再往
-# 矩阵里加 `macos-latest` / `ubuntu-latest`，其余步骤不用改。
+# 为什么矩阵是 Windows + Linux：凭据加密（`infra/secrets.py`）Windows 走 DPAPI、
+# Linux 走 AES-256-GCM（machine-id + uid 派生）；客户端登录态定位两个适配器都按
+# 平台分支（Windows 用 APPDATA/LOCALAPPDATA，Linux 用 XDG_CONFIG_HOME）。
+# macOS 仍未支持（没有 Keychain 实现），不打「下了用不了」的包。
+#
+# Linux 产物的现实边界：runner 是 Ubuntu，产出的 AppImage/deb 依赖 glibc 2.31+，
+# CentOS 7（glibc 2.17）跑不起来，CentOS 8+ 需先补 FUSE 才能跑 AppImage。
+# 详见 desktop/README.md 的「平台」一节。
 #
 # 触发：
 #   - 推 v* 标签：构建，然后用 gh release 单点上传（发版）
@@ -46,6 +50,9 @@ jobs:
           - os: windows-latest
             label: Windows x64
             builder_args: --win nsis
+          - os: ubuntu-latest
+            label: Linux x64
+            builder_args: --linux AppImage deb
 
     steps:
       - uses: actions/checkout@v4
@@ -147,7 +154,21 @@ jobs:
 
           gh release create "$tag" --title "${tag#v}" --notes-file "$notes_file"
 
-          files=(release/*.exe release/*.blockmap release/latest*.yml)
+          # 每个 job 只产出自己平台的包；未命中的 glob 在 bash 里会原样展开成字面量，
+          # 所以先过滤成真实存在的文件（别的平台的格式没产出不算失败）。
+          files=()
+          for pattern in \
+            release/*.exe release/*.AppImage release/*.deb \
+            release/*.blockmap release/latest*.yml; do
+            for f in $pattern; do
+              if [ -f "$f" ]; then files+=("$f"); fi
+            done
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "✗ release/ 下没有可上传的产物"
+            exit 1
+          fi
+
           for f in "${files[@]}"; do
             name="$(basename "$f")"
             for attempt in 1 2 3; do
@@ -183,6 +204,8 @@ jobs:
           if-no-files-found: warn
           path: |
             desktop/release/*.exe
+            desktop/release/*.AppImage
+            desktop/release/*.deb
             desktop/release/*.blockmap
             desktop/release/latest*.yml
 

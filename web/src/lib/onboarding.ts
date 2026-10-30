@@ -12,12 +12,19 @@ import { track } from "./metrics";
  * - **不打扰老用户**：首次读取时如果号池已有账号，直接视为全部完成并持久化，
  *   清单不会突然出现在用了半年的人眼前。
  * - 步骤状态**尽量从既有信号推导**（客户端检测、号池、`firstSwitchAt`），
- *   只有 `retention`（开自动签到 / 签发网关 Key）需要用户点一下才算完成。
+ *   只有 `retention`（开自动签到 / 签发网关 Key）与 `daily_run`（试过一次一键执行）
+ *   需要用户点一下才算完成。
  */
 
-export const ONBOARDING_VERSION = 1;
+export const ONBOARDING_VERSION = 2;
 
-export const ONBOARDING_STEPS = ["install", "signin", "first_switch", "retention"] as const;
+export const ONBOARDING_STEPS = [
+  "install",
+  "signin",
+  "first_switch",
+  "retention",
+  "daily_run",
+] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
 export interface OnboardingItem {
@@ -100,6 +107,18 @@ export const items = computed<OnboardingItem[]>(() => {
       done: saved.has("retention"),
       // 前 3 步没走完时，这一步只是预告：不显示按钮，避免把用户带去还看不懂的页面。
       locked: !lastThreeDone,
+    },
+    {
+      step: "daily_run",
+      title: t("onboarding.dailyRun.title"),
+      hint: t("onboarding.dailyRun.hint"),
+      cta: saved.has("daily_run")
+        ? t("onboarding.dailyRun.done")
+        : t("onboarding.dailyRun.cta"),
+      to: "/activity",
+      done: saved.has("daily_run"),
+      // 上一项（auto 签到 / 网关）完成后才解锁：先能自己跑，再谈每天一键。
+      locked: !(lastThreeDone && saved.has("retention")),
     },
   ];
 });

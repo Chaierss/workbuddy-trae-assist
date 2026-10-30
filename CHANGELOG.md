@@ -6,6 +6,46 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.12.0] - 2026-10-30
+
+Trae 换 token 恢复、活动补到「能做的都一键做」、首启清单多一步「每天一键跑活动」，
+桌面端正式支持 Linux。macOS 仍未适配。
+
+### 修复
+
+- **Trae 三个交换变体全部失败**：官方把 token 收进了 `Result` 容器，字段大小写也不再固定。
+  `ExchangeToken/DeviceInfo`、`/AuthCode`、`/Code` 现在按「容器优先 + 大小写不敏感」取值，
+  解析不到时把上游真错误原样透出（例如 `code=10101/040004 无效参数`），
+  不再笼统地报「响应中未找到 Token 字段」。
+
+### 新增
+
+- **活跃地图（每日签到链的前提）**：活动页新增「活跃地图」。今日热力格未点亮时一键补发一次
+  对话事件，随后回读热力图确认点亮；热力图读不到就如实标「不可查」，不猜已完成。
+  官方目录版本推进到 `2026.10.3`。已结束的活动仍按 `endsAt` 自动下线，执行侧同样拦住
+  ——即使指定该活动的 key 也不会运行。
+- **首启清单第 5 步**：装客户端 → 扫码加号 → 第一次换号 → 留下 → **每天一键跑活动**。
+  该步指向活动页，说明「一键执行会跑完签到、连签礼包、活跃地图」以及定时任务的位置；
+  引导版本号升到 2，装过号的老用户视为已完成，不会被打扰。
+- **Linux x64 桌面端**：构建矩阵加入 `ubuntu-latest`，发布 `chaierww-x64.AppImage` 与
+  `chaierww-x64.deb`。凭据加密改用 AES-256-GCM（密钥由 `/etc/machine-id` + uid 派生，
+  不落盘），两个适配器按 `XDG_CONFIG_HOME` 定位登录态（可用 `CHAIERWW_TRAE_STATE_DIR` /
+  `CHAIERWW_WORKBUDDY_STATE_DIR` 覆盖），客户端进程名不再依赖 `.exe`。
+
+### 改进
+
+- **行为指纹改上报真实平台**：`os` / `arch` / `osVersion` / 核心数 / 内存按运行平台取值，
+  不再一律写 Windows；Linux 上继续伪装 `win32` 反而会被上游当成异常样本。
+
+### 边界
+
+- **Linux 的 AES 不防本机 root**：它只保证「密文被拷到别的机器 / 别的用户下解不开」。
+  本机 root 能读机器标识、库文件与进程内存，CentOS 7 也没有可用的系统密钥服务；
+  `/etc/machine-id` 被重置后旧密文失效，需要重新导入账号。详见 `SECURITY.md`。
+- **CentOS 7 用不了桌面包**：产物链接 glibc 2.31+，glibc 2.17 的系统会报
+  `GLIBC_2.28 not found`。CentOS 7 请用源码跑后端（`python -m chaierww.main`）后浏览器访问；
+  CentOS 8+ 用 AppImage，缺 FUSE 时加 `APPIMAGE_EXTRACT_AND_RUN=1`。详见 `desktop/README.md`。
+
 ## [0.11.1] - 2026-10-28
 
 内部工具链对齐：仓库里的 keel 底座升到技能 2.1.0，体检能自己提醒「该迁移了」。

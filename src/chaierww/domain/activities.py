@@ -78,9 +78,11 @@ from chaierww.domain.scopes import UnknownScope, get_scope
 from chaierww.domain.wb_extras import (
     ExtraActivity,
     ExtraStep,
+    detect_active_map,
     detect_black_cat,
     detect_school,
     detect_travel,
+    run_active_map,
     run_black_cat,
     run_school,
     run_streak_rewards,
@@ -256,6 +258,33 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
         "sortOrder": 40,
     },
     {
+        "key": "workbuddy.active_map",
+        "platform": "workbuddy",
+        "group": GROUP_DAILY,
+        "title": "活跃地图",
+        "subtitle": "每天点亮一格，保住连签",
+        "description": (
+            "今日热力格未点亮时补发一次对话事件，并回读热力图确认；"
+            "热力图读不到时如实标「不可查」，不猜已完成。"
+        ),
+        "rewardHint": "点亮活跃为连签天数的前提",
+        "automatable": True,
+        "theme": "teal",
+        "icon": "sun",
+        "tags": ("每日", "自动"),
+        "rules": (
+            "每日有一次对话活跃即可点亮当天格子",
+            "点亮后才计入连签天数",
+            "热力图读取失败时本工具不做判断",
+        ),
+        "rewards": ("活跃地图点亮", "连签天数"),
+        "periodNote": "长期开放",
+        "officialUrl": f"{WORKBUDDY_WEB_ORIGIN}/",
+        "officialLabel": "WorkBuddy 官网",
+        "featured": False,
+        "sortOrder": 45,
+    },
+    {
         "key": "workbuddy.black_cat",
         "platform": "workbuddy",
         "group": GROUP_DAILY,
@@ -338,8 +367,8 @@ ACTIVITY_CATALOG: tuple[dict[str, Any], ...] = (
 )
 
 #: 官方活动目录版本。每次增删活动或修改规则/入口时同步更新，页面会展示。
-OFFICIAL_CATALOG_VERSION = "2026.10.2"
-OFFICIAL_CATALOG_UPDATED_AT = "2026-10-26"
+OFFICIAL_CATALOG_VERSION = "2026.10.3"
+OFFICIAL_CATALOG_UPDATED_AT = "2026-10-30"
 OFFICIAL_DISCLAIMER = (
     "活动信息整理自官方客户端/官网公开内容。本工具与平台无隶属、合作或授权关系；"
     "活动规则、奖励与时间以官方页面为准。"
@@ -1196,6 +1225,15 @@ class ActivitiesService:
         # 4) 派猫猫旅行 / 开学季：各自内部把网络异常翻成「不可用」，不拖垮整张卡。
         items.append(
             _extra_item(
+                key="workbuddy.active_map",
+                title="活跃地图",
+                subtitle="今日点亮一格，保住连签",
+                group=GROUP_DAILY,
+                extra=detect_active_map(extra_call, origin, headers),
+            )
+        )
+        items.append(
+            _extra_item(
                 key="workbuddy.travel",
                 title="派猫猫旅行",
                 subtitle="派出猫猫，到点领奖励",
@@ -1484,6 +1522,7 @@ class ActivitiesService:
                     key,
                     "workbuddy.growth_tasks",
                     "workbuddy.streak",
+                    "workbuddy.active_map",
                     "workbuddy.travel",
                     "workbuddy.black_cat",
                     "workbuddy.school",
@@ -1565,6 +1604,14 @@ class ActivitiesService:
                     logger.exception("连签奖励链异常：%s", exc)
                     extras.append(
                         ExtraStep("workbuddy.streak", "连签里程", RESULT_FAILED, str(exc))
+                    )
+            if want("workbuddy.active_map"):
+                try:
+                    extras.append(run_active_map(extra_call, origin, headers, uid))
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("活跃地图异常：%s", exc)
+                    extras.append(
+                        ExtraStep("workbuddy.active_map", "活跃地图", RESULT_FAILED, str(exc))
                     )
             if want("workbuddy.travel"):
                 try:

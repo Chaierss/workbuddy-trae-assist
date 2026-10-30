@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from chaierww.adapters import trae as trae_module
+from chaierww.adapters import workbuddy as workbuddy_module
 from chaierww.adapters.base import AdapterError
 from chaierww.adapters.trae import TraeAdapter, TraePaths
 from chaierww.adapters.workbuddy import (
@@ -138,3 +140,38 @@ def test_dry_run_with_unadapted_slot_is_rejected(client, tmp_path):
     )
     assert response.status_code == 400
     assert "尚未适配" in response.json()["detail"]
+
+
+# ---------- Linux 路径解析（0.12.0） ----------
+# 这两条只验纯路径逻辑，在 Windows 上也能跑：`_linux_paths()` 不读注册表、不碰 DPAPI。
+
+
+def test_linux_trae_paths_prefer_existing_product_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("CHAIERWW_TRAE_STATE_DIR", raising=False)
+    (tmp_path / "Trae" / "User" / "globalStorage").mkdir(parents=True)
+
+    paths = trae_module._linux_paths()
+
+    assert paths.state_dir == tmp_path / "Trae" / "User" / "globalStorage"
+    assert paths.storage_file.name == "storage.json"
+
+
+def test_linux_trae_state_dir_override_wins(monkeypatch, tmp_path):
+    monkeypatch.setenv("CHAIERWW_TRAE_STATE_DIR", str(tmp_path / "custom"))
+
+    paths = trae_module._linux_paths()
+
+    assert paths.state_dir == tmp_path / "custom"
+
+
+def test_linux_workbuddy_paths_follow_xdg(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("CHAIERWW_WORKBUDDY_STATE_DIR", raising=False)
+
+    paths = workbuddy_module._linux_paths()
+
+    assert paths.state_dir == (
+        tmp_path / "CodeBuddyExtension" / "Data" / "Public" / "auth"
+    )
+    assert paths.state_file.name == STATE_FILENAME

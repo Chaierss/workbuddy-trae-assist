@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%2010%20%2F%2011-2ea043" />
+  <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%2010%20%2F%2011%20%C2%B7%20Linux-2ea043" />
   <img alt="许可" src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF-PolyForm%20Noncommercial-4c8bf5" />
   <img alt="无云端" src="https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E5%8F%AA%E5%9C%A8%E6%9C%AC%E6%9C%BA-d4a66b" />
   <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="版本" src="https://img.shields.io/github/v/release/Chaierss/workbuddy-trae-assist?color=8a63d2&label=%E7%89%88%E6%9C%AC" /></a>
@@ -28,9 +28,15 @@
 
 ## 安装
 
-到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载
-`chaierww-Setup-<版本号>.exe`，双击安装。默认只为当前用户装、免管理员，装进当前用户目录；
-向导会先展示许可要点与免责声明。打开后扫码加号，之后点一下就能切过去。
+到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新版：
+
+- **Windows**：`chaierww-Setup-<版本号>.exe`，双击安装。默认只为当前用户装、免管理员，
+  装进当前用户目录；向导会先展示许可要点与免责声明。
+- **Linux x64**：`chaierww-x64.AppImage`（`chmod +x` 后运行，缺 FUSE 时加
+  `APPIMAGE_EXTRACT_AND_RUN=1`）或 `chaierww-x64.deb`（`sudo apt install ./…deb`）。
+  **CentOS 7 的 glibc 2.17 跑不起来**，见下方[平台](#平台)说明。
+
+打开后扫码加号，之后点一下就能切过去。
 
 安装包没有代码签名，Windows 首次运行会拦一次：点「更多信息 → 仍要运行」。
 这是没有付费证书的成本，不是包有问题。
@@ -40,16 +46,27 @@
 不想让它自动检查，在「设置 → 常规」里关掉开关；手动检查也在那里。某个版本不想装，
 可以在提示里点「跳过此版本」。
 
-**平台：只有 Windows 10 / 11 (x64)。**
+### 平台
 
-macOS / Linux 没有适配，也没有发布安装包。凭据加密用的是 Windows DPAPI，
-客户端登录态也依赖 `APPDATA` / `LOCALAPPDATA` 定位，这两层目前只有 Windows 实现。
-在 mac/Linux 上打包能成功，但后台进程一起来就报「后端服务已意外退出」——
-发一个下了用不了的东西没有意义，所以构建矩阵里只保留了 Windows。
+| 平台 | 产物 | 说明 |
+| :-- | :-- | :-- |
+| Windows 10 / 11 (x64) | `chaierww-Setup-<版本号>.exe` | 完整支持 |
+| Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+） | AppImage、deb | 完整支持，CentOS 7 除外 |
+| macOS | — | 未适配，不发布 |
 
-要补的话缺两块：`infra/secrets.py` 的跨平台加密（macOS 可用 Keychain，
-Linux 可用 Secret Service 或 libsodium），以及 `adapters/` 里的目录定位。
-Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢迎 PR，切入点在[开发](#开发)一节。
+Linux 与 Windows 的实现差异只有三处：凭据加密（Windows DPAPI / Linux AES-256-GCM，
+密钥由 `/etc/machine-id` + uid 派生、不落盘）、登录态目录（`APPDATA` ↔ `XDG_CONFIG_HOME`）、
+客户端进程名（去 `.exe`）。Linux 的 AES **挡得住「密文被拷到别的机器」但不防本机 root**，
+理由见 [SECURITY.md](SECURITY.md)。
+
+**CentOS 7 用户**：产物的 Electron 与 Python 二进制链接 glibc 2.31+，在 glibc 2.17 的系统上
+直接报 `GLIBC_2.28 not found`。可选路径是 `pip install -e .` 后
+`python -m chaierww.main` 跑后端、浏览器打开 `http://127.0.0.1:57910`；
+或者在那台机器上自己打包（PyInstaller 不能交叉编译）。细节见
+[desktop/README.md](desktop/README.md#centos-用户先读这一段)。
+
+macOS 仍未适配：后端没有 Keychain 实现，`default_box()` 会抛 `PlatformNotSupported`。
+Electron 外壳、托盘、构建脚本都是跨平台的，欢迎 PR，切入点在[开发](#开发)一节。
 
 ## 它解决什么
 
@@ -129,14 +146,15 @@ Electron 外壳、托盘、构建脚本都是跨平台的，不用重写。欢�
   正文按内容哈希只存一份，源端续写只追加、删除会跟随，冲突保留本地并可逐条处理。
   Trae 等没有本地会话库的平台会明确标注「不支持」，不跨设备
 - **出问题能自救**：设置 → 环境给出健康度面板与「导出诊断包」，只含版本、计数与脱敏日志
-- **新装不迷路**：首启给一份四步清单（装客户端 → 扫码加号 → 第一次换号 → 留下），
-  可跳过、可折叠；装过号的老用户自动视为已完成，不会被打扰
+- **新装不迷路**：首启给一份五步清单（装客户端 → 扫码加号 → 第一次换号 → 留下 →
+  每天一键跑活动），可跳过、可折叠；装过号的老用户自动视为已完成，不会被打扰
 - **本地体验数据**：首次成功换号率、TTFV 这类匿名计数只写本机，可在「设置 → 环境 → 体验数据」关闭、导出与清空
   （[说明](docs/policies/TELEMETRY.md)），不上云、可一键删除
 
 ## 数据与安全
 
-- 凭据用 Windows DPAPI 按当前用户加密，密钥不落文件；日志里一律脱敏
+- 凭据加密后落盘，密钥不落文件：Windows 用 DPAPI（绑当前用户），Linux 用 AES-256-GCM
+  （按 machine-id + uid 派生，不防本机 root）；日志里一律脱敏
 - 本机接口默认带同源守卫：浏览器同源 Cookie 放行，外部脚本用 `~/.chaierww/api-token`；
   非回环 `Host` / `Origin` 一律拒绝（[细节](docs/README.md)）
 - 配置与数据库写入走原子写：临时文件 + fsync + 替换，损坏的 JSON 隔离留证，不静默覆盖
@@ -192,7 +210,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 python -m chaierww.main               # http://127.0.0.1:57910/
-pytest                                # 689 个用例
+pytest                                # 711 个用例
 ruff check src tests
 ```
 
@@ -208,12 +226,12 @@ src/chaierww/
 web/           Vue 3 + TypeScript + Tailwind 前端
 desktop/       Electron 壳、托盘、自动更新、PyInstaller 打包
 scripts/       构建、截图脱敏、诊断脚本
-tests/         pytest 用例（689 个）
+tests/         pytest 用例（711 个）
 ```
 
 想接一个新客户端，看 `adapters/base.py` 的 slot 设计——新增一个 adapter 就够，
-不用改切换引擎。想补 macOS / Linux，从 `infra/secrets.py` 和两个 adapter 的
-`default_paths()` 入手，补完在 `build-desktop.yml` 的矩阵里加回对应 runner 即可。
+不用改切换引擎。Linux 已在 CI 矩阵里（`ubuntu-latest`），macOS 还没接：
+从 `infra/secrets.py` 补一个 Keychain 实现，再在 `build-desktop.yml` 加 `macos-latest`。
 
 ### 文档
 
