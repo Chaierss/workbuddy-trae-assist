@@ -64,6 +64,8 @@ Linux 与 Windows 的实现差异只有三处：凭据加密（Windows DPAPI / L
 `python -m chaierww.main` 跑后端、浏览器打开 `http://127.0.0.1:57910`；
 或者在那台机器上自己打包（PyInstaller 不能交叉编译）。细节见
 [desktop/README.md](desktop/README.md#centos-用户先读这一段)。
+完整步骤（Python 3.11 怎么装、前端产物怎么来、远程怎么访问）见
+[docs/LINUX.md](docs/LINUX.md)。
 
 macOS 仍未适配：后端没有 Keychain 实现，`default_box()` 会抛 `PlatformNotSupported`。
 Electron 外壳、托盘、构建脚本都是跨平台的，欢迎 PR，切入点在[开发](#开发)一节。
@@ -239,6 +241,7 @@ tests/         pytest 用例（711 个）
 | :-- | :-- |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | 3 分钟上手：安装、加号、预演、切换、常见失败 |
 | [docs/QUICKSTART.en.md](docs/QUICKSTART.en.md) | English quick start |
+| [docs/LINUX.md](docs/LINUX.md) | Linux 部署：安装包、源码跑后端、CentOS 7、SSH 隧道访问 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发约定、提交规范、测试方式 |
 | [SECURITY.md](SECURITY.md) | 安全模型、漏洞报告渠道 |
 | [CHANGELOG.md](CHANGELOG.md) | 每个版本改了什么 |

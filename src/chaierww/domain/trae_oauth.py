@@ -196,9 +196,12 @@ def _find_token_value(body: Any, keys: tuple[str, ...]) -> str | None:
                 if isinstance(raw, str) and raw.strip():
                     return raw.strip()
             for actual, raw in value.items():
-                if any(str(actual).lower() == key.lower() for key in keys):
-                    if isinstance(raw, str) and raw.strip():
-                        return raw.strip()
+                if (
+                    any(str(actual).lower() == key.lower() for key in keys)
+                    and isinstance(raw, str)
+                    and raw.strip()
+                ):
+                    return raw.strip()
             for child in value.values():
                 found = search(child)
                 if found:

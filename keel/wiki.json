@@ -2,6 +2,7 @@
   { "name": "README.md", "title": "文档入口" },
   { "name": "QUICKSTART.md", "title": "快速开始" },
   { "name": "QUICKSTART.en.md", "title": "Quick start" },
+  { "name": "LINUX.md", "title": "Linux 部署" },
   { "name": "FEATURES.md", "title": "功能清单" },
   { "name": "PLAN.md", "title": "迭代计划" },
   { "name": "PLAN-V2.md", "title": "计划 V2" },

@@ -114,6 +114,9 @@ CI 跑在 `ubuntu-latest`，产物的 Electron 与 Python 二进制链接的是 
 - 想在老系统上跑，唯一办法是**在那台机器上自己打包**（PyInstaller 不能交叉编译），
   仓库不提供 glibc 2.17 的预编译产物。
 
+CentOS 7 的完整步骤（yum 源失效、Python 3.11 来源、前端产物怎么拷、远程访问）见
+[docs/LINUX.md](../docs/LINUX.md)。
+
 ### macOS
 
 Electron 外壳能打出来，但后端没有 Keychain 实现，`default_box()` 会抛

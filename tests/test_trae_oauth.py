@@ -200,7 +200,9 @@ def test_exchange_accepts_new_result_envelope(monkeypatch):
 
     monkeypatch.setattr(oauth, "_client", FakeClient())
     payload = {"ClientID": CLIENT_ID, "AuthCode": "ac-1", "CodeVerifier": "v-1"}
-    jwt, refresh = oauth._try_exchange("ExchangeToken/DeviceInfo", "http://x/exchange", payload, "dev-1", True)
+    jwt, refresh = oauth._try_exchange(
+        "ExchangeToken/DeviceInfo", "http://x/exchange", payload, "dev-1", True
+    )
     assert (jwt, refresh) == ("jwt-new", "rt-new")
     assert len(calls) == 1
 

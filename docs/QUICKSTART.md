@@ -12,7 +12,8 @@
 - Windows 10 1809 及以上，或 Windows 11，64 位；
   或 Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+）。
   **CentOS 7 的 glibc 2.17 跑不起桌面包**，只能用源码跑后端，见
-  [桌面端说明](../desktop/README.md#centos-用户先读这一段)。
+  [桌面端说明](../desktop/README.md#centos-用户先读这一段)；
+  完整步骤在 [Linux 部署](LINUX.md)。
 - 至少装过一个客户端：WorkBuddy 国内版或 Trae 国内版，且能正常登录。
 - 切号会重启目标客户端：**切换前请自己退出它**。工具检测到客户端仍在运行时会拒绝写入，
   这是保护，不是故障。

@@ -27,6 +27,7 @@ ALLOWED = {
     "docs/policies/DISCLAIMER.md",
     "docs/QUICKSTART.md",
     "docs/QUICKSTART.en.md",
+    "docs/LINUX.md",
     "docs/policies/TELEMETRY.md",
 }
 

@@ -43,6 +43,7 @@ docs/_shot-*.png
 !/docs/policies/DISCLAIMER.md
 !/docs/QUICKSTART.md
 !/docs/QUICKSTART.en.md
+!/docs/LINUX.md
 !/docs/policies/TELEMETRY.md
 
 # 本地工具与日志
