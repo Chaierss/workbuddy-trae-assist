@@ -6,6 +6,18 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.13.2] - 2026-10-31
+
+功能与 0.13.1 相同，只修发版流水线：0.13.1 的 Release 里仍然只有 Windows 包。
+
+### 修复
+
+- **Linux 资产不再被并发发布冲掉**：Windows 与 Linux 两个打包 job 各自会把包传成
+  artifact；Release 改由单独一个 job 等两边都完成后一次性创建并上传全部资产。
+  之前两个 job 会并发地「删除并重建同一个 Release」，后跑的那个连先跑的上传资产一起
+  删掉，结果 Release 里只剩一个平台的包。新流程还会强制校验 `latest.yml` 与
+  `latest-linux.yml` 都在，缺一个就让流水线红掉。
+
 ## [0.13.1] - 2026-10-31
 
 补上 0.13.0 的两个遗漏：Linux 桌面包一直没产出，以及更新弹窗在下载中 / 就绪时还留着多余按钮。
