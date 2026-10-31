@@ -6,6 +6,24 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [0.12.1] - 2026-10-31
+
+稳定性补丁：修掉网关测试的间歇失败，补上 Linux 的后端 CI 覆盖，并把上一轮写好的
+Linux 部署文档与安装脚本正式入库。
+
+### 修复
+
+- **网关测试偶发失败**：`tests/test_gateway.py` 的夹具没有停掉 lifespan 里启动的四个后台
+  线程，它们拿测试写入的假凭据去请求真实上游，401 会把账号标成「需重新登录」，账号随即
+  掉出网关候选池。夹具现在在 `create_app` 之前把四个 `start` 换成 no-op，连跑三次稳定通过。
+
+### 改进
+
+- **CI 增加 Linux 后端测试**：`backend-linux`（ubuntu-latest）与 Windows job 同一套失败注解
+  口径。Linux 凭据加密（AES-256-GCM，machine-id + uid 派生）与 XDG 路径解析终于有自动化覆盖。
+- **Linux 部署文档与一键安装脚本**：`docs/LINUX.md` 与 `scripts/install-linux.sh` 入库，
+  覆盖安装包与源码两条路径、CentOS 7 怎么补 Python 3.11、以及服务器场景的 SSH 隧道访问。
+
 ## [0.12.0] - 2026-10-30
 
 Trae 换 token 恢复、活动补到「能做的都一键做」、首启清单多一步「每天一键跑活动」，

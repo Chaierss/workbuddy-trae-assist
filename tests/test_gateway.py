@@ -19,6 +19,7 @@ from starlette.requests import Request
 
 from chaierww.api.gateway import _prompt_preview, _session_hint, build_gateway_app
 from chaierww.config import Settings
+from chaierww.domain.auto_backup import AutoBackupRunner
 from chaierww.domain.credits import CreditInfo
 from chaierww.domain.gateway import (
     LIMIT_MAX,
@@ -50,6 +51,8 @@ from chaierww.domain.gateway_relay import (
     unsupported_reason,
     upstream_body,
 )
+from chaierww.domain.rotation import RotationRunner
+from chaierww.domain.scheduler import Scheduler
 from chaierww.main import create_app
 
 SCOPE = "workbuddy-cn"
@@ -125,6 +128,19 @@ def recorder(monkeypatch) -> _Recorder:
     rec = _Recorder()
     monkeypatch.setattr(httpx, "AsyncClient", rec.client_factory())
     return rec
+
+
+@pytest.fixture(autouse=True)
+def _no_background_threads(monkeypatch):
+    """别让 lifespan 里的四个后台线程真的跑起来。
+
+    它们会拿本测试写入的假凭据去打真实上游：拿到 401 就把账号标成「需重新登录」，
+    该账号随即掉出网关候选池 —— 表现为同一份用例偶发失败（断言「选中了 A」却挑到了 B）。
+    打类上的 `start` 才有效：实例在 `create_app` 里已经构造好，此时改实例属性也拦不住
+    lifespan 调用。
+    """
+    for cls in (Scheduler, RotationRunner, CatalogRefresher, AutoBackupRunner):
+        monkeypatch.setattr(cls, "start", lambda self: None)
 
 
 @pytest.fixture

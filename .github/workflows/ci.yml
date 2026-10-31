@@ -39,6 +39,30 @@ jobs:
           }
       - run: ruff check src tests scripts
 
+  # Linux 单独跑一遍后端测试：凭据加密（LinuxAesBox 的 machine-id + uid 派生）、XDG 路径
+  # 解析都是平台分支，Windows runner 走不到，只跑 Windows 等于这些能力没有 CI 覆盖。
+  backend-linux:
+    name: Backend tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: python scripts/check_activity_catalog.py
+      # 与 Windows job 同一套失败注解口径：Actions 日志要登录才能看，注解走公开 API 能读。
+      - name: pytest
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q 2>&1 | tee pytest.log || {
+            grep -E 'short test summary|^(FAILED|ERROR)|Timeout|^E\s{2,}|assert' pytest.log \
+              | tail -n 10 | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          }
+      - run: ruff check src tests scripts
+
   web:
     name: Web build & unit tests
     runs-on: ubuntu-latest
@@ -95,8 +119,9 @@ jobs:
 
   e2e:
     name: Playwright smoke
-    # 后端凭据加密只有 Windows 实现（DPAPI），非 Windows 会拒绝启动；
-    # 冒烟必须跑在目标平台上，不能用不安全开发占位绕过。
+    # 凭据加密两个平台都已实现（Windows DPAPI / Linux AES-256-GCM），但这套冒烟跑的是
+    # 桌面端主体的 Windows 安装包路径；Linux 桌面壳由 build-desktop 的 ubuntu job 单独构建，
+    # runner 没有图形环境，不适合在这里跑 GUI 冒烟。
     runs-on: windows-latest
     defaults:
       run:
