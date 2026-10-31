@@ -65,7 +65,9 @@ Linux 与 Windows 的实现差异只有三处：凭据加密（Windows DPAPI / L
 或者在那台机器上自己打包（PyInstaller 不能交叉编译）。细节见
 [desktop/README.md](desktop/README.md#centos-用户先读这一段)。
 完整步骤（Python 3.11 怎么装、前端产物怎么来、远程怎么访问）见
-[docs/LINUX.md](docs/LINUX.md)。
+[docs/LINUX.md](docs/LINUX.md)。服务器上要长期跑（退出 SSH 也不停）：
+`bash scripts/install-linux.sh --systemd`，见
+[常驻运行](docs/LINUX.md#b4-常驻运行systemd---user服务器场景)。
 
 macOS 仍未适配：后端没有 Keychain 实现，`default_box()` 会抛 `PlatformNotSupported`。
 Electron 外壳、托盘、构建脚本都是跨平台的，欢迎 PR，切入点在[开发](#开发)一节。

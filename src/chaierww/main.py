@@ -27,7 +27,7 @@ from chaierww.api.guard import (
 from chaierww.api.logs import build_logs_router
 from chaierww.api.routes import router
 from chaierww.api.swagger import mount_swagger
-from chaierww.config import Settings, load_settings
+from chaierww.config import Settings, default_home, load_settings
 from chaierww.domain.account_purge import AccountPurger
 from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountRepository
@@ -532,7 +532,17 @@ def run() -> None:
     # 这里能自己退出，避免变成孤儿进程占着端口和安装目录里的 exe。
     watch_parent()
 
-    settings = load_settings()
+    try:
+        settings = load_settings()
+    except ValueError as exc:
+        # 端口配置写错也必须留下可读原因：此时 home 还没解析出来，按默认规则取一次。
+        try:
+            home = default_home()
+            home.mkdir(parents=True, exist_ok=True)
+            write_startup_error(home, exc)
+        except OSError:
+            logging.getLogger("chaierww").exception("写入启动错误文件失败")
+        raise
     install_excepthooks(settings.home)
     try:
         app = create_app(settings)

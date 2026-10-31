@@ -13,7 +13,8 @@
   或 Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+）。
   **CentOS 7 的 glibc 2.17 跑不起桌面包**，只能用源码跑后端，见
   [桌面端说明](../desktop/README.md#centos-用户先读这一段)；
-  完整步骤在 [Linux 部署](LINUX.md)。
+  完整步骤在 [Linux 部署](LINUX.md)。服务器上长期运行（退出 SSH 也不停）见
+  [常驻运行](LINUX.md#b4-常驻运行systemd---user服务器场景)。
 - 至少装过一个客户端：WorkBuddy 国内版或 Trae 国内版，且能正常登录。
 - 切号会重启目标客户端：**切换前请自己退出它**。工具检测到客户端仍在运行时会拒绝写入，
   这是保护，不是故障。

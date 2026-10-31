@@ -96,6 +96,8 @@ bash scripts/install-linux.sh
 | `--python /path/to/python3.11` | 指定解释器（系统默认版本不够时用） |
 | `--skip-web` | 明确表示「前端产物我自己处理」，缺 `web/dist` 时不再尝试构建 |
 | `--link` | 在 `~/.local/bin/chaierww` 建软链，之后直接敲 `chaierww` |
+| `--systemd` | 安装后写成 `systemd --user` 服务并 `enable --now`，退出 SSH 也不停 |
+| `--uninstall-systemd` | 只删这个 user 服务（disable + 删 unit），不动仓库与数据 |
 
 启动：
 
@@ -140,6 +142,65 @@ rsync -a web/dist user@目标机器:~/workbuddy-trae-assist/web/
 ```
 
 也可以直接用目标机器上的 `CHAIERWW_WEBUI=/绝对路径/dist` 指过去。
+
+### B4. 常驻运行（systemd --user，服务器场景）
+
+前台跑 `chaierww` 一关 SSH 就停。服务器上应该交给 `systemd --user`：
+
+```bash
+bash scripts/install-linux.sh --systemd
+```
+
+脚本会写 `~/.config/systemd/user/chaierww.service`（`XDG_CONFIG_HOME` 改过就跟着走），
+内容大致是：
+
+```ini
+[Unit]
+Description=chaierww 本地多账号切换工具
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/user/workbuddy-trae-assist
+ExecStart=/home/user/workbuddy-trae-assist/.venv/bin/chaierww
+Environment=CHAIERWW_HOME=/home/user/.chaierww
+Environment=CHAIERWW_PORT=57910
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+然后 `systemctl --user daemon-reload && systemctl --user enable --now chaierww.service`。
+
+**一定要开 linger**，否则退出登录后 user 服务会被一起停掉：
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+日常命令：
+
+```bash
+systemctl --user status chaierww
+journalctl --user -u chaierww -f
+systemctl --user restart chaierww
+```
+
+想换端口就改 unit 里的 `CHAIERWW_PORT` 后 `restart`（或者带 `CHAIERWW_PORT=58000`
+重跑一次 `--systemd`）。
+
+**没有 user bus 的机器**（精简镜像、部分 CentOS 7 的 SSH 会话）里 `systemctl --user`
+会直接报错。脚本检测到这种情况**不会写 unit**，而是打印 `nohup` 的替代方案：
+
+```bash
+mkdir -p ~/.chaierww/logs
+nohup .venv/bin/chaierww >> ~/.chaierww/logs/console.log 2>&1 &
+```
+
+这种方式不会开机自启，日志仍以 `~/.chaierww/logs/` 下的按天文件为准。
+删服务：`bash scripts/install-linux.sh --uninstall-systemd`（不碰仓库与数据）。
 
 ---
 
@@ -195,7 +256,8 @@ sudo sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org
 
 ## 5. 远程访问（服务器场景）
 
-后端**固定监听 `127.0.0.1:57910`**，而且守卫会拒绝非回环的 `Host` / `Origin`
+后端**只监听回环地址**（默认 `127.0.0.1:57910`，端口可用 `CHAIERWW_PORT` 覆盖，
+但 host 不能改），而且守卫会拒绝非回环的 `Host` / `Origin`
 （防 DNS 重绑定与跨站请求）。所以不要想「改监听地址从别的机器直接访问」——那条路
 被安全模型堵死了，硬改也只会 403。
 
@@ -220,6 +282,7 @@ ssh -L 57910:127.0.0.1:57910 user@服务器
 | 变量 | 作用 | 默认 |
 | :-- | :-- | :-- |
 | `CHAIERWW_HOME` | 数据目录 | `~/.chaierww` |
+| `CHAIERWW_PORT` | 监听端口（host 固定回环，不能改） | `57910`；非法值启动即失败并写 startup-error |
 | `CHAIERWW_WEBUI` | 前端产物目录 | 源码运行时自动找仓库 `web/dist` |
 | `CHAIERWW_TRAE_STATE_DIR` | Trae 登录态目录 | `~/.config/Trae CN/User/globalStorage`（找不到试 `~/.config/Trae`） |
 | `CHAIERWW_WORKBUDDY_STATE_DIR` | WorkBuddy 登录态目录 | `~/.config/CodeBuddyExtension/Data/Public/auth` |
@@ -253,7 +316,8 @@ Linux 用 AES-256-GCM，密钥由 `/etc/machine-id` + 当前 uid 派生，**不�
 | 托盘没有图标 | 缺 `libappindicator` | 装 `libappindicator3-1`（Debian 系）/ `libappindicator-gtk3`（RHEL 系） |
 | 页面空白，只有 API | 缺 `web/dist` | 见 [B3](#b3-前端产物怎么来)；启动日志会有明确 warning |
 | 打开就 403「仅允许本机访问」 | 从别的机器直连，或改了监听地址 | 用 [SSH 隧道](#5-远程访问服务器场景) |
-| 端口 57910 被占用 | 已有实例在跑，或别的程序占了 | `ss -lp | grep 57910` 看是谁；杀掉旧实例或换机 |
+| 端口 57910 被占用 | 已有实例在跑，或别的程序占了 | `ss -lp | grep 57910` 看是谁；杀掉旧实例，或用 `CHAIERWW_PORT=58000` 换端口 |
+| 启动报 `CHAIERWW_PORT=... 不是整数` | 端口环境变量写错了 | 改成 1-65535 的整数；该错误会写进 `~/.chaierww/startup-error.txt` |
 | 「凭据无法解密」 | `/etc/machine-id` 变了，或换了用户 | 重新导入账号 |
 | 切换按钮不可用 / 提示客户端在运行 | 客户端没退出 | 退出客户端后重试 |
 | 切换后客户端没起来 | 客户端路径猜错 | 用 `CHAIERWW_TRAE_APP` / `CHAIERWW_WORKBUDDY_APP` 指定 |
@@ -266,7 +330,8 @@ Linux 用 AES-256-GCM，密钥由 `/etc/machine-id` + 当前 uid 派生，**不�
 
 - **AppImage**：删文件即可；数据目录 `rm -rf ~/.chaierww`（可选，删了就没了）。
 - **deb**：`sudo apt remove chaierww`，数据目录同样单独删。
-- **源码**：删仓库目录；`--link` 建过的软链一并删掉。
+- **源码**：先 `bash scripts/install-linux.sh --uninstall-systemd`（装过服务才需要），
+  再删仓库目录；`--link` 建过的软链一并删掉。
 
 ---
 
