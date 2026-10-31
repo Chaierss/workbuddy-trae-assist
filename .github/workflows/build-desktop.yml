@@ -22,10 +22,6 @@ on:
   push:
     tags:
       - "v*"
-    # 临时：让这次 main 推送跑一遍打包，用于读取 Linux 「Build installer」的失败注解。
-    # 诊断完这一条会在下一个 commit 删掉。
-    branches:
-      - main
 
 # electron-builder --publish always 要调 GitHub API 创建 Release 并上传资产。
 # 仓库的默认 GITHUB_TOKEN 是只读的，不显式要 write 就会在最后一步
