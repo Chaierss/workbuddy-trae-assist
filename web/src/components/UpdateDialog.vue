@@ -234,10 +234,11 @@ function viewRelease(): void {
             </button>
           </div>
 
-          <!-- 右侧：主按钮 + 关闭 -->
+          <!-- 右侧：主按钮 + 关闭。
+               下载中只留左侧「后台下载」—— 下载已经在跑，再给「稍后 / 立即下载」只会让人以为还能选。 -->
           <div class="flex items-center gap-2">
             <button
-              v-if="updateDialog !== 'downloaded'"
+              v-if="updateDialog !== 'downloaded' && updateDialog !== 'downloading'"
               type="button"
               class="rounded-control border border-line px-3.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
               :disabled="updateBusy"
@@ -246,6 +247,7 @@ function viewRelease(): void {
               {{ updateDialog === "error" ? t("update.dialog.close") : t("update.dialog.later") }}
             </button>
             <button
+              v-if="updateDialog !== 'downloading'"
               type="button"
               class="rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               :disabled="updateBusy"

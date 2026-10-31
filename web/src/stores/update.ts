@@ -78,9 +78,14 @@ export async function checkForUpdates(): Promise<void> {
   if (!desktop) return;
   const next = await desktop.update.check();
   updateState.value = next;
-  // 手动检查：有新版就弹；已是最新就只更新卡片（不弹「已是最新」这种废话框）。
-  if (next.status === "available") updateDialog.value = "available";
-  else if (next.status === "error") updateDialog.value = "error";
+  // 手动检查现在也是「发现即静默下载」，不再弹「要不要下载」。
+  // 只有被跳过的版本需要问一句（弹窗带「取消跳过」入口，主进程也会推同一个 kind）；
+  // 已是最新就只更新卡片，不弹「已是最新」这种废话框。
+  if (next.status === "available" && isSkipped(next.version)) {
+    updateDialog.value = "available";
+  } else if (next.status === "error") {
+    updateDialog.value = "error";
+  }
 }
 
 export async function downloadUpdate(): Promise<void> {
