@@ -12,7 +12,7 @@
  *  - 托盘图标（Windows 多尺寸 ico / macOS 模板图 / Linux png）
  *  - macOS 关窗不退出、Dock 点击唤起
  */
-const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, nativeImage, nativeTheme, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, nativeImage, nativeTheme, session, Notification } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
@@ -316,6 +316,10 @@ function createWindow() {
     }
   });
 
+  // 下载完成时窗口可能在托盘里，这时只记了 pendingPrompt（见 notifyDownloaded）。
+  // 用户自己点开窗口也要能立刻看到弹窗，否则「已下载」只能靠 tray tooltip 猜。
+  mainWindow.on('show', flushPendingPrompt);
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -371,7 +375,8 @@ function createTray() {
       // 有待处理更新且窗口藏着时，左键的意图基本就是「看看怎么了」。
       if (hasPendingUpdate() && !mainWindow.isVisible()) {
         showWindow();
-        sendPrompt(updateState.status);
+        // 「下载完成」的提示由窗口 show 事件里的 flushPendingPrompt 补发，别重复发。
+        if (!pendingPrompt) sendPrompt(updateState.status);
         return;
       }
       if (mainWindow.isVisible()) mainWindow.hide();
@@ -424,7 +429,8 @@ function refreshTrayMenu() {
       label,
       click: () => {
         showWindow();
-        sendPrompt(updateState.status);
+        // 同上：下载完成的提示走 flushPendingPrompt，避免弹两次。
+        if (!pendingPrompt) sendPrompt(updateState.status);
       },
     });
   }
@@ -605,6 +611,37 @@ let autoCheckTimer = null;
 /** 下载是否在进行中，防止弹窗和设置页同时点出两次 downloadUpdate。 */
 let downloadInFlight = false;
 
+/**
+ * 网络类下载失败的重试（只重试一次）。
+ *
+ * 启动时网还没起来是最常见的失败：这时直接报错，用户一天都看不到更新。
+ * 重试一次能接住这种抖动，连续两次失败才算真失败，摆到用户面前。
+ */
+const DOWNLOAD_RETRY_DELAY_MS = 60_000;
+let downloadRetryTimer = null;
+let networkRetryUsed = false;
+
+function clearDownloadRetry() {
+  if (downloadRetryTimer) {
+    clearTimeout(downloadRetryTimer);
+    downloadRetryTimer = null;
+  }
+}
+
+/** 安排一次 60 秒后的自动重试，期间状态回到 available（保留版本号，startDownload 才接得住）。 */
+function scheduleDownloadRetry() {
+  clearDownloadRetry();
+  setUpdateState({
+    status: 'available',
+    errorKind: 'network',
+    message: '网络中断，60 秒后自动重试下载',
+  });
+  downloadRetryTimer = setTimeout(() => {
+    downloadRetryTimer = null;
+    void startDownload();
+  }, DOWNLOAD_RETRY_DELAY_MS);
+}
+
 function setUpdateState(patch) {
   Object.assign(updateState, patch);
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -681,6 +718,8 @@ function sendPrompt(kind) {
  *
  * 规则：窗口在屏幕上（且没最小化）才发弹窗事件；在托盘里就只更新 tooltip 和菜单，
  * 等用户自己点开。自动检查可能撞上开会、演示、全屏视频，任何时候抢焦点都是负收益。
+ *
+ * 注意：**下载完成**不走这里，见 notifyDownloaded —— 那是必须提示的时刻。
  */
 function maybeNotify(kind) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -688,7 +727,58 @@ function maybeNotify(kind) {
   sendPrompt(kind);
 }
 
-/** 开始下载。弹窗和设置页两个入口共用，靠 downloadInFlight 防重入。 */
+/** 有「下载完成」提示在等着时记在这里；窗口 show 时补发给渲染层。 */
+let pendingPrompt = null;
+
+/** 窗口刚显示出来时补发一次攒着的提示（由 mainWindow 的 show 事件触发）。 */
+function flushPendingPrompt() {
+  if (!pendingPrompt) return;
+  const kind = pendingPrompt;
+  pendingPrompt = null;
+  sendPrompt(kind);
+}
+
+/**
+ * 下载完成 —— 静默更新里唯一一次主动打扰用户。
+ *
+ * 所以这里不沿用 maybeNotify 的「不可见就沉默」：
+ *  - 窗口可见：直接推弹窗（重启并安装 / 稍后）；
+ *  - 最小化 / 在托盘：记 pendingPrompt，并发一条系统通知；点通知唤回窗口，
+ *    窗口 show 事件会把 pendingPrompt 补发出去（通知被系统吞掉时也有兜底）。
+ * 系统通知不可用（专注助手、Linux 没装通知守护）时 try/catch 静默失败，
+ * 状态仍在侧栏圆点和托盘 tooltip 上，不会丢。
+ */
+function notifyDownloaded() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    pendingPrompt = 'downloaded';
+    return;
+  }
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    pendingPrompt = null;
+    sendPrompt('downloaded');
+    return;
+  }
+
+  pendingPrompt = 'downloaded';
+  try {
+    if (!Notification.isSupported()) return;
+    const version = updateState.version || '';
+    const notification = new Notification({
+      title: 'chaierww 更新已就绪',
+      body: version ? `${version} 已下载，点击重启安装` : '新版本已下载，点击重启安装',
+    });
+    notification.on('click', () => {
+      showWindow();
+      // 从最小化恢复不一定触发 show 事件，这里补一次；flushPendingPrompt 自身幂等。
+      flushPendingPrompt();
+    });
+    notification.show();
+  } catch {
+    /* 通知被系统拦掉：靠托盘 tooltip / 侧栏圆点兜底，不因为一条通知失败就报错 */
+  }
+}
+
+/** 开始下载。托盘菜单、设置页、自动检查三个入口共用，靠 downloadInFlight 防重入。 */
 function startDownload() {
   if (downloadInFlight) return updateState;
   if (updateState.status !== 'available') return updateState;
@@ -705,17 +795,37 @@ function startDownload() {
   autoUpdater
     .downloadUpdate()
     .catch((err) => {
-      setUpdateState({
-        status: 'error',
-        errorKind: classifyError(err),
-        message: String(err && err.message ? err.message : err),
-        checkedAt: new Date().toISOString(),
-      });
+      // electron-updater 先 emit 'error' 再 reject：事件里已经处理过（重试或报错）就别重复。
+      if (updateState.status === 'downloading') handleDownloadFailure(err, true);
     })
     .finally(() => {
       downloadInFlight = false;
     });
   return updateState;
+}
+
+/**
+ * 下载失败。'error' 事件与 downloadUpdate 的 reject 都会走到这里，但只处理一次。
+ *
+ * 返回 true = 已安排 60 秒后自动重试（这次失败先不打扰用户）。
+ */
+function handleDownloadFailure(err, downloading) {
+  const kind = classifyError(err);
+  const message = String(err && err.message ? err.message : err);
+  // 断网是自动更新最常见的失败：启动时网还没起来就再也等不到更新。
+  // 自动路径下先自己再试一次，连续两次失败才算真失败。
+  if (downloading && kind === 'network' && !networkRetryUsed) {
+    networkRetryUsed = true;
+    scheduleDownloadRetry();
+    return true;
+  }
+  setUpdateState({
+    status: 'error',
+    errorKind: kind,
+    message,
+    checkedAt: new Date().toISOString(),
+  });
+  return false;
 }
 
 function installUpdate() {
@@ -760,6 +870,9 @@ async function checkForUpdates({ manual = false } = {}) {
   }
 
   setUpdateState({ status: 'checking', message: '', errorKind: '', percent: 0 });
+  // 新一轮检查：上一次失败用掉的重试额度作废，新版本重新有一次机会。
+  clearDownloadRetry();
+  networkRetryUsed = false;
   try {
     await autoUpdater.checkForUpdates();
   } catch (err) {
@@ -775,8 +888,8 @@ async function checkForUpdates({ manual = false } = {}) {
 }
 
 function setupAutoUpdater() {
-  // autoDownload 关闭：下载时机由 update-available 决定 —— 自动检查直接静默下，
-  // 手动检查先弹窗问；这样「跳过这个版本」仍能拦住下载。
+  // autoDownload 关闭：下载由我们的状态机控制（skip / 防重入 / 网络重试都在这里），
+  // 交给 electron-updater 自己下就插不进这些判断。
   autoUpdater.autoDownload = false;
   // 用户选择「稍后」时，退出应用时自动装上，不用再回来点一次。
   autoUpdater.autoInstallOnAppQuit = true;
@@ -796,17 +909,13 @@ function setupAutoUpdater() {
       message: '',
     });
     // 跳过的版本：自动检查就当没看见（不下载、不弹、不亮徽标）。
-    // 手动检查照样弹 —— 用户主动问「有没有新版」，静默反而像坏了。
+    // 手动检查照样弹窗 —— 用户主动问「有没有新版」，静默反而像坏了；
+    // 但也不下载，跳过是用户自己做的决定。
     if (skipped) {
       if (manualCheck) sendPrompt('available');
       return;
     }
-    if (manualCheck) {
-      sendPrompt('available');
-      return;
-    }
-    // 自动检查：直接静默下载。用户已经开了「自动检查更新」，
-    // 不该再让他点一次「下载」；完成时才提示（见 update-downloaded）。
+    // 只有这一种下载时机：直接下。手动点「检查更新」也不再先问「要不要下载」。
     void startDownload();
   });
 
@@ -834,6 +943,8 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    clearDownloadRetry();
+    networkRetryUsed = false;
     setUpdateState({
       status: 'downloaded',
       version: info.version,
@@ -841,17 +952,14 @@ function setupAutoUpdater() {
       errorKind: '',
       message: '',
     });
-    maybeNotify('downloaded');
+    // 下载完成必须提示：窗口可见就弹窗，在托盘 / 最小化就发系统通知。
+    notifyDownloaded();
   });
 
   autoUpdater.on('error', (err) => {
     const downloading = updateState.status === 'downloading';
-    setUpdateState({
-      status: 'error',
-      errorKind: classifyError(err),
-      message: String(err && err.message ? err.message : err),
-      checkedAt: new Date().toISOString(),
-    });
+    // 已经安排了网络重试的这次失败先静默；重试仍失败时会走到报错分支再提示。
+    if (handleDownloadFailure(err, downloading)) return;
     // 自动检查时静默：首次启动没发版、断网都很常见，不该弹一堆框。
     // 但「下载到一半失败」必须说 —— 用户以为在下，其实早停了。
     if (manualCheck || downloading) maybeNotify('error');
@@ -895,7 +1003,12 @@ ipcMain.handle('app:relaunch', () => {
   return true;
 });
 ipcMain.handle('update:check', () => checkForUpdates({ manual: true }));
-ipcMain.handle('update:download', async () => startDownload());
+ipcMain.handle('update:download', async () => {
+  // 用户手动点了下载 = 再给一次网络重试的机会，并取消已挂着的自动重试。
+  clearDownloadRetry();
+  networkRetryUsed = false;
+  return startDownload();
+});
 ipcMain.handle('update:install', () => {
   if (updateState.status === 'downloaded') installUpdate();
   return true;
@@ -913,6 +1026,9 @@ ipcMain.handle('update:set-prefs', (_event, patch) => {
       // 刚打开开关就静默查一次并下载，让开关立刻有反馈；
       // 等 2 秒是为了不在点击瞬间抢带宽。
       autoCheckTimer = setTimeout(() => { void checkForUpdates({ manual: false }); }, 2000);
+    } else {
+      // 关掉开关就别留着「60 秒后自动重试下载」的定时器了。
+      clearDownloadRetry();
     }
   }
   // 开关状态变了，托盘里那行「查看更新」要跟着消失或出现。
@@ -1110,6 +1226,7 @@ app.on('will-quit', () => {
     clearTimeout(autoCheckTimer);
     autoCheckTimer = null;
   }
+  clearDownloadRetry();
   stopBackend();
 });
 

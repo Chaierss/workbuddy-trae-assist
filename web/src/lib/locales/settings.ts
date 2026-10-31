@@ -267,9 +267,9 @@ export const settingsZh = {
 
   // ---- 版本更新（桌面端专属） ----
   "settings.update.title": "版本与更新",
-  "settings.update.subtitle": "启动后自动检查并静默下载更新，也可以随时手动检查",
+  "settings.update.subtitle": "有新版就自动下载，下载完成再提示重启；也可以随时手动检查",
   "settings.update.autoCheck": "启动时自动检查更新",
-  "settings.update.autoCheckDesc": "打开后自动静默检查并下载新版本；下载完成在侧栏、托盘和这里提示，不打断当前操作",
+  "settings.update.autoCheckDesc": "打开后静默检查，有新版本自动下载；完成后提示重启安装，不打断当前操作（窗口在托盘里时发系统通知）",
   "settings.update.check": "检查更新",
   "settings.update.download": "下载更新",
   "settings.update.restart": "重启并安装",
@@ -614,9 +614,9 @@ export const settingsEn = {
 
   // ---- Updates (desktop only) ----
   "settings.update.title": "Version & updates",
-  "settings.update.subtitle": "Checked and downloaded silently after launch; you can also check any time",
+  "settings.update.subtitle": "New versions download automatically; you're prompted to restart when ready. You can also check any time",
   "settings.update.autoCheck": "Check for updates at launch",
-  "settings.update.autoCheckDesc": "When on, new versions are checked and downloaded silently; when ready they show up in the sidebar, tray and here without interrupting you",
+  "settings.update.autoCheckDesc": "When on, new versions are checked and downloaded silently; when the download finishes you're prompted to restart, without interrupting your work (a system notification is used when the window is in the tray)",
   "settings.update.check": "Check for updates",
   "settings.update.download": "Download update",
   "settings.update.restart": "Restart & install",
