@@ -96,15 +96,25 @@ jobs:
 
       - name: Build installer
         working-directory: desktop
+        shell: bash
         env:
           # 发布不在这里做：electron-builder 的 GitHub publisher 不幂等，
           # 重跑/并发时会为同一个 tag 建出多个 Release，资产被拆散，
           # electron-updater 按 tag 取到的那份可能只有 blockmap。
           # 打包只负责出包，上传统一交给下面的 Publish release。
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: >
-          npx electron-builder ${{ matrix.builder_args }}
-          --publish never
+        run: |
+          set -o pipefail
+          log="$(mktemp)"
+          # electron-builder 的输出在网页上会被截断（「truncated due to its large size」），
+          # 失败时把最后 10 行打成 ::error:: 注解 —— 注解在页面上永远看得到，
+          # 不用让维护者去下载几百 MB 的日志压缩包。
+          if ! npx electron-builder ${{ matrix.builder_args }} --publish never 2>&1 | tee "$log"; then
+            tail -n 10 "$log" | while IFS= read -r line; do
+              echo "::error::${line//%/%25}"
+            done
+            exit 1
+          fi
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
