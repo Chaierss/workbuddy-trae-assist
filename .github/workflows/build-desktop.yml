@@ -116,10 +116,37 @@ jobs:
             exit 1
           fi
 
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaierww-${{ matrix.os }}
+          if-no-files-found: warn
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
+
+  release:
+    # 只在打 tag 时发版。两个平台各自把包传成 artifact，这里一次性组装 Release。
+    # 为什么不放在 build 里：两个 matrix job 会并发地「删除并重建同一个 Release」，
+    # 后跑的那个连先跑的上传资产一起删掉，表现就是 Release 里只剩一个平台的包
+    # （v0.13.0 / v0.13.1 都踩过：只剩 Windows 的 exe）。
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -147,7 +174,7 @@ jobs:
               if (index($0, "## [" ver "]") == 1) { found = 1; print; next }
             }
             found { print }
-          ' ../CHANGELOG.md > "$notes_file"
+          ' CHANGELOG.md > "$notes_file"
 
           if ! grep -q '^## \[' "$notes_file"; then
             echo "✗ CHANGELOG.md 缺少 [$version] 段落，拒绝发布没有正文的 Release"
@@ -162,20 +189,14 @@ jobs:
             exit 1
           fi
 
-          gh release create "$tag" --title "${tag#v}" --notes-file "$notes_file"
+          gh release create "$tag" --title "$version" --notes-file "$notes_file"
 
-          # 每个 job 只产出自己平台的包；未命中的 glob 在 bash 里会原样展开成字面量，
-          # 所以先过滤成真实存在的文件（别的平台的格式没产出不算失败）。
           files=()
-          for pattern in \
-            release/*.exe release/*.AppImage release/*.deb \
-            release/*.blockmap release/latest*.yml; do
-            for f in $pattern; do
-              if [ -f "$f" ]; then files+=("$f"); fi
-            done
+          for f in assets/*; do
+            if [ -f "$f" ]; then files+=("$f"); fi
           done
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "✗ release/ 下没有可上传的产物"
+            echo "✗ 没有下载到任何构建产物（artifact 可能没上传成功）"
             exit 1
           fi
 
@@ -195,7 +216,7 @@ jobs:
             done
           done
 
-          # 完整性校验：少一个就让流水线红掉，而不是留一个半残的 Release。
+          # 完整性校验：两个平台各有自己的 updater 元数据，缺一个就让流水线红掉。
           assets="$(gh release view "$tag" --json assets -q '.assets[].name')"
           for f in "${files[@]}"; do
             name="$(basename "$f")"
@@ -204,18 +225,11 @@ jobs:
               exit 1
             }
           done
+          for meta in latest.yml latest-linux.yml; do
+            echo "$assets" | grep -qx "$meta" || {
+              echo "✗ Release 缺少 $meta（对应平台的检查更新会失效）"
+              exit 1
+            }
+          done
           echo "✓ 资产齐全：$(echo "$assets" | tr '\n' ' ')"
-
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: chaierww-${{ matrix.os }}
-          if-no-files-found: warn
-          path: |
-            desktop/release/*.exe
-            desktop/release/*.AppImage
-            desktop/release/*.deb
-            desktop/release/*.blockmap
-            desktop/release/latest*.yml
 
