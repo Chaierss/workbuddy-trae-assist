@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
   retries: 0,
+  // 首次冷启动时 Vite 预构建 + 后端首次读写库都偏慢，默认 5s 断言超时会假失败。
+  expect: { timeout: 15_000 },
   use: {
     baseURL: "http://127.0.0.1:57911",
     trace: "retain-on-failure",

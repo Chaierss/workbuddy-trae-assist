@@ -16,6 +16,8 @@ export interface Account {
   externalId: string;
   displayName: string;
   note: string;
+  /** 自由文本分组标签；空串 = 未分组。 */
+  groupName: string;
   avatarPath: string | null;
   source: string;
   credentialState: "usable" | "unverified" | "relogin_required" | "unknown";
@@ -280,8 +282,15 @@ export interface ActivityItem {
   note: string;
   /** 手动项的客户端深链：工具做不了，但可以一键把用户送到页面。 */
   jumpUrl?: string;
-  /** 仍需手动完成的条目（标题 / 说明 / 深链），逐条列出。 */
-  manualTasks?: Array<{ code: string; title: string; desc: string; jumpUrl: string }>;
+  /** 仍需手动完成的条目（标题 / 说明 / 深链 / 手动族分类），逐条列出。 */
+  manualTasks?: Array<{
+    code: string;
+    title: string;
+    desc: string;
+    jumpUrl: string;
+    /** chat / expert / skill / miniapp / sequential / activity / other */
+    category?: string;
+  }>;
 }
 
 export interface ActivityCatalogEntry {
@@ -355,6 +364,42 @@ export interface ActivityHistory {
   since: string;
   until: string;
   series: ActivityHistorySeries[];
+}
+
+export interface ActivityRewardDay {
+  day: string;
+  reward: number;
+}
+
+/** 收益总览里的一条 Top 项：账号或活动。 */
+export interface ActivityRewardAccount {
+  accountId: string;
+  displayName: string;
+  reward: number;
+}
+
+export interface ActivityRewardKey {
+  key: string;
+  title: string;
+  reward: number;
+}
+
+/**
+ * 活动收益总览。口径只含 `activity_runs.reward`（本工具代做记录），
+ * 手动领取与上游直接发放不计入，界面上必须写明。
+ */
+export interface ActivityRewards {
+  since: string;
+  until: string;
+  days: number;
+  total: number;
+  today: number;
+  /** 连续 days 天，最后一项是今天。 */
+  daysSeries: ActivityRewardDay[];
+  /** Top 5 账号（收益降序）。 */
+  byAccount: ActivityRewardAccount[];
+  /** Top 5 活动（收益降序）。 */
+  byKey: ActivityRewardKey[];
 }
 
 export interface AccountActivities {
@@ -791,6 +836,8 @@ export interface Preferences {
   firstSwitchAt: string | null;
   /** 本地体验数据开关：只写本机 NDJSON，不上传。 */
   localMetricsEnabled: boolean;
+  /** 切换后自动重启客户端（默认 true）；关掉后切完保持退出，需要时手动打开。 */
+  relaunchAfterSwitch: boolean;
 }
 
 /** 本地漏斗摘要（近 N 天）。 */
@@ -994,6 +1041,8 @@ export interface OverviewPulse {
   accounts: number;
   detectable: number;
   activityActionable: number;
+  /** 还有可自动项 / 需手动项的账号数（与「待办」清单同一口径）。 */
+  activityActionableAccounts: number;
   activityDone: number;
   activityTotal: number;
   credits: number;
@@ -1506,6 +1555,10 @@ export const api = {
     return request<ActivityHistory>(`/api/activities/history?${params.toString()}`);
   },
 
+  /** 活动收益总览：今日 / 近 N 天合计 + 按账号与按活动的 Top 5。 */
+  activityRewards: (days = 7) =>
+    request<ActivityRewards>(`/api/activities/rewards?days=${days}`),
+
   /** 凭据巡检：due 只续快到期的，force 全部尝试续期，check 只验活。 */
   refreshCredentials: (mode: "due" | "force" | "check", accountIds?: string[]) =>
     request<CredentialRefreshReport>("/api/credentials/refresh", {
@@ -1613,6 +1666,13 @@ export const api = {
       body: JSON.stringify({ note }),
     }),
 
+  /** 设账号分组。空串 = 未分组。 */
+  updateGroup: (accountId: string, group: string) =>
+    request<Account>(`/api/accounts/${accountId}/group`, {
+      method: "PATCH",
+      body: JSON.stringify({ group }),
+    }),
+
   deleteAccount: (accountId: string) =>
     request<{ ok: boolean }>(`/api/accounts/${accountId}`, { method: "DELETE" }),
 
@@ -1623,10 +1683,16 @@ export const api = {
     }),
 
   /** `slot` 不传 = 该平台默认位；只读 / 未适配的位会被后端拒绝。 */
-  switchAccount: (accountId: string, scope?: string, relaunch = true, slot?: string) =>
+  switchAccount: (
+    accountId: string,
+    scope?: string,
+    relaunch = true,
+    slot?: string,
+    leaveStopped = false,
+  ) =>
     request<SwitchReport>("/api/switch", {
       method: "POST",
-      body: JSON.stringify({ scope, accountId, relaunch, slot }),
+      body: JSON.stringify({ scope, accountId, relaunch, slot, leaveStopped }),
     }),
 
   /** 切换前迁移预检（只读推演，不写任何文件）。 */

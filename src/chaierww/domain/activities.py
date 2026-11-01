@@ -150,6 +150,26 @@ MANUAL_REASON_STREAK = (
     "等上游发下来后本工具会自动代做"
 )
 
+#: 手动族按「怎么才能做完」分类，只做分类不做翻译：界面文案在前端语言包里。
+#: 分类口径与 wb_tasks.py 文件头「不做」清单一致，新增族时两边一起改。
+_MANUAL_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("Model_chat", "chat"),
+    ("expert_", "expert"),
+    ("skill_", "skill"),
+    ("black_cat", "miniapp"),
+    ("Sequential_", "sequential"),
+    ("school_season", "activity"),
+)
+
+
+def manual_category(code: str) -> str:
+    """任务码 → 手动族分类。未知族统一 ``other``，前端一定有对应文案。"""
+    for prefix, category in _MANUAL_FAMILIES:
+        if code.startswith(prefix):
+            return category
+    return "other"
+
+
 #: 活动目录：**零网络**的静态清单。页面先拿它渲染骨架卡片（「未检测」），
 #: 再用真实检测结果按 ``key`` 覆盖 —— 这样冷启动不再是一片空白。
 #:
@@ -828,6 +848,7 @@ def parse_wb_tasks(tasks: list[Any]) -> ActivityItem:
                         "title": _text(task.get("title")) or code,
                         "desc": _text(task.get("task_desc")) or _text(task.get("description")),
                         "jumpUrl": jump,
+                        "category": manual_category(code),
                     }
                 )
 

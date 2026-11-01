@@ -154,3 +154,68 @@ def test_history_all_catalog_keys_without_filter(client):
     keys = {item["key"] for item in body["series"]}
     assert "workbuddy.daily_checkin" in keys
     assert "trae.daily_checkin" in keys
+
+
+def test_rewards_endpoint_aggregates_totals_and_tops(client):
+    repository = client.app.state.repository
+    first = repository.upsert(
+        scope="workbuddy-cn",
+        external_id="ext-1",
+        display_name="账号甲",
+        credential={"t": 1},
+    ).account.id
+    second = repository.upsert(
+        scope="workbuddy-cn",
+        external_id="ext-2",
+        display_name="账号乙",
+        credential={"t": 2},
+    ).account.id
+    today = datetime.now(UTC).date()
+    repository.record_activity_runs(
+        [
+            {
+                "accountId": first,
+                "key": "workbuddy.daily_checkin",
+                "day": today.isoformat(),
+                "status": "ok",
+                "reward": 5,
+            },
+            {
+                "accountId": first,
+                "key": "workbuddy.daily_checkin",
+                "day": (today - timedelta(days=2)).isoformat(),
+                "status": "ok",
+                "reward": 4,
+            },
+            {
+                "accountId": second,
+                "key": "workbuddy.travel",
+                "day": (today - timedelta(days=1)).isoformat(),
+                "status": "ok",
+                "reward": 6,
+            },
+            # 没有奖励的失败记录不进收益统计。
+            {
+                "accountId": second,
+                "key": "workbuddy.daily_checkin",
+                "day": today.isoformat(),
+                "status": "failed",
+            },
+        ]
+    )
+
+    body = client.get("/api/activities/rewards?days=7").json()
+    assert body["days"] == 7
+    assert body["total"] == 15.0
+    assert body["today"] == 5.0
+    assert len(body["daysSeries"]) == 7
+    assert body["daysSeries"][-1] == {"day": today.isoformat(), "reward": 5.0}
+    assert body["byAccount"][0] == {
+        "accountId": first,
+        "displayName": "账号甲",
+        "reward": 9.0,
+    }
+    assert len(body["byAccount"]) <= 5
+    rewards = [item["reward"] for item in body["byKey"]]
+    assert rewards == sorted(rewards, reverse=True)
+    assert len(body["byKey"]) <= 5

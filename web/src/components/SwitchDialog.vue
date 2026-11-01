@@ -210,6 +210,9 @@ function dismissNextStep(): void {
               <p class="mt-3 text-body-sm leading-relaxed text-muted">
                 {{ t("switch.confirmNote") }}
               </p>
+              <p class="mt-1 text-caption leading-relaxed text-muted">
+                {{ t("switch.exitHint") }}
+              </p>
             </template>
           </div>
 

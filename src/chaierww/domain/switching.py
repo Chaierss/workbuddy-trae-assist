@@ -284,6 +284,7 @@ class SwitchEngine:
         migrate_profile: bool = True,
         migrate_workspaces: bool = True,
         migrate_webview: bool = True,
+        leave_stopped: bool = False,
     ) -> SwitchReport:
         with self._lock, self._scope_guard(scope):
             adapter = self._adapter(scope, slot)
@@ -574,9 +575,13 @@ class SwitchEngine:
             # 5. 重启客户端：切换前已退出运行中的进程，这里重新拉起，让客户端
             #    重新加载新账号的登录态。只要「切换前客户端在运行」或显式要求 relaunch，
             #    就重启，避免把用户的客户端留在「已退出」状态。
-            if relaunch or was_running:
+            #    `leave_stopped` 是用户显式关闭「切换后自动重启」后的选择：此时不拉起，
+            #    并在报告里留一步说明，避免界面看起来像「切换失败」。
+            if not leave_stopped and (relaunch or was_running):
                 launched = adapter.launch()
                 run.add("重启客户端", launched, "已重启" if launched else "未能启动，请手动打开")
+            elif was_running:
+                run.add("重启客户端", True, "客户端已退出；按设置未自动重启，需要时可在概览页打开")
 
             self._repo.touch_last_used(account_id)
             self._repo.set_credential_state(account_id, CredentialState.USABLE)

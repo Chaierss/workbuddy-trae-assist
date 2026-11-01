@@ -130,3 +130,10 @@ class AccountService:
 
     def set_note(self, account_id: str, note: str) -> Account:
         return self._repo.update_note(account_id, note)
+
+    def set_group(self, account_id: str, group: str) -> Account:
+        """设分组。空串 = 未分组；超长直接拒绝，避免自由文本把界面撑坏。"""
+        cleaned = group.strip()
+        if len(cleaned) > 24:
+            raise ValueError("分组名最多 24 个字符")
+        return self._repo.update_group(account_id, cleaned)

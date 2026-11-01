@@ -10,6 +10,7 @@ from chaierww.infra.db import (
     _migrate_v1,
     _migrate_v2,
     _migrate_v3,
+    _migrate_v4,
     open_database,
 )
 from chaierww.infra.startup import (
@@ -107,6 +108,39 @@ def test_v4_upgrade_adds_sync_objects_and_keeps_existing_rows(tmp_path):
         ).fetchone()
         assert row[0] == "老账号"
         assert row[1] == 0  # 老账号默认从第 0 代开始
+    finally:
+        conn.close()
+
+
+def test_v5_upgrade_adds_group_name_with_empty_default(tmp_path):
+    """v4 → v5：加分组列，老账号必须默认「未分组」（空串）且其余字段不变。"""
+    db = tmp_path / "v4.db"
+    raw = sqlite3.connect(db)
+    raw.execute("PRAGMA foreign_keys = ON")
+    _migrate_v1(raw)
+    _migrate_v2(raw)
+    _migrate_v3(raw)
+    _migrate_v4(raw)
+    raw.execute(
+        "INSERT INTO accounts (id, scope, external_id, display_name, credential_state,"
+        " created_at, updated_at) VALUES ('a-1', 'workbuddy-cn', 'u-1', '老账号',"
+        " 'usable', '2026-01-01', '2026-01-01')"
+    )
+    raw.execute("PRAGMA user_version = 4")
+    raw.commit()
+    raw.close()
+
+    conn = open_database(db)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(accounts)")}
+        assert "group_name" in columns
+
+        row = conn.execute(
+            "SELECT display_name, group_name FROM accounts WHERE id = 'a-1'"
+        ).fetchone()
+        assert row[0] == "老账号"
+        assert row[1] == ""
     finally:
         conn.close()
 

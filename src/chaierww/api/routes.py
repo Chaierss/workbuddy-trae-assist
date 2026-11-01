@@ -120,6 +120,7 @@ def _account_payload(
         "externalId": account.external_id,
         "displayName": account.display_name,
         "note": account.note,
+        "groupName": account.group_name,
         "avatarPath": account.avatar_path,
         "source": account.source,
         "credentialState": account.credential_state.value,
@@ -251,6 +252,8 @@ class SwitchRequest(BaseModel):
     relaunch: bool = False
     #: 程序位（多宿主客户端才有）。不传 = 该平台的默认位；只读 / 未适配的位会被拒。
     slot: str | None = None
+    #: 关掉「切换后自动重启客户端」时置 true：切换仍会退出客户端，但不再拉起。
+    leaveStopped: bool = False
 
 
 class SnapshotRequest(BaseModel):
@@ -289,6 +292,14 @@ class PreferencesRequest(BaseModel):
     onboardingDismissedAt: str | None = None
     #: 本地体验数据开关。
     localMetricsEnabled: bool | None = None
+    #: 切换后是否自动重启客户端。省略 = 不修改。
+    relaunchAfterSwitch: bool | None = None
+
+
+class GroupRequest(BaseModel):
+    """分组名长度由 service 校验（超长 → 400），这里不再限制以免变成 422。"""
+
+    group: str = Field(default="")
 
 
 class ActivityRunRequest(BaseModel):
@@ -1279,6 +1290,72 @@ def activity_history(
     return {"days": span, "since": since, "until": today.isoformat(), "series": series}
 
 
+@router.get(
+    "/activities/rewards",
+    summary="活动收益总览（只统计本工具执行记录里的奖励）",
+    tags=["活动"],
+)
+def activity_rewards(request: Request, days: int = 7) -> dict[str, Any]:
+    """今日 / 近期活动收益与 Top 账号、Top 活动。
+
+    口径：只统计 ``activity_runs.reward``，即本工具代做并记录下来的奖励；
+    手动领取与上游直接发放不计入。界面必须把这条写明，避免被当成账号总收益。
+    """
+    span = max(1, min(int(days), 30))
+    today = datetime.now(UTC).date()
+    since_day = (today - timedelta(days=span - 1)).isoformat()
+    try:
+        rows = request.app.state.repository.activity_rewards(since_day)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    names = {account.id: account.display_name for account in _activities_accounts(request, None)}
+    titles = {str(entry["key"]): str(entry["title"]) for entry in ACTIVITY_CATALOG}
+    bucket: dict[str, float] = {}
+    by_account: dict[str, float] = {}
+    by_key: dict[str, float] = {}
+    total = 0.0
+    for row in rows:
+        reward = float(row["reward"] or 0)
+        if reward <= 0:
+            continue
+        day = str(row["day"])
+        account_id = str(row["accountId"])
+        key = str(row["key"])
+        total += reward
+        bucket[day] = bucket.get(day, 0.0) + reward
+        by_account[account_id] = by_account.get(account_id, 0.0) + reward
+        by_key[key] = by_key.get(key, 0.0) + reward
+
+    days_series = []
+    for offset in range(span):
+        day = (today - timedelta(days=span - 1 - offset)).isoformat()
+        days_series.append({"day": day, "reward": round(bucket.get(day, 0.0), 2)})
+
+    top_accounts = sorted(by_account.items(), key=lambda item: item[1], reverse=True)[:5]
+    top_keys = sorted(by_key.items(), key=lambda item: item[1], reverse=True)[:5]
+    return {
+        "since": since_day,
+        "until": today.isoformat(),
+        "days": span,
+        "total": round(total, 2),
+        "today": round(bucket.get(today.isoformat(), 0.0), 2),
+        "daysSeries": days_series,
+        "byAccount": [
+            {
+                "accountId": account_id,
+                "displayName": names.get(account_id, account_id),
+                "reward": round(reward, 2),
+            }
+            for account_id, reward in top_accounts
+        ],
+        "byKey": [
+            {"key": key, "title": titles.get(key, key), "reward": round(reward, 2)}
+            for key, reward in top_keys
+        ],
+    }
+
+
 def _activities_accounts(request: Request, accountIds: str | None) -> list[Account]:
     implemented = [scope.key for scope in all_scopes() if scope.implemented]
     accounts = _service(request).list_merged(implemented)
@@ -1487,6 +1564,15 @@ def update_note(request: Request, account_id: str, body: NoteRequest) -> dict[st
     return _account_payload(account)
 
 
+@router.patch("/accounts/{account_id}/group", summary="修改账号分组", tags=["账号"])
+def update_group(request: Request, account_id: str, body: GroupRequest) -> dict[str, Any]:
+    try:
+        account = _service(request).set_group(account_id, body.group)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+    return _account_payload(account)
+
+
 @router.delete("/accounts/{account_id}", summary="把账号移入回收站（软删除）", tags=["账号"])
 def delete_account(request: Request, account_id: str) -> dict[str, Any]:
     try:
@@ -1606,6 +1692,7 @@ def switch(request: Request, body: SwitchRequest) -> dict[str, Any]:
             migrate_profile=prefs.migrate_profile,
             migrate_workspaces=prefs.migrate_workspaces,
             migrate_webview=prefs.migrate_webview,
+            leave_stopped=body.leaveStopped,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
@@ -1984,6 +2071,9 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
             current.onboarding_dismissed_at or body.onboardingDismissedAt
         ),
         first_switch_at=current.first_switch_at,
+        relaunch_after_switch=pick(
+            body.relaunchAfterSwitch, current.relaunch_after_switch
+        ),
         local_metrics_enabled=pick(
             body.localMetricsEnabled, current.local_metrics_enabled
         ),
@@ -2422,6 +2512,11 @@ def overview_actionables(request: Request) -> dict[str, Any]:
         "detectable": sum(1 for item in detected if item.detectable),
         "activityActionable": sum(
             1 for item in detected for entry in item.items if entry.actionable
+        ),
+        #: 与号池「今日待做」对齐的口径：还有 ≥1 项可自动完成的账号数。
+        #: `activityActionable` 是项数，两个数字一起展示才不会自相矛盾。
+        "activityActionableAccounts": sum(
+            1 for item in detected if any(entry.actionable for entry in item.items)
         ),
         "activityDone": sum(
             1 for item in detected for entry in item.items if entry.state == "done"

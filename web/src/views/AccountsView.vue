@@ -21,6 +21,7 @@ import {
   Shuffle,
   Sparkles,
   Square,
+  Tags,
   Trash2,
   UserPlus,
   Wallet,
@@ -68,6 +69,9 @@ import { localeTag, t, type MessageKey } from "../lib/i18n";
 const keyword = ref("");
 const sortBy = ref<"recent" | "name" | "credits" | "expiry" | "activity">("recent");
 const platformFilter = ref<"all" | "workbuddy" | "trae">("all");
+/** 分组筛选：空串 = 全部分组，GROUP_NONE = 未分组，其余是分组名本身。 */
+const GROUP_NONE = "__none__";
+const groupFilter = ref("");
 const importing = ref(false);
 const exporting = ref(false);
 /** 凭据巡检进行中的模式：check 验活 / due 续期，null 表示空闲。 */
@@ -106,6 +110,8 @@ interface PoolViewPrefs {
   risk: RiskKey;
   /** 只看还能自动做活动的账号。 */
   onlyAuto: boolean;
+  /** 分组筛选：空串 / GROUP_NONE / 分组名。 */
+  group: string;
 }
 
 /** 读回上次的筛选/排序；坏数据直接忽略，不让它把页面卡住。 */
@@ -119,6 +125,7 @@ function readViewPrefs(): void {
       sortBy.value = data.sortBy as PoolViewPrefs["sortBy"];
     }
     if (typeof data.onlyAuto === "boolean") onlyAuto.value = data.onlyAuto;
+    if (typeof data.group === "string") groupFilter.value = data.group;
     if (["all", "workbuddy", "trae"].includes(data.platform ?? "")) {
       platformFilter.value = data.platform as PoolViewPrefs["platform"];
     }
@@ -149,7 +156,7 @@ if (route.query.risk === "relogin") {
   riskFilter.value = route.query.risk as RiskKey;
 }
 
-watch([keyword, sortBy, platformFilter, riskFilter, onlyAuto], () => {
+watch([keyword, sortBy, platformFilter, riskFilter, onlyAuto, groupFilter], () => {
   pageSize.value = PAGE_SIZE;
   localStorage.setItem(
     VIEW_KEY,
@@ -159,8 +166,15 @@ watch([keyword, sortBy, platformFilter, riskFilter, onlyAuto], () => {
       platform: platformFilter.value,
       risk: riskFilter.value,
       onlyAuto: onlyAuto.value,
+      group: groupFilter.value,
     } satisfies PoolViewPrefs),
   );
+});
+
+// 分组被清空或改名后，遗留的筛选值会让列表恒为空：发现筛选值已不存在就退回全部。
+watch(accounts, (list) => {
+  if (!groupFilter.value || groupFilter.value === GROUP_NONE) return;
+  if (!list.some((item) => item.groupName === groupFilter.value)) groupFilter.value = "";
 });
 
 const jsonDialog = reactive({
@@ -224,6 +238,59 @@ function askBatchDelete(): void {
   confirm.account = null;
   confirm.mode = "batch-delete";
   confirm.open = true;
+}
+
+/** 分组筛选选项：全部分组 / 未分组 / 号池里出现过的分组名（字母序）。 */
+const groupOptions = computed<Array<{ value: string; label: string }>>(() => {
+  const names = [...new Set(accounts.value.map((item) => item.groupName).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, localeTag()),
+  );
+  return [
+    { value: "", label: t("accounts.groupAll") },
+    { value: GROUP_NONE, label: t("accounts.groupNone") },
+    ...names.map((name) => ({ value: name, label: name })),
+  ];
+});
+
+/** 设分组弹窗：批量给选中账号打同一个标签，空串 = 移出分组。 */
+const groupDialog = reactive({
+  open: false,
+  busy: false,
+  value: "",
+  ids: [] as string[],
+});
+
+function openGroup(ids: string[]): void {
+  const targets = [...new Set(ids)];
+  if (!targets.length) return;
+  groupDialog.ids = targets;
+  // 只选一个号时带出它当前的分组；批量时留空，避免把一组号一起塞进别人的标签。
+  groupDialog.value =
+    targets.length === 1
+      ? accounts.value.find((item) => item.id === targets[0])?.groupName ?? ""
+      : "";
+  groupDialog.open = true;
+}
+
+async function saveGroup(value: string): Promise<void> {
+  const targets = groupDialog.ids;
+  if (!targets.length) return;
+  groupDialog.busy = true;
+  try {
+    for (const id of targets) await api.updateGroup(id, value);
+    groupDialog.open = false;
+    showToast(
+      t("accounts.groupSaved", {
+        count: targets.length,
+        group: value || t("accounts.groupNone"),
+      }),
+    );
+    await refreshAll();
+  } catch (error) {
+    showToast((error as Error).message);
+  } finally {
+    groupDialog.busy = false;
+  }
 }
 
 /** 巡检结论 → 提示文案。单号只报结论，多号报汇总。 */
@@ -493,6 +560,12 @@ const visible = computed(() => {
     list = list.filter((item) => item.platform === platformFilter.value);
   }
 
+  if (groupFilter.value === GROUP_NONE) {
+    list = list.filter((item) => !item.groupName);
+  } else if (groupFilter.value) {
+    list = list.filter((item) => item.groupName === groupFilter.value);
+  }
+
   if (onlyAuto.value) {
     // 与 KPI「今日待做」口径一致：检测结果没拉到的账号不放行，不冒充「已做完」。
     list = list.filter((item) => (activityBriefs.value[item.id]?.automated ?? 0) > 0);
@@ -526,6 +599,7 @@ const visible = computed(() => {
       (item) =>
         item.displayName.toLowerCase().includes(key) ||
         item.note.toLowerCase().includes(key) ||
+        item.groupName.toLowerCase().includes(key) ||
         item.externalId.toLowerCase().includes(key) ||
         item.platform.toLowerCase().includes(key) ||
         platformLabel(item.platform).toLowerCase().includes(key),
@@ -711,7 +785,8 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
   if (!selectedIds.value.size) return;
-  if (jsonDialog.open || switchFlow.open || noteDialog.open || oauthOpen.value) return;
+  if (jsonDialog.open || switchFlow.open || noteDialog.open || groupDialog.open || oauthOpen.value)
+    return;
   clearSelection();
 }
 
@@ -1683,6 +1758,16 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+        :title="t('accounts.batchGroup.hint', { count: selectedCount })"
+        @click="openGroup([...selectedIds])"
+      >
+        <Tags :size="12" :stroke-width="2" />
+        {{ t("accounts.batchGroup.label") }}
+      </button>
+
+      <button
+        type="button"
         class="inline-flex items-center gap-1.5 rounded-control border border-danger/30 bg-surface px-2.5 py-1.5 text-body-sm text-danger transition-colors hover:bg-danger-soft"
         @click="askBatchDelete"
       >
@@ -1739,6 +1824,15 @@ const confirmText = computed(() => {
         v-model="refreshSeconds"
         :options="refreshOptions"
         :title="t('accounts.refreshInterval')"
+        class="w-[132px]"
+      />
+
+      <!-- 分组筛选：号池里还没有任何分组时不占位，避免多一个永远只有「全部/未分组」的下拉 -->
+      <SelectMenu
+        v-if="groupOptions.length > 2"
+        v-model="groupFilter"
+        :options="groupOptions"
+        :title="t('accounts.groupFilter')"
         class="w-[132px]"
       />
 
@@ -1946,6 +2040,19 @@ const confirmText = computed(() => {
       :busy="noteDialog.busy"
       @save="saveNote"
       @close="noteDialog.open = false"
+    />
+
+    <NoteDialog
+      :open="groupDialog.open"
+      :account-name="t('accounts.batchGroup.title')"
+      :note="groupDialog.value"
+      :busy="groupDialog.busy"
+      :title="t('accounts.batchGroup.title')"
+      :desc="t('accounts.batchGroup.hint', { count: groupDialog.ids.length })"
+      :placeholder="t('accounts.batchGroup.placeholder')"
+      :max-length="24"
+      @save="saveGroup"
+      @close="groupDialog.open = false"
     />
 
     <p v-if="switchBlockedReason" class="mt-4 text-body-sm text-muted">

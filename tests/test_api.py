@@ -148,6 +148,24 @@ def test_note_can_be_updated(client):
     assert response.json()["note"] == "备用号"
 
 
+def test_group_can_be_updated_and_cleared(client):
+    account_id = _seed(client).account.id
+    response = client.patch(f"/api/accounts/{account_id}/group", json={"group": "主力"})
+    assert response.status_code == 200
+    assert response.json()["groupName"] == "主力"
+
+    cleared = client.patch(f"/api/accounts/{account_id}/group", json={"group": ""})
+    assert cleared.json()["groupName"] == ""
+
+
+def test_group_too_long_is_400(client):
+    account_id = _seed(client).account.id
+    response = client.patch(
+        f"/api/accounts/{account_id}/group", json={"group": "x" * 25}
+    )
+    assert response.status_code == 400
+
+
 def test_merged_lists_accounts_with_platform(client):
     _seed(client, external_id="wb-1", name="WorkBuddy 号")
     _seed(client, external_id="wb-2", name="第二个 WorkBuddy 号")
@@ -503,6 +521,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "onboardingCompleted": [],
         "onboardingDismissedAt": None,
         "firstSwitchAt": None,
+        # 切换后自动重启客户端：默认开。
+        "relaunchAfterSwitch": True,
         "localMetricsEnabled": True,
     }
 
@@ -526,6 +546,7 @@ def test_preferences_defaults_and_roundtrip(client):
         "onboardingCompleted": [],
         "onboardingDismissedAt": None,
         "firstSwitchAt": None,
+        "relaunchAfterSwitch": True,
         "localMetricsEnabled": True,
     }
 

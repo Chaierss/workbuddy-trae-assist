@@ -310,3 +310,40 @@ def test_migrate_is_idempotent(tmp_path):
     assert version >= 1
     open_database(path).close()
     conn.close()
+
+
+# ---------- 分组 ----------
+
+
+def test_update_group_and_clear(repo):
+    result = _import(repo)
+    account = repo.update_group(result.account.id, "主力")
+    assert account.group_name == "主力"
+    assert repo.get(result.account.id).group_name == "主力"
+
+    cleared = repo.update_group(result.account.id, "")
+    assert cleared.group_name == ""
+
+
+def test_service_set_group_trims_and_rejects_too_long(repo):
+    class IdleProbe:
+        def is_in_use(self, scope, external_id):
+            return False
+
+        def is_switching(self, scope):
+            return False
+
+    service = AccountService(repo, IdleProbe())
+    result = _import(repo)
+    assert service.set_group(result.account.id, "  备用  ").group_name == "备用"
+    with pytest.raises(ValueError, match="24"):
+        service.set_group(result.account.id, "x" * 25)
+
+
+def test_search_matches_group_name(repo):
+    _import(repo, external_id="u-1", name="账号甲")
+    _import(repo, external_id="u-2", name="账号乙")
+    repo.update_group(repo.list_accounts(SCOPE)[0].id, "夜班池")
+    found = repo.list_accounts(SCOPE, query="夜班")
+    assert len(found) == 1
+    assert found[0].group_name == "夜班池"

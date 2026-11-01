@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -230,6 +230,16 @@ def _migrate_v4(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V4 + "\nCOMMIT;")
 
 
+#: v5：账号分组。空串 = 未分组；不建独立表，分组就是账号上的一个自由文本标签。
+_SCHEMA_V5 = """
+ALTER TABLE accounts ADD COLUMN group_name TEXT NOT NULL DEFAULT '';
+"""
+
+
+def _migrate_v5(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V5 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -243,6 +253,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v3(conn)
     if version < 4:
         _migrate_v4(conn)
+    if version < 5:
+        _migrate_v5(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

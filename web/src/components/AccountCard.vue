@@ -387,6 +387,14 @@ function formatCredits(value: number | null): string {
           >
             {{ subscriptionLabel }}
           </span>
+          <!-- 分组徽标：只在舒适视图显示，紧凑视图留给身份与主状态 -->
+          <span
+            v-if="account.groupName && showSecondary"
+            class="shrink-0 truncate rounded-full bg-line-soft px-1.5 py-[1px] text-micro font-medium leading-none text-ink-soft"
+            :title="account.groupName"
+          >
+            {{ account.groupName }}
+          </span>
         </div>
       </div>
     </div>

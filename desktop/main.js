@@ -250,6 +250,32 @@ async function waitForBackend(timeoutMs = 15000) {
   return false;
 }
 
+/**
+ * Linux 上按 /proc/<pid>/exe 找出自己的后端进程（PyInstaller 引导器 + 工作进程同名）。
+ * macOS 没有 /proc，返回空数组，由调用方回退到单 PID。
+ */
+function findBackendPids() {
+  let entries;
+  try {
+    entries = fs.readdirSync('/proc');
+  } catch (_) {
+    return [];
+  }
+  const pids = [];
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    if (pid === process.pid) continue;
+    try {
+      const exe = fs.readlinkSync(`/proc/${entry}/exe`);
+      if (exe.includes('chaierww-backend')) pids.push(pid);
+    } catch (_) {
+      /* 进程已退出、是僵尸或没有权限 */
+    }
+  }
+  return pids;
+}
+
 function stopBackend() {
   if (!backendProcess) return;
   const child = backendProcess;
@@ -274,8 +300,25 @@ function stopBackend() {
         spawnSync('taskkill', ['/PID', String(pid), '/F'], { windowsHide: true });
       }
     } else {
-      // 负号 = 杀掉整个进程组（spawn 时用了 detached）
-      try { process.kill(-pid, 'SIGTERM'); } catch (_) { child.kill('SIGTERM'); }
+      // 不能按进程组杀（负 PID）：WorkBuddy / Trae 由后端拉起，同组，安装更新或
+      // 重启本应用时会把用户正在用的客户端一起带走。只认 exe 里带
+      // chaierww-backend 的进程；找不到（如 macOS 没有 /proc）就回退单 PID。
+      const targets = findBackendPids();
+      if (!targets.length && child.exitCode === null && !child.killed) targets.push(pid);
+      for (const target of targets) {
+        try { process.kill(target, 'SIGTERM'); } catch (_) { /* 已退出 */ }
+      }
+      // PyInstaller 引导器有时不响应 SIGTERM：2 秒后仍在的再强杀。
+      setTimeout(() => {
+        for (const target of targets) {
+          try {
+            process.kill(target, 0);
+            process.kill(target, 'SIGKILL');
+          } catch (_) {
+            /* 已经退出 */
+          }
+        }
+      }, 2000).unref();
     }
   } catch (_) {
     /* 进程可能已经没了，忽略 */

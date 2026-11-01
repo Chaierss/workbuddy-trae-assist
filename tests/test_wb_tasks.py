@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from chaierww.domain import wb_tasks as mod
+from chaierww.domain.activities import parse_wb_tasks
 from chaierww.domain.wb_tasks import (
     ACTIONS,
     GrowthTask,
@@ -212,3 +213,30 @@ def test_actions_table_covers_only_implemented_codes():
     assert "template_5" in ACTIONS
     assert "expert_chat" not in ACTIONS
     assert "skill_1" not in ACTIONS
+
+
+def test_parse_wb_tasks_tags_manual_categories():
+    """手动族要能分类，界面据此给出「怎么做」；全部手动时仍不可一键执行。"""
+    rows = [
+        {"task_code": "Model_chat_5", "title": "对话 5 轮", "accept_status": "not_accepted"},
+        {"task_code": "expert_1", "title": "邀请专家", "accept_status": "not_accepted"},
+        {"task_code": "skill_1", "title": "使用技能", "accept_status": "not_accepted"},
+        {"task_code": "black_cat_1", "title": "逛小程序", "accept_status": "not_accepted"},
+        {"task_code": "Sequential_1", "title": "连续步骤", "accept_status": "not_accepted"},
+        {"task_code": "school_season_1", "title": "开学季", "accept_status": "not_accepted"},
+        {"task_code": "unknown_9", "title": "未知族", "accept_status": "not_accepted"},
+    ]
+    item = parse_wb_tasks(rows)
+    assert item.key == "workbuddy.growth_tasks"
+    assert item.automatable is False
+    got = [(task["code"], task["category"]) for task in item.manual_tasks]
+    assert got == [
+        ("Model_chat_5", "chat"),
+        ("expert_1", "expert"),
+        ("skill_1", "skill"),
+        ("black_cat_1", "miniapp"),
+        ("Sequential_1", "sequential"),
+        ("school_season_1", "activity"),
+        ("unknown_9", "other"),
+    ]
+

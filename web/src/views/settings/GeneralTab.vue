@@ -9,6 +9,7 @@ import {
   MessagesSquare,
   Monitor,
   Moon,
+  Repeat2,
   Sun,
 } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
@@ -37,7 +38,8 @@ type PrefKey =
   | "migrateSessions"
   | "migrateProfile"
   | "migrateWorkspaces"
-  | "migrateWebview";
+  | "migrateWebview"
+  | "relaunchAfterSwitch";
 
 interface ToggleItem {
   key: PrefKey;
@@ -199,6 +201,33 @@ async function toggle(key: PrefKey): Promise<void> {
             @update:model-value="() => toggle(item.key)"
           />
         </div>
+      </div>
+    </SectionCard>
+
+    <!-- 换号体验：切换必须让客户端退出一次，这里决定切完是否自动拉起 -->
+    <SectionCard
+      :title="t('settings.general.switchTitle')"
+      :subtitle="t('settings.general.switchHint')"
+    >
+      <div class="flex items-center gap-3">
+        <span
+          class="grid size-9 shrink-0 place-items-center rounded-control bg-brand-soft text-brand-dark"
+        >
+          <Repeat2 :size="17" :stroke-width="1.9" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="text-body font-medium text-ink">
+            {{ t("settings.general.relaunchAfterSwitch") }}
+          </div>
+          <div class="mt-0.5 text-body-sm text-muted">
+            {{ t("settings.general.relaunchAfterSwitchDesc") }}
+          </div>
+        </div>
+        <ToggleSwitch
+          :model-value="!!prefs?.relaunchAfterSwitch"
+          :disabled="saving === 'relaunchAfterSwitch'"
+          @update:model-value="() => toggle('relaunchAfterSwitch')"
+        />
       </div>
     </SectionCard>
 

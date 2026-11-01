@@ -75,6 +75,9 @@ DEFAULTS: dict[str, Any] = {
     "onboardingDismissedAt": None,
     #: 第一次成功切换的时间（只写一次）。首次换号率的唯一本地依据。
     "firstSwitchAt": None,
+    #: 切换完成后是否自动重启客户端。默认开：切完就能继续用。
+    #: 关掉后切换仍会退出客户端，但不再拉起 —— 适合「切完只想换号、稍后自己开」的场景。
+    "relaunchAfterSwitch": True,
     # ---------- 本地体验数据（0.8.0） ----------
     #: 本地漏斗事件开关。只写本机 NDJSON，不上传；关掉后不再产生新事件。
     "localMetricsEnabled": True,
@@ -97,6 +100,7 @@ class Preferences:
     onboarding_completed: tuple[str, ...] = ()
     onboarding_dismissed_at: str | None = None
     first_switch_at: str | None = None
+    relaunch_after_switch: bool = True
     local_metrics_enabled: bool = True
 
     def payload(self) -> dict[str, Any]:
@@ -115,6 +119,7 @@ class Preferences:
             "onboardingCompleted": list(self.onboarding_completed),
             "onboardingDismissedAt": self.onboarding_dismissed_at,
             "firstSwitchAt": self.first_switch_at,
+            "relaunchAfterSwitch": self.relaunch_after_switch,
             "localMetricsEnabled": self.local_metrics_enabled,
         }
 
@@ -150,6 +155,7 @@ class PreferencesStore:
             onboarding_completed=clean_onboarding_steps(data.get("onboardingCompleted")),
             onboarding_dismissed_at=_optional_iso(data.get("onboardingDismissedAt")),
             first_switch_at=_optional_iso(data.get("firstSwitchAt")),
+            relaunch_after_switch=flag("relaunchAfterSwitch"),
             local_metrics_enabled=flag("localMetricsEnabled"),
         )
 

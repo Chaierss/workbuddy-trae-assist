@@ -162,6 +162,21 @@ function groupLabel(group: string): string {
   return GROUP_LABEL[group] ? t(GROUP_LABEL[group]) : group;
 }
 
+/** 手动族分类 → 「怎么做」文案。未知分类回退 other，界面上不留空白。 */
+const MANUAL_GUIDE: Record<string, MessageKey> = {
+  chat: "activity.manualGuide.chat",
+  expert: "activity.manualGuide.expert",
+  skill: "activity.manualGuide.skill",
+  miniapp: "activity.manualGuide.miniapp",
+  sequential: "activity.manualGuide.sequential",
+  activity: "activity.manualGuide.activity",
+  other: "activity.manualGuide.other",
+};
+
+function manualGuide(category: string): string {
+  return t(MANUAL_GUIDE[category] ?? "activity.manualGuide.other");
+}
+
 /** 一个账号在某项活动上的状态。 */
 interface AccountEntry {
   accountId: string;
@@ -172,7 +187,13 @@ interface AccountEntry {
   progressText: string;
   note: string;
   manualReason: string;
-  manualTasks: Array<{ code: string; title: string; desc: string; jumpUrl: string }>;
+  manualTasks: Array<{
+    code: string;
+    title: string;
+    desc: string;
+    jumpUrl: string;
+    category: string;
+  }>;
   jumpUrl: string;
   rewardText: string;
   rewardHint: string;
@@ -283,6 +304,7 @@ function entryOf(
     manualTasks: (item.manualTasks ?? []).map((task) => ({
       ...task,
       jumpUrl: safeActivityUrl(task.jumpUrl) ?? "",
+      category: task.category ?? "other",
     })),
     jumpUrl: safeActivityUrl(item.jumpUrl) ?? "",
     rewardText: item.rewardText,
@@ -538,6 +560,13 @@ async function loadRuns(): Promise<void> {
     // 流水只是辅助信息，读不到不影响活动页主流程。
     runs.value = [];
   }
+}
+
+/** 手动项做完后回查：重新检测全部账号，成功才提示「已重新检测」。 */
+async function recheck(): Promise<void> {
+  if (busy.value) return;
+  await load(true);
+  if (!error.value) showToast(t("activity.rechecked"));
 }
 
 /**
@@ -1060,25 +1089,38 @@ const runReportView = computed(() =>
                 v-if="!group.automatable && entry.manualTasks.length"
                 class="mt-1 space-y-0.5 border-t border-line-soft pt-1"
               >
+                <div class="text-muted">{{ t("activity.manualGuideTitle") }}</div>
                 <div
                   v-for="task in entry.manualTasks"
                   :key="task.code"
                   class="flex items-start gap-1 text-muted"
                 >
                   <span class="mt-[4px] size-1 shrink-0 rounded-full bg-warn" />
-                  <a
-                    v-if="task.jumpUrl"
-                    :href="task.jumpUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                    class="text-ink-soft hover:text-brand hover:underline"
-                    :title="task.desc || task.title"
-                  >
-                    {{ task.title }}
-                    <ExternalLink :size="8" :stroke-width="2" class="inline align-baseline" />
-                  </a>
-                  <span v-else :title="task.desc">{{ task.title }}</span>
+                  <div class="min-w-0 flex-1">
+                    <a
+                      v-if="task.jumpUrl"
+                      :href="task.jumpUrl"
+                      target="_blank"
+                      rel="noreferrer"
+                      class="text-ink-soft hover:text-brand hover:underline"
+                      :title="task.desc || task.title"
+                    >
+                      {{ task.title }}
+                      <ExternalLink :size="8" :stroke-width="2" class="inline align-baseline" />
+                    </a>
+                    <span v-else :title="task.desc">{{ task.title }}</span>
+                    <div class="mt-0.5 leading-relaxed text-muted">{{ manualGuide(task.category) }}</div>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  class="mt-1 inline-flex items-center gap-0.5 text-brand hover:underline disabled:opacity-60"
+                  :disabled="busy"
+                  @click="recheck"
+                >
+                  <RefreshCw :size="9" :stroke-width="2" :class="busy ? 'animate-spin' : ''" />
+                  {{ t("activity.recheck") }}
+                </button>
               </div>
               <div v-else-if="!group.automatable" class="mt-0.5 text-muted">
                 {{ entry.manualReason || t("activity.manualFallback") }}

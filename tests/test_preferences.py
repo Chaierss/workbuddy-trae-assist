@@ -64,3 +64,14 @@ def test_load_drops_invalid_first_switch_value(tmp_path):
     prefs = PreferencesStore(tmp_path).load()
     assert prefs.first_switch_at is None
     assert prefs.onboarding_dismissed_at is None
+
+
+def test_relaunch_after_switch_defaults_true_and_keeps_false(tmp_path):
+    """切换后自动重启：缺省 true（切完客户端还能用），显式 false 必须保留。"""
+    store = PreferencesStore(tmp_path)
+    assert store.load().relaunch_after_switch is True
+
+    (tmp_path / mod.FILENAME).write_text(
+        json.dumps({"relaunchAfterSwitch": False}), encoding="utf-8"
+    )
+    assert store.load().relaunch_after_switch is False

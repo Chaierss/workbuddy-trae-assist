@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { t } from "../lib/i18n";
 
-/** 号池备注编辑：一个账号一条，纯本地描述，不参与切换。 */
+/** 单个账号的短文本编辑：备注（默认）与分组共用同一个弹窗。 */
 const props = defineProps<{
   open: boolean;
   accountName: string;
   note: string;
   busy?: boolean;
+  /** 标题 / 说明 / 占位文案；不传则沿用备注那一套。 */
+  title?: string;
+  desc?: string;
+  placeholder?: string;
+  maxLength?: number;
 }>();
 
 const emit = defineEmits<{ save: [note: string]; close: [] }>();
 
 const value = ref("");
+const limit = computed(() => props.maxLength ?? 200);
 
 watch(
   () => props.open,
@@ -36,13 +42,15 @@ function save(): void {
       <div
         class="max-h-[calc(100vh-2rem)] w-full max-w-[min(420px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5"
       >
-        <h3 class="text-title font-semibold text-ink">{{ t("dialog.note.title") }}</h3>
-        <p class="mt-1 text-body-sm text-muted">{{ t("dialog.note.desc", { name: accountName }) }}</p>
+        <h3 class="text-title font-semibold text-ink">{{ title ?? t("dialog.note.title") }}</h3>
+        <p class="mt-1 text-body-sm text-muted">
+          {{ desc ?? t("dialog.note.desc", { name: accountName }) }}
+        </p>
         <input
           v-model="value"
           type="text"
-          maxlength="200"
-          :placeholder="t('dialog.note.placeholder')"
+          :maxlength="limit"
+          :placeholder="placeholder ?? t('dialog.note.placeholder')"
           class="mt-3 w-full rounded-control border border-line bg-surface px-3 py-2 text-body text-ink outline-none transition-colors placeholder:text-muted focus:border-brand"
           @keyup.enter="save"
         />

@@ -177,6 +177,18 @@ class AccountRepository:
         return self.get(account_id)
 
     @_serialized
+    def update_group(self, account_id: str, group: str) -> Account:
+        """改分组。空串 = 未分组；不校验重名，分组只是自由文本标签。"""
+        with transaction(self._conn):
+            cursor = self._conn.execute(
+                "UPDATE accounts SET group_name = ?, updated_at = ? WHERE id = ?",
+                (group, now_iso(), account_id),
+            )
+            if cursor.rowcount == 0:
+                raise AccountNotFound(account_id)
+        return self.get(account_id)
+
+    @_serialized
     def replace_credential(
         self,
         account_id: str,
@@ -353,6 +365,29 @@ class AccountRepository:
                 "key": str(row["activity_key"]),
                 "status": str(row["status"]),
                 "count": int(row["count"]),
+                "reward": float(row["reward"] or 0),
+            }
+            for row in rows
+        ]
+
+    @_serialized
+    def activity_rewards(self, since_day: str) -> list[dict[str, object]]:
+        """按 (账号, 活动, 天) 聚合已记奖励。只读本地流水，不产生任何上游请求。"""
+        rows = self._conn.execute(
+            """
+            SELECT account_id, activity_key, day, SUM(reward) AS reward
+              FROM activity_runs
+             WHERE day >= ? AND reward IS NOT NULL AND reward > 0
+             GROUP BY account_id, activity_key, day
+             ORDER BY day
+            """,
+            (since_day,),
+        ).fetchall()
+        return [
+            {
+                "accountId": str(row["account_id"]),
+                "key": str(row["activity_key"]),
+                "day": str(row["day"]),
                 "reward": float(row["reward"] or 0),
             }
             for row in rows
@@ -546,9 +581,9 @@ class AccountRepository:
         elif not include_deleted:
             sql += " AND deleted_at IS NULL"
         if query:
-            sql += " AND (display_name LIKE ? OR note LIKE ?)"
+            sql += " AND (display_name LIKE ? OR note LIKE ? OR group_name LIKE ?)"
             like = f"%{query}%"
-            params.extend([like, like])
+            params.extend([like, like, like])
         sql += " ORDER BY (last_used_at IS NULL), last_used_at DESC, created_at DESC"
         rows = self._conn.execute(sql, params).fetchall()
         return [Account.from_row(row) for row in rows]
@@ -579,9 +614,9 @@ class AccountRepository:
         elif not include_deleted:
             sql += " AND deleted_at IS NULL"
         if query:
-            sql += " AND (display_name LIKE ? OR note LIKE ?)"
+            sql += " AND (display_name LIKE ? OR note LIKE ? OR group_name LIKE ?)"
             like = f"%{query}%"
-            params.extend([like, like])
+            params.extend([like, like, like])
         sql += " ORDER BY (last_used_at IS NULL), last_used_at DESC, created_at DESC"
         rows = self._conn.execute(sql, params).fetchall()
         return [Account.from_row(row) for row in rows]

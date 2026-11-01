@@ -19,6 +19,7 @@ class Account:
     external_id: str
     display_name: str
     note: str
+    group_name: str
     avatar_path: str | None
     source: str
     credential_state: CredentialState
@@ -39,6 +40,7 @@ class Account:
             external_id=row["external_id"],
             display_name=row["display_name"],
             note=row["note"],
+            group_name=row["group_name"],
             avatar_path=row["avatar_path"],
             source=row["source"],
             credential_state=CredentialState(row["credential_state"]),

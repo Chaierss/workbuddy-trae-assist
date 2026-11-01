@@ -73,11 +73,21 @@ export async function confirmSwitch(): Promise<void> {
   switchFlow.report = null;
   switchFlow.error = null;
   try {
+    // 偏好可能刚在设置页改过：执行前读一次，不沿用页面加载时的旧值。
+    // 读不到就按默认（自动重启），不因为一次偏好请求失败阻断切换本身。
+    let relaunchAfterSwitch = true;
+    try {
+      relaunchAfterSwitch = (await api.preferences()).relaunchAfterSwitch;
+    } catch {
+      relaunchAfterSwitch = true;
+    }
     switchFlow.report = await api.switchAccount(
       account.id,
       undefined,
-      true,
+      relaunchAfterSwitch,
       switchFlow.slot || undefined,
+      // 关掉自动重启时要显式告诉后端「保持退出」，否则「切之前是运行中」仍会被拉起。
+      !relaunchAfterSwitch,
     );
     if (switchFlow.report?.succeeded) {
       track("switch_completed", { platform: account.platform, method: switchFlow.method });

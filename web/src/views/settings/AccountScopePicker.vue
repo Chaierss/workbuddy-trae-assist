@@ -13,6 +13,8 @@ export interface ScopeAccount {
   id: string;
   displayName: string;
   platform: string;
+  /** 号池分组标签；有值时面板顶部会多一排「按组」快选 chip。 */
+  groupName?: string;
 }
 
 const props = withDefaults(
@@ -52,11 +54,43 @@ const filtered = computed(() => {
   const keyword = query.value.trim().toLowerCase();
   if (!keyword) return props.accounts;
   return props.accounts.filter((account) =>
-    `${account.displayName} ${PLATFORM_LABEL[account.platform] ?? account.platform}`
+    `${account.displayName} ${account.groupName ?? ""} ${PLATFORM_LABEL[account.platform] ?? account.platform}`
       .toLowerCase()
       .includes(keyword),
   );
 });
+
+/** 面板顶部的按组快选：只列真实出现过的分组名。 */
+const groups = computed(() =>
+  [...new Set(props.accounts.map((account) => account.groupName ?? "").filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b),
+  ),
+);
+
+function groupIds(group: string): string[] {
+  return props.accounts
+    .filter((account) => (account.groupName ?? "") === group)
+    .map((account) => account.id);
+}
+
+function groupSelected(group: string): boolean {
+  const ids = groupIds(group);
+  return ids.length > 0 && ids.every((id) => selected.value.has(id));
+}
+
+/** 整组并入 / 移除：点一下把该组在号池里的账号全部选上，再点一次撤回。 */
+function toggleGroup(group: string): void {
+  const ids = groupIds(group);
+  if (!ids.length) return;
+  const merged = groupSelected(group)
+    ? new Set(props.modelValue.filter((id) => !ids.includes(id)))
+    : new Set([...props.modelValue, ...ids]);
+  // 按号池顺序回写，保持与列表一致。
+  emit(
+    "update:modelValue",
+    props.accounts.filter((account) => merged.has(account.id)).map((account) => account.id),
+  );
+}
 
 const allSelected = computed(
   () =>
@@ -212,6 +246,26 @@ onBeforeUnmount(() => {
               {{ t("schedule.scopeSelectNone") }}
             </button>
             <span class="ml-auto text-caption text-muted">{{ summary }}</span>
+          </div>
+
+          <!-- 按组快选：分组只是标签，这里按标签整组勾选，不引入新的后端接口 -->
+          <div v-if="groups.length" class="mt-1 flex flex-wrap items-center gap-1">
+            <span class="shrink-0 text-caption text-muted">{{ t("schedule.scopeGroups") }}</span>
+            <button
+              v-for="group in groups"
+              :key="group"
+              type="button"
+              class="rounded-badge border px-1.5 py-0.5 text-caption transition-colors"
+              :class="
+                groupSelected(group)
+                  ? 'border-brand/40 bg-brand-soft text-brand-dark'
+                  : 'border-line text-ink-soft hover:border-brand hover:text-brand-dark'
+              "
+              :title="t('schedule.scopeGroupHint', { group })"
+              @click="toggleGroup(group)"
+            >
+              {{ group }}
+            </button>
           </div>
 
           <div class="mt-1 max-h-[240px] overflow-y-auto">

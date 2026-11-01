@@ -5,7 +5,11 @@
 
 export const settingsZh = {
   "settings.general.label": "常规",
-  "settings.general.hint": "外观、界面语言与切换时的数据迁移范围",
+  "settings.general.hint": "外观、界面语言、切换时的数据迁移范围与换号体验",
+  "settings.general.switchTitle": "换号体验",
+  "settings.general.switchHint": "切换必须让客户端退出一次；这里决定切完是否自动拉起",
+  "settings.general.relaunchAfterSwitch": "切换后自动重启客户端",
+  "settings.general.relaunchAfterSwitchDesc": "开：切完自动打开客户端，立刻就是新号。关：切完保持关闭，需要时在概览页手动打开。",
   "settings.schedule.label": "计划任务",
   "settings.schedule.hint": "保活 / 签到 / 活动的执行时点与抖动，以及积分到期自动轮换",
   "settings.client.label": "客户端设置",
@@ -340,7 +344,13 @@ export const settingsZh = {
 
 export const settingsEn = {
   "settings.general.label": "General",
-  "settings.general.hint": "Appearance, language, and what to migrate on switch",
+  "settings.general.hint": "Appearance, language, what to migrate on switch, and switch behaviour",
+  "settings.general.switchTitle": "Switch experience",
+  "settings.general.switchHint":
+    "A switch must quit the client once; this decides whether it relaunches afterwards",
+  "settings.general.relaunchAfterSwitch": "Relaunch client after switching",
+  "settings.general.relaunchAfterSwitchDesc":
+    "On: reopen the client right after the switch so the new account is ready. Off: leave it closed and open it manually from Overview when needed.",
   "settings.schedule.label": "Scheduled tasks",
   "settings.schedule.hint":
     "Timing and jitter for keep-alive, check-in and activity, plus credit-expiry rotation",

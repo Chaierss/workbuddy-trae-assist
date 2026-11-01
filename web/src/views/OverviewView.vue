@@ -23,7 +23,7 @@ import RunReportPanel from "../components/RunReportPanel.vue";
 import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
-import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type ActivityCampaign, type OverviewPulse, type Snapshot } from "../api";
+import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type OverviewPulse, type Snapshot } from "../api";
 import {
   accounts,
   attentionCount,
@@ -73,6 +73,10 @@ const actionables = ref<ActionableItem[]>([]);
 const pulse = ref<OverviewPulse | null>(null);
 /** 官方活动速览：与待处理清单同一次请求返回，不额外打上游。 */
 const campaigns = ref<ActivityCampaign[]>([]);
+/** 活动收益：只含本工具代做记录里的奖励，读不到就不显示这块，不编数字。 */
+const rewards = ref<ActivityRewards | null>(null);
+const rewardsLoading = ref(true);
+const rewardsError = ref("");
 const loadError = ref("");
 const actionablesLoading = ref(true);
 const busy = ref<string | null>(null);
@@ -175,6 +179,31 @@ async function load(): Promise<void> {
   }
 }
 
+async function loadRewards(): Promise<void> {
+  rewardsLoading.value = true;
+  rewardsError.value = "";
+  try {
+    rewards.value = await api.activityRewards(7);
+  } catch (cause) {
+    // 与待办清单同一原则：失败就如实说失败，不渲染成「今天没有收益」。
+    rewardsError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    rewardsLoading.value = false;
+  }
+}
+
+/** 迷你柱高度：按当周最大值归一；0 也留 2px，免得整排看起来像缺数据。 */
+function rewardBarHeight(reward: number): string {
+  const days = rewards.value?.daysSeries ?? [];
+  const max = Math.max(1, ...days.map((day) => day.reward));
+  const ratio = Math.max(reward > 0 ? 0.08 : 0.02, reward / max);
+  return `${Math.round(ratio * 100)}%`;
+}
+
+function rewardDayLabel(day: string, reward: number): string {
+  return `${day} · ${formatAmount(reward)}`;
+}
+
 function severityTone(severity: ActionableItem["severity"]) {
   if (severity === "high") return "danger" as const;
   if (severity === "warn") return "warn" as const;
@@ -251,7 +280,8 @@ async function runGroup(group: ActionGroup): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 1500));
       }
     }
-    await load();
+    // 代做会改写收益台账，顺手把收益卡片也刷新一次。
+    await Promise.all([load(), loadRewards()]);
   } catch (cause) {
     runError.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -273,7 +303,7 @@ async function retryRunRow(accountId: string): Promise<void> {
         await api.refreshCredentials(current.mode ?? "force", [accountId]),
       );
     }
-    await load();
+    await Promise.all([load(), loadRewards()]);
   } catch (cause) {
     runError.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -290,6 +320,7 @@ function toggleClient(scope: string): void {
 
 onMounted(() => {
   void load();
+  void loadRewards();
   void loadGlobalBackups();
 });
 
@@ -474,6 +505,67 @@ async function loadGlobalBackups(): Promise<void> {
 
     <OfficialActivityStrip v-if="pulse" class="mt-4" :campaigns="campaigns" />
 
+    <!-- 活动收益：口径只含本工具代做记录，手动领取不计，卡片上写明避免当成账号总收益 -->
+    <SectionCard class="mt-4" :title="t('overview.rewards.title')" :subtitle="t('overview.rewards.hint')">
+      <div v-if="rewardsLoading" class="space-y-1">
+        <Skeleton variant="row" :lines="2" />
+      </div>
+      <div
+        v-else-if="rewardsError"
+        class="flex flex-wrap items-center gap-2 text-body-sm text-danger"
+      >
+        <span class="min-w-0 flex-1">{{ t("overview.rewards.error", { message: rewardsError }) }}</span>
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center rounded-badge border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          @click="loadRewards"
+        >
+          {{ t("common.retry") }}
+        </button>
+      </div>
+      <div v-else-if="!rewards || (!rewards.total && !rewards.byAccount.length)" class="text-body-sm text-muted">
+        {{ t("overview.rewards.empty") }}
+      </div>
+      <div v-else class="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <div>
+          <div class="text-caption text-muted">{{ t("overview.rewards.today") }}</div>
+          <div class="mt-0.5 text-metric font-semibold leading-none text-ink">
+            {{ formatAmount(rewards.today) }}
+          </div>
+        </div>
+        <div>
+          <div class="text-caption text-muted">{{
+            t("overview.rewards.week", { days: rewards.days })
+          }}</div>
+          <div class="mt-0.5 text-title font-semibold leading-none text-ink">
+            {{ formatAmount(rewards.total) }}
+          </div>
+        </div>
+
+        <!-- 近 7 天迷你柱：高度按当周最大值归一，悬停看当天数字 -->
+        <div class="ml-auto flex h-12 items-end gap-[3px]">
+          <span
+            v-for="day in rewards.daysSeries"
+            :key="day.day"
+            class="w-[7px] rounded-full bg-brand/70 transition-colors hover:bg-brand"
+            :style="{ height: rewardBarHeight(day.reward) }"
+            :title="rewardDayLabel(day.day, day.reward)"
+          />
+        </div>
+
+        <RouterLink
+          v-for="row in rewards.byAccount.slice(0, 3)"
+          :key="row.accountId"
+          :to="navTo(`/accounts?account=${row.accountId}`)"
+          class="inline-flex items-center gap-1.5 rounded-full border border-line-soft bg-line-soft px-2.5 py-1 text-caption text-ink-soft transition-colors hover:border-brand/40 hover:text-brand-dark"
+          :title="t('overview.rewards.accountHint', { name: row.displayName })"
+        >
+          <span class="max-w-[7rem] truncate">{{ row.displayName }}</span>
+          <span class="shrink-0 font-medium tabular-nums">{{ formatAmount(row.reward) }}</span>
+        </RouterLink>
+      </div>
+    </SectionCard>
+
     <div class="mt-4 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
       <SectionCard
         :title="t('overview.client.title')"
@@ -549,8 +641,12 @@ async function loadGlobalBackups(): Promise<void> {
           >
             <Activity :size="14" class="shrink-0 text-muted" />
             <span class="min-w-0 flex-1 truncate text-body-sm text-muted">{{ t("overview.pulse.activity") }}</span>
+            <!-- 双口径：项数对应「一键执行」的量，账号数对应「要处理几个号」 -->
             <span class="shrink-0 text-body font-medium tabular-nums text-ink">
-              {{ pulse.activityActionable }}
+              {{ t("overview.pulse.activityPending", {
+                items: pulse.activityActionable,
+                accounts: pulse.activityActionableAccounts,
+              }) }}
             </span>
             <span class="shrink-0 text-caption text-muted">
               {{ t("overview.pulse.activityShort", { done: pulse.activityDone, total: pulse.activityTotal }) }}

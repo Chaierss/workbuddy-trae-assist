@@ -306,6 +306,21 @@ def test_switch_can_relaunch(world):
     assert world["adapter"].launched is True
 
 
+def test_switch_can_leave_client_stopped(world):
+    """用户关掉「切换后自动重启」：退出客户端但不再拉起，并在报告里说明。"""
+    account = world["add"]("uid-B")
+    world["adapter"].running = True
+
+    report = world["engine"].execute(SCOPE, account.id, leave_stopped=True)
+
+    assert report.state == "succeeded"
+    assert world["adapter"].launched is False
+    assert world["adapter"].is_running() is False
+    step = next(item for item in report.steps if item.step == "重启客户端")
+    assert step.ok is True
+    assert "未自动重启" in step.detail
+
+
 # ---------- 运行中先退出再写 ----------
 
 
