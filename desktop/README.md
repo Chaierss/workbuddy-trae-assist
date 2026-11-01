@@ -259,8 +259,11 @@ set ELECTRON_BUILDER_BINARIES_MIRROR=https://cdn.npmmirror.com/binaries/electron
 
 现在的两道保险：
 
-- **主进程退出**：`stopBackend()` 在 Windows 上用 `taskkill /PID <pid> /T /F` 收整棵进程树
-  （光 kill 父进程没用）；Linux/macOS 用 `detached` 起的进程组，`kill(-pid)` 整组收。
+- **主进程退出**：`stopBackend()` 在 Windows 上按镜像名收 `chaierww-backend.exe`
+  （引导器与工作进程同名，一次收干净；开发模式回退到按 PID 收）。
+  **不能用 `/T` 收整棵树**：WorkBuddy / Trae 是后端用 ShellExecute 拉起的，父进程就是后端，
+  `/T` 会在更新安装或重启本应用时把用户正在用的客户端一起强杀。
+  Linux/macOS 用 `detached` 起的进程组，`kill(-pid)` 整组收。
 - **主进程被强杀**：后端自己盯着父进程。主进程通过 `CHAIERWW_PARENT_PID` 传 PID，
   后端 `infra/parent_watch.py` 每秒探一次，父进程没了就 `os._exit(0)`，
   文件锁和端口在 1 秒内放开。（Windows 上不能用 `os.kill(pid, 0)` 探测——CPython 会把它

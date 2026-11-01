@@ -260,8 +260,19 @@ function stopBackend() {
     if (IS_WIN) {
       // 只 kill 父进程没用：PyInstaller 的 --onefile 是「引导器 + 真正干活的子进程」，
       // 干掉引导器会把子进程剩成孤儿，端口和安装目录里的 exe 依旧被占。
-      // /T 连整棵进程树一起收掉。
-      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+      //
+      // 但也不能用 /T（整棵进程树）：WorkBuddy / Trae 是后端用 ShellExecute 拉起来的，
+      // 它们的父进程就是后端，/T 会把用户正在用的客户端一起强杀 —— 装更新、重启本应用
+      // 时客户端跟着消失，就是这么来的。
+      // 只按镜像名收自己的后端：引导器与工作进程同名，两者都收，客户端不在其中。
+      const killed = spawnSync('taskkill', ['/F', '/IM', 'chaierww-backend.exe'], {
+        windowsHide: true,
+      });
+      // 开发模式的后端是 python.exe，镜像名对不上：只收这个 PID，同样不带 /T。
+      // 只在子进程确实还活着时回退 —— 进程早退出了，按 PID 收会误伤被复用的 PID。
+      if (killed.status !== 0 && child.exitCode === null && !child.killed) {
+        spawnSync('taskkill', ['/PID', String(pid), '/F'], { windowsHide: true });
+      }
     } else {
       // 负号 = 杀掉整个进程组（spawn 时用了 detached）
       try { process.kill(-pid, 'SIGTERM'); } catch (_) { child.kill('SIGTERM'); }
