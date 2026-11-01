@@ -19,6 +19,7 @@ import {
   Search,
   ShieldCheck,
   Shuffle,
+  Sparkles,
   Square,
   Trash2,
   UserPlus,
@@ -61,10 +62,11 @@ import {
 } from "../stores/app";
 import { track } from "../lib/metrics";
 import { openSwitch, switchFlow } from "../lib/switchFlow";
+import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { localeTag, t, type MessageKey } from "../lib/i18n";
 
 const keyword = ref("");
-const sortBy = ref<"recent" | "name" | "credits" | "expiry">("recent");
+const sortBy = ref<"recent" | "name" | "credits" | "expiry" | "activity">("recent");
 const platformFilter = ref<"all" | "workbuddy" | "trae">("all");
 const importing = ref(false);
 const exporting = ref(false);
@@ -82,6 +84,9 @@ type RiskKey = "" | "credential" | "expiring" | "low" | "usable" | "today";
 type FilterKey = RiskKey | "total";
 const riskFilter = ref<RiskKey>("");
 
+/** 只看还能自动做活动的账号：与 KPI 的「今日待做」可叠加，互不替代。 */
+const onlyAuto = ref(false);
+
 /** 低积分阈值：低于它算「快用完了」，只做提醒不做判断依据。 */
 const LOW_CREDITS = 100;
 
@@ -96,9 +101,11 @@ const VIEW_KEY = "chaierww.pool-view";
 
 interface PoolViewPrefs {
   keyword: string;
-  sortBy: "recent" | "name" | "credits" | "expiry";
+  sortBy: "recent" | "name" | "credits" | "expiry" | "activity";
   platform: "all" | "workbuddy" | "trae";
   risk: RiskKey;
+  /** 只看还能自动做活动的账号。 */
+  onlyAuto: boolean;
 }
 
 /** 读回上次的筛选/排序；坏数据直接忽略，不让它把页面卡住。 */
@@ -108,9 +115,10 @@ function readViewPrefs(): void {
     if (!raw) return;
     const data = JSON.parse(raw) as Partial<PoolViewPrefs>;
     if (typeof data.keyword === "string") keyword.value = data.keyword;
-    if (["recent", "name", "credits", "expiry"].includes(data.sortBy ?? "")) {
+    if (["recent", "name", "credits", "expiry", "activity"].includes(data.sortBy ?? "")) {
       sortBy.value = data.sortBy as PoolViewPrefs["sortBy"];
     }
+    if (typeof data.onlyAuto === "boolean") onlyAuto.value = data.onlyAuto;
     if (["all", "workbuddy", "trae"].includes(data.platform ?? "")) {
       platformFilter.value = data.platform as PoolViewPrefs["platform"];
     }
@@ -141,7 +149,7 @@ if (route.query.risk === "relogin") {
   riskFilter.value = route.query.risk as RiskKey;
 }
 
-watch([keyword, sortBy, platformFilter, riskFilter], () => {
+watch([keyword, sortBy, platformFilter, riskFilter, onlyAuto], () => {
   pageSize.value = PAGE_SIZE;
   localStorage.setItem(
     VIEW_KEY,
@@ -150,6 +158,7 @@ watch([keyword, sortBy, platformFilter, riskFilter], () => {
       sortBy: sortBy.value,
       platform: platformFilter.value,
       risk: riskFilter.value,
+      onlyAuto: onlyAuto.value,
     } satisfies PoolViewPrefs),
   );
 });
@@ -314,7 +323,7 @@ function openJsonImport(): void {
 const confirm = reactive({
   open: false,
   busy: false,
-  mode: "" as "" | "delete" | "batch-delete" | "export" | "purge" | "purge-all",
+  mode: "" as "" | "delete" | "batch-delete" | "export" | "purge" | "purge-all" | "activity-notice",
   /** `purge` / `purge-all` 模式下装的是回收站里的行（RecycleBinAccount 是 Account 的子类型）。 */
   account: null as Account | null,
 });
@@ -484,6 +493,11 @@ const visible = computed(() => {
     list = list.filter((item) => item.platform === platformFilter.value);
   }
 
+  if (onlyAuto.value) {
+    // 与 KPI「今日待做」口径一致：检测结果没拉到的账号不放行，不冒充「已做完」。
+    list = list.filter((item) => (activityBriefs.value[item.id]?.automated ?? 0) > 0);
+  }
+
   if (riskFilter.value === "credential") {
     // 概览 KPI、号池健康卡、这里三处共用同一份集合，数字必须一致。
     list = list.filter((item) => credentialIssueAccounts.value.includes(item));
@@ -522,6 +536,18 @@ const visible = computed(() => {
 
   return [...list].sort((a, b) => {
     if (sortBy.value === "name") return a.displayName.localeCompare(b.displayName, localeTag());
+
+    if (sortBy.value === "activity") {
+      // 待办多的排前面；未检测到活动的账号沉底，与 credits 的「查不到沉底」一致。
+      const todoOf = (id: string) => {
+        const brief = activityBriefs.value[id];
+        return brief ? brief.automated + brief.manual : -1;
+      };
+      const lv = todoOf(a.id);
+      const rv = todoOf(b.id);
+      if (rv !== lv) return rv - lv;
+      return a.displayName.localeCompare(b.displayName, localeTag());
+    }
 
     if (sortBy.value === "credits") {
       // 能查到积分的排前面（降序）；查不到的（null/不可用）沉底。
@@ -852,6 +878,68 @@ async function loadActivityBrief(ids?: string[], refresh = false): Promise<void>
   }
 }
 
+/* ---------- 一键代做活动 ---------- */
+
+/** 正在执行中的账号：卡片上分段条流光、spinner 都靠它驱动。 */
+const activityRunningIds = ref<Set<string>>(new Set());
+const activityBusy = ref(false);
+/** 刚执行完拿到的积分，卡片上飘 `+N`，几秒后自动消失。 */
+const activityRewards = ref<Record<string, number>>({});
+/** 待首次告知确认的目标账号；确认后从这里取，不依赖当时的勾选状态。 */
+const activityPendingIds = ref<string[] | null>(null);
+let rewardTimer: number | null = null;
+
+/** 选中账号里还能自动完成的项数：确认框把「要做什么」讲清楚。 */
+const selectedActivityItems = computed(() =>
+  [...selectedIds.value].reduce((sum, id) => sum + (activityBriefs.value[id]?.automated ?? 0), 0),
+);
+
+/** 统一入口：没勾选就整池不跑（绝不默认动全号），首次还要过一次成长任务告知。 */
+function runActivitiesFor(ids?: string[]): void {
+  const targets = [...new Set(ids?.length ? ids : [...selectedIds.value])];
+  if (!targets.length || activityBusy.value) return;
+  if (!growthNoticeAcknowledged()) {
+    activityPendingIds.value = targets;
+    confirm.account = null;
+    confirm.mode = "activity-notice";
+    confirm.open = true;
+    return;
+  }
+  void runActivityTargets(targets);
+}
+
+async function runActivityTargets(targets: string[]): Promise<void> {
+  activityBusy.value = true;
+  activityRunningIds.value = new Set(targets);
+  try {
+    const report = await api.runActivities(targets);
+    const rewards: Record<string, number> = {};
+    for (const item of report.results) {
+      if (item.reward) rewards[item.accountId] = (rewards[item.accountId] ?? 0) + item.reward;
+    }
+    const { ok, skipped, failed, total } = report.summary;
+    showToast(
+      total === 0
+        ? t("accounts.batchRun.nothing")
+        : t("accounts.batchRun.done", { ok, skipped, failed }),
+    );
+    if (Object.keys(rewards).length) {
+      activityRewards.value = rewards;
+      if (rewardTimer !== null) window.clearTimeout(rewardTimer);
+      rewardTimer = window.setTimeout(() => {
+        activityRewards.value = {};
+      }, 4000);
+    }
+    // 积分与活动余量都要刷新：代做会直接改变账号的积分与完成度。
+    await Promise.all([refreshAll(), loadActivityBrief(targets, true)]);
+  } catch (error) {
+    showToast((error as Error).message);
+  } finally {
+    activityBusy.value = false;
+    activityRunningIds.value = new Set();
+  }
+}
+
 /** 平台筛选的可见性：只显示号池里真实存在的平台。 */
 const platformOptions = computed(() => {
   const present = new Set(accounts.value.map((item) => item.platform));
@@ -931,14 +1019,15 @@ function toggleDensity(): void {
   sessionStorage.setItem(DENSITY_KEY, density.value);
 }
 
-const sortOptions = computed<Array<{ value: "recent" | "credits" | "expiry" | "name"; label: string }>>(
-  () => [
-    { value: "recent", label: t("accounts.sort.recent") },
-    { value: "credits", label: t("accounts.sort.credits") },
-    { value: "expiry", label: t("accounts.sort.expiry") },
-    { value: "name", label: t("accounts.sort.name") },
-  ],
-);
+const sortOptions = computed<
+  Array<{ value: "recent" | "credits" | "expiry" | "name" | "activity"; label: string }>
+>(() => [
+  { value: "recent", label: t("accounts.sort.recent") },
+  { value: "credits", label: t("accounts.sort.credits") },
+  { value: "expiry", label: t("accounts.sort.expiry") },
+  { value: "name", label: t("accounts.sort.name") },
+  { value: "activity", label: t("accounts.sort.activity") },
+]);
 let refreshTimer: number | null = null;
 
 function applyRefreshTimer(): void {
@@ -1009,6 +1098,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (refreshTimer !== null) window.clearInterval(refreshTimer);
   if (highlightTimer !== null) window.clearTimeout(highlightTimer);
+  if (rewardTimer !== null) window.clearTimeout(rewardTimer);
   window.removeEventListener("keydown", onKeydown);
 });
 
@@ -1167,6 +1257,15 @@ function askDelete(account: Account): void {
 
 async function onConfirm(): Promise<void> {
   const account = confirm.account;
+  if (confirm.mode === "activity-notice") {
+    // 首次告知不绑定勾选状态：确认时用当初点下去的那批账号。
+    const ids = activityPendingIds.value ?? [...selectedIds.value];
+    activityPendingIds.value = null;
+    confirm.open = false;
+    acknowledgeGrowthNotice();
+    void runActivityTargets(ids);
+    return;
+  }
   if (confirm.mode === "export") {
     confirm.open = false;
     await exportSelected();
@@ -1250,6 +1349,16 @@ async function onConfirm(): Promise<void> {
 
 const confirmText = computed(() => {
   const name = confirm.account?.displayName ?? "";
+  if (confirm.mode === "activity-notice") {
+    const ids = activityPendingIds.value ?? [...selectedIds.value];
+    const items = [...ids].reduce((sum, id) => sum + (activityBriefs.value[id]?.automated ?? 0), 0);
+    return {
+      title: t("accounts.batchRun.noticeTitle"),
+      message: t("accounts.batchRun.noticeBody", { count: ids.length, items }),
+      confirmText: t("accounts.batchRun.noticeConfirm"),
+      tone: "brand" as const,
+    };
+  }
   if (confirm.mode === "purge-all") {
     return {
       title: t("accounts.recycle.purgeAllTitle"),
@@ -1563,6 +1672,17 @@ const confirmText = computed(() => {
       </button>
       <button
         type="button"
+        class="inline-flex items-center gap-1.5 rounded-control border border-brand/40 bg-surface px-2.5 py-1.5 text-body-sm text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
+        :disabled="activityBusy || Boolean(credentialBusy)"
+        :title="t('accounts.batchRun.hint', { count: selectedActivityItems })"
+        @click="runActivitiesFor()"
+      >
+        <Loader2 v-if="activityBusy" :size="12" :stroke-width="2" class="animate-spin" />
+        <Sparkles v-else :size="12" :stroke-width="2" />
+        {{ activityBusy ? t("accounts.batchRun.running") : t("accounts.batchRun.label") }}
+      </button>
+      <button
+        type="button"
         class="inline-flex items-center gap-1.5 rounded-control border border-danger/30 bg-surface px-2.5 py-1.5 text-body-sm text-danger transition-colors hover:bg-danger-soft"
         @click="askBatchDelete"
       >
@@ -1628,6 +1748,19 @@ const confirmText = computed(() => {
         :title="t('accounts.sortBy')"
         class="w-[132px]"
       />
+
+      <!-- 只看还能自动做：配合「全选」把待做的号挑出来一键代做 -->
+      <button
+        type="button"
+        class="inline-flex shrink-0 items-center gap-1.5 rounded-control border px-2.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        :class="onlyAuto ? 'border-brand/40 bg-brand-soft/60 text-brand-dark' : 'border-line bg-surface'"
+        :aria-pressed="onlyAuto"
+        :title="t('accounts.filterAutoHint')"
+        @click="onlyAuto = !onlyAuto"
+      >
+        <Sparkles :size="14" :stroke-width="1.9" />
+        {{ t("accounts.filterAuto") }}
+      </button>
 
       <!-- 密度切换：紧凑只留身份/积分/今日活动，宽松补回凭据、同步与预检 -->
       <button
@@ -1777,6 +1910,8 @@ const confirmText = computed(() => {
           :busy="importing"
           :credit="credits[account.id] ?? null"
           :activity="activityBriefs[account.id] ?? null"
+          :activity-running="activityRunningIds.has(account.id)"
+          :activity-reward="activityRewards[account.id] ?? null"
           :selected="selectedIds.has(account.id)"
           :preview="previews[account.id] ?? null"
           :sync="syncRows[account.id] ?? null"
@@ -1789,6 +1924,7 @@ const confirmText = computed(() => {
           @filter="applyRisk"
           @preview="loadPreview"
           @refresh-credential="(item) => runCredentialSweep('due', [item.id])"
+          @run-activity="(item) => runActivitiesFor([item.id])"
         />
       </div>
     </div>

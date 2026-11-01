@@ -12,11 +12,14 @@ import type { ActivityRun } from "../../api";
 const props = withDefaults(
   defineProps<{
     runs: ActivityRun[];
+    /** 账号 id → 显示名；流水只带 id，名字由活动页的号池清单 join 进来。 */
+    names?: Record<string, string>;
   }>(),
-  { runs: () => [] },
+  { runs: () => [], names: () => ({}) },
 );
 
 const keyFilter = ref<string>("all");
+const accountFilter = ref<string>("all");
 
 const keys = computed(() => {
   const seen = new Set<string>();
@@ -24,10 +27,23 @@ const keys = computed(() => {
   return [...seen].sort();
 });
 
+const accountIds = computed(() => {
+  const seen = new Set<string>();
+  for (const run of props.runs) seen.add(run.accountId);
+  return [...seen].sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+});
+
+/** 显示名优先；账号已删或还没加载到清单时回退原始 ID，绝不空白。 */
+function nameOf(id: string): string {
+  return props.names[id] || id;
+}
+
 const filtered = computed(() =>
-  keyFilter.value === "all"
-    ? props.runs
-    : props.runs.filter((run) => run.key === keyFilter.value),
+  props.runs.filter(
+    (run) =>
+      (keyFilter.value === "all" || run.key === keyFilter.value) &&
+      (accountFilter.value === "all" || run.accountId === accountFilter.value),
+  ),
 );
 
 /** 流水时间戳 → `MM-DD HH:mm`（本地时区）。 */
@@ -55,6 +71,14 @@ function dayLabel(value: string): string {
         <option v-for="key in keys" :key="key" :value="key">
           {{ props.runs.find((run) => run.key === key)?.title || key }}
         </option>
+      </select>
+      <select
+        v-if="accountIds.length > 1"
+        v-model="accountFilter"
+        class="rounded-control border border-line bg-surface px-2 py-1 text-caption text-ink-soft"
+      >
+        <option value="all">{{ t("activity.officialRunsAllAccounts") }}</option>
+        <option v-for="id in accountIds" :key="id" :value="id">{{ nameOf(id) }}</option>
       </select>
     </template>
 
@@ -86,7 +110,13 @@ function dayLabel(value: string): string {
           {{ t("activity.officialRunsAttempt", { attempt: run.attempt }) }}
         </span>
         <span class="min-w-0 flex-1 truncate text-muted" :title="run.message">{{ run.message }}</span>
-        <span class="shrink-0 tabular-nums text-muted">{{ run.accountId }}</span>
+        <RouterLink
+          :to="{ path: '/accounts', query: { account: run.accountId } }"
+          class="shrink-0 truncate text-muted tabular-nums transition-colors hover:text-brand hover:underline"
+          :title="t('activity.officialRunsOpenAccount')"
+        >
+          {{ nameOf(run.accountId) }}
+        </RouterLink>
         <span v-if="run.reward" class="shrink-0 tabular-nums text-brand-dark">
           +{{ run.reward }}
         </span>

@@ -397,6 +397,101 @@ const totalEntries = computed(() =>
   activityGroups.value.reduce((sum, group) => sum + group.entries.length, 0),
 );
 
+/** 号池清单 → 账号 id 到显示名，执行记录页靠它把 ID 换成名字。 */
+const accountNames = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  for (const account of accountBases.value) map[account.id] = account.displayName;
+  return map;
+});
+
+/** 按账号勾选执行：只作用于「按账号」页签，不改变分组展示。 */
+const selectedAccountIds = ref<Set<string>>(new Set());
+
+/** 每账号还能自动完成的项数（跨所有活动聚合）。 */
+const accountActionables = computed(() => {
+  const map = new Map<string, number>();
+  for (const group of activityGroups.value) {
+    for (const entry of group.entries) {
+      if (!entry.actionable) continue;
+      map.set(entry.accountId, (map.get(entry.accountId) ?? 0) + 1);
+    }
+  }
+  return map;
+});
+
+const automatableAccounts = computed(() =>
+  accountBases.value.filter((item) => (accountActionables.value.get(item.id) ?? 0) > 0),
+);
+
+const selectedTotals = computed(() => {
+  let items = 0;
+  for (const id of selectedAccountIds.value) items += accountActionables.value.get(id) ?? 0;
+  return { accounts: selectedAccountIds.value.size, items };
+});
+
+function toggleAccount(id: string): void {
+  const next = new Set(selectedAccountIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedAccountIds.value = next;
+}
+
+function selectAllAutomatable(): void {
+  selectedAccountIds.value = new Set(automatableAccounts.value.map((item) => item.id));
+}
+
+function runSelectedAccounts(): void {
+  // 只跑仍然「可自动」的账号：筛选/检测变化后留下的过期选中项直接丢弃。
+  const targets = [...selectedAccountIds.value].filter((id) => accountActionables.value.has(id));
+  if (!targets.length) {
+    showToast(t("activity.toastNothingToRun"));
+    return;
+  }
+  void execute(targets);
+}
+
+interface RunPreview {
+  accounts: number;
+  items: number;
+  titles: string[];
+}
+
+/** 按当前检测结果推演「这次会动几个号、几项、哪几项活动」。只算可自动项。 */
+function buildPreview(accountIds: string[] | null, keys: string[] | null): RunPreview {
+  const ids = accountIds?.length ? new Set(accountIds) : null;
+  const keySet = keys?.length ? new Set(keys) : null;
+  const accounts = new Set<string>();
+  const titles: string[] = [];
+  let items = 0;
+  for (const group of activityGroups.value) {
+    if (keySet && !keySet.has(group.key)) continue;
+    let groupItems = 0;
+    for (const entry of group.entries) {
+      if (!entry.actionable) continue;
+      if (ids && !ids.has(entry.accountId)) continue;
+      groupItems += 1;
+      accounts.add(entry.accountId);
+    }
+    if (groupItems) {
+      items += groupItems;
+      titles.push(group.title);
+    }
+  }
+  return { accounts: accounts.size, items, titles };
+}
+
+/** 页头「一键执行」的悬停提示：非首次执行时也能看到这次会动多大。 */
+const runAllHint = computed(() => {
+  const preview = buildPreview(null, null);
+  return preview.items
+    ? t("activity.preflightBody", {
+        accounts: preview.accounts,
+        items: preview.items,
+        titles: preview.titles.join(" / "),
+      })
+    : t("activity.runAllHint");
+});
+
 function showToast(message: string): void {
   toast.value = message;
   window.clearTimeout((showToast as unknown as { timer?: number }).timer);
@@ -455,9 +550,23 @@ async function loadRuns(): Promise<void> {
 interface PendingRun {
   accountIds: string[];
   keys: string[] | null;
+  preview: RunPreview;
 }
 
 const pendingRun = ref<PendingRun | null>(null);
+
+/** 确认框文案：成长任务告知 + 本次执行的预演（几个号、几项、哪些活动）。 */
+const noticeMessage = computed(() => {
+  const preview = pendingRun.value?.preview;
+  const preflight = preview
+    ? t("activity.preflightBody", {
+        accounts: preview.accounts,
+        items: preview.items,
+        titles: preview.titles.join(" / "),
+      })
+    : "";
+  return preflight ? `${t("activity.noticeBody")}\n\n${preflight}` : t("activity.noticeBody");
+});
 
 /**
  * @param accountIds 限定账号；省略 = 按当前视图推导。
@@ -478,7 +587,12 @@ async function execute(accountIds?: string[], keys?: string[]): Promise<void> {
   }
   const unique = Array.from(new Set(targets));
   if (!growthNoticeAcknowledged()) {
-    pendingRun.value = { accountIds: unique, keys: keys ?? null };
+    pendingRun.value = {
+      accountIds: unique,
+      keys: keys ?? null,
+      // 只给 keys 时「账号范围」是全部，不能用空列表推演。
+      preview: buildPreview(unique.length ? unique : null, keys ?? null),
+    };
     return;
   }
   await runTargets(unique, keys);
@@ -512,6 +626,8 @@ async function runTargets(targets: string[], keys?: string[]): Promise<void> {
     } else {
       showToast(t("activity.toastRunDone", { ok, skipped, failed }));
     }
+    // 勾选已经兑现，清掉避免下次误跑同一批。
+    selectedAccountIds.value = new Set();
     await load(true);
   } catch (cause) {
     showToast((cause as Error).message);
@@ -606,7 +722,7 @@ const runReportView = computed(() =>
           type="button"
           class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-40"
           :disabled="!canRun"
-          :title="actionable ? t('activity.runAllHint') : t('activity.runNoneHint')"
+          :title="actionable ? runAllHint : t('activity.runNoneHint')"
           @click="execute()"
         >
           <Loader2 v-if="running" :size="14" class="animate-spin" />
@@ -697,7 +813,7 @@ const runReportView = computed(() =>
 
     <template v-else-if="tab === 'runs'">
       <div class="mt-3">
-        <ActivityRunsPanel :runs="runs" />
+        <ActivityRunsPanel :runs="runs" :names="accountNames" />
       </div>
     </template>
 
@@ -741,6 +857,56 @@ const runReportView = computed(() =>
     <p v-if="platformFilter === 'trae'" class="mt-2 text-caption text-muted">
       {{ t("activity.traeScopeNote") }}
     </p>
+
+    <!-- 按账号执行：勾选几个号只跑这些号，不动其余账号 -->
+    <div
+      v-if="automatableAccounts.length"
+      class="mt-3 flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface px-4 py-3 shadow-card"
+    >
+      <span class="text-caption text-muted">{{ t("activity.selectAccounts") }}</span>
+      <button
+        v-for="item in automatableAccounts"
+        :key="item.id"
+        type="button"
+        class="inline-flex items-center gap-1 rounded-control border px-2 py-[3px] text-caption transition-colors"
+        :class="
+          selectedAccountIds.has(item.id)
+            ? 'border-brand/40 bg-brand-soft text-brand-dark'
+            : 'border-line bg-surface text-ink-soft hover:border-line-strong'
+        "
+        @click="toggleAccount(item.id)"
+      >
+        <span class="max-w-[140px] truncate">{{ item.displayName }}</span>
+        <span class="tabular-nums opacity-70">{{ accountActionables.get(item.id) }}</span>
+      </button>
+      <button
+        type="button"
+        class="text-caption text-muted transition-colors hover:text-ink"
+        @click="selectAllAutomatable"
+      >
+        {{ t("activity.selectAllAutomatable") }}
+      </button>
+      <button
+        type="button"
+        class="text-caption text-muted transition-colors hover:text-ink"
+        @click="selectedAccountIds = new Set()"
+      >
+        {{ t("accounts.clearSelection") }}
+      </button>
+      <span class="ml-auto text-caption text-muted">
+        {{ t("activity.selectedAccounts", selectedTotals) }}
+      </span>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1 rounded-control bg-brand px-3 py-1.5 text-caption font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-40"
+        :disabled="!selectedTotals.items || running"
+        @click="runSelectedAccounts"
+      >
+        <Loader2 v-if="running" :size="12" class="animate-spin" />
+        <Wand2 v-else :size="12" :stroke-width="1.9" />
+        {{ t("activity.runSelected") }}
+      </button>
+    </div>
 
     <RunReportPanel
       v-if="runReportView"
@@ -946,7 +1112,7 @@ const runReportView = computed(() =>
     <ConfirmDialog
       :open="pendingRun !== null"
       :title="t('activity.noticeTitle')"
-      :message="t('activity.noticeBody')"
+      :message="noticeMessage"
       :confirm-text="t('activity.noticeConfirm')"
       @confirm="confirmNotice"
       @cancel="cancelNotice"

@@ -62,6 +62,8 @@ const emit = defineEmits<{
   preview: [account: Account];
   /** 手动触发这个号的凭据续期 / 验活。 */
   refreshCredential: [account: Account];
+  /** 点击「今日活动」行：只跑这个号的还能自动完成的项。 */
+  runActivity: [account: Account];
 }>();
 
 const PALETTE = [
@@ -95,6 +97,15 @@ const stateMap: Record<string, { textKey: MessageKey; tone: "warn" } | null> = {
 
 /** 只有异常状态（需重新登录 / 未知）才显示徽标；正常/未切换过不显示。 */
 const stateInfo = computed(() => stateMap[props.account.credentialState] ?? null);
+
+/** 今日活动行只有「还有可自动项」且没在跑时才可点，避免空点击。 */
+const canRunActivity = computed(
+  () => (props.activity?.automated ?? 0) > 0 && !props.activityRunning,
+);
+
+const activityHint = computed(() =>
+  props.activity ? t("accounts.activity.runHint", { count: props.activity.automated }) : "",
+);
 
 /** 积分四态：加载中 / 不可查 / 查询失败 / 正常。 */
 const creditState = computed(() => {
@@ -468,9 +479,17 @@ function formatCredits(value: number | null): string {
       </div>
     </div>
 
-    <!-- 今日活动：一行「活动 + 分段条 + 完成数」；只有真的还能做点什么时才多一行说明 -->
+    <!-- 今日活动：一行「活动 + 分段条 + 完成数」；可点即执行这个号还能自动做的项 -->
     <div v-if="activity" class="mt-1">
-      <div class="flex items-center gap-1.5 text-micro leading-none">
+      <button
+        type="button"
+        class="-mx-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-control px-1 py-0.5 text-left text-micro leading-none transition-colors"
+        :class="canRunActivity ? 'cursor-pointer hover:bg-line-soft/70' : 'cursor-default'"
+        :disabled="!canRunActivity"
+        :title="activityHint"
+        :aria-label="activityHint"
+        @click="emit('runActivity', props.account)"
+      >
         <span class="flex shrink-0 items-center gap-1 text-muted">
           <Sparkles
             :size="10.5"
@@ -506,7 +525,7 @@ function formatCredits(value: number | null): string {
           {{ activity.done }}/{{ activity.total }}
         </span>
         <Loader2 v-if="activityRunning" :size="10" class="shrink-0 animate-spin text-brand" />
-      </div>
+      </button>
       <!-- 未完成 / 有手动项才占第二行：全绿时 1/1 已经说明问题，不再重复「今日已完成」 -->
       <div
         v-if="activityRunning || activity.automated || activity.manual"

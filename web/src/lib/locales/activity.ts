@@ -79,6 +79,11 @@ export const activityZh = {
   "activity.noticeBody":
     "本次执行会签到，并在账号有可自动完成的成长任务时，通过平台接口把它们标记为完成——这并非在你的客户端里真实执行了对应操作。\n\n这条链路与「代你点一次签到」性质不同，被平台主张为不当获利的防御力也更弱。账号风险由你自行承担，建议只对本人的账号使用。\n\n此提示只出现一次。",
   "activity.noticeConfirm": "我已了解，继续执行",
+  "activity.preflightBody": "本次将执行 {accounts} 个账号 · {items} 项可自动活动：{titles}",
+  "activity.selectAccounts": "按账号执行",
+  "activity.selectAllAutomatable": "全选还能自动做的",
+  "activity.selectedAccounts": "已选 {accounts} 个账号 · {items} 项",
+  "activity.runSelected": "执行选中",
 
   "activity.tabsLabel": "活动视图",
   "activity.tabOfficial": "官方活动",
@@ -130,6 +135,8 @@ export const activityZh = {
   "activity.officialRunsAll": "全部活动",
   "activity.officialRunsEmpty": "还没有执行记录",
   "activity.officialRunsAttempt": "第 {attempt} 次尝试",
+  "activity.officialRunsAllAccounts": "全部账号",
+  "activity.officialRunsOpenAccount": "在号池查看该账号",
 
   "schedule.title": "计划任务",
   "schedule.subtitle": "分钟粒度、一天多个时点、随机抖动；关掉的应用期间错过的只补跑一次",
@@ -321,6 +328,11 @@ export const activityEn = {
   "activity.noticeBody":
     "This run checks in for you, and — where an account has automatable growth tasks — marks those tasks complete through the platform API. That is not the same as actually performing the action in your client.\n\nBecause of that, this path differs in nature from \"clicking check-in for you\", and offers weaker defence if the platform frames it as improper gain. Account risk is yours; please only use it on accounts you own.\n\nThis notice appears once.",
   "activity.noticeConfirm": "Understood, run it",
+  "activity.preflightBody": "{accounts} accounts · {items} automatable items: {titles}",
+  "activity.selectAccounts": "Run by account",
+  "activity.selectAllAutomatable": "Select all automatable",
+  "activity.selectedAccounts": "{accounts} selected · {items} items",
+  "activity.runSelected": "Run selected",
 
   "activity.tabsLabel": "Activity view",
   "activity.tabOfficial": "Official activities",
@@ -376,6 +388,8 @@ export const activityEn = {
   "activity.officialRunsAll": "All activities",
   "activity.officialRunsEmpty": "No runs yet",
   "activity.officialRunsAttempt": "Attempt {attempt}",
+  "activity.officialRunsAllAccounts": "All accounts",
+  "activity.officialRunsOpenAccount": "Open this account in the pool",
 
   "schedule.title": "Scheduled tasks",
   "schedule.subtitle":
