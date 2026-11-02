@@ -120,7 +120,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 额度网关：配置/Key/日志落盘，真正的转发由 gateway_relay + api/gateway 完成。
     # 选号器同时接两个只读数据源：排除集（持久化）与积分缓存（判断「积分耗尽」）。
     gateway = GatewayStore(resolved.home)
-    credits = CreditsService(repository)
+    # 每次查到新余额就记一笔快照：用量预测靠它算「每天掉多少积分」。
+    credits = CreditsService(repository, on_snapshot=gateway.record_credit_snapshot)
 
     def _pool_on_failure(account_id: str, reason: str, seconds: int | None) -> None:
         """把转发器的连续失败升级成落盘的持久排除。

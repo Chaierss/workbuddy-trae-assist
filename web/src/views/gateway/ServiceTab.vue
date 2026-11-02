@@ -1,11 +1,32 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import SectionCard from "../../components/SectionCard.vue";
+import SelectMenu from "../../components/SelectMenu.vue";
 import StatusPill from "../../components/StatusPill.vue";
-import { t } from "../../lib/i18n";
+import { t, type MessageKey } from "../../lib/i18n";
 import { useGateway } from "./useGateway";
 
-/** 服务：开停开关 + 监听配置。改了不保存的不该看起来已生效，所以表单单独存。 */
+/** 服务：开停开关 + 监听配置 + 选号策略。改了不保存的不该看起来已生效，所以表单单独存。 */
 const store = useGateway();
+
+const routingOptions = computed(() => [
+  { value: "balanced", label: t("gateway.routing.balanced") },
+  { value: "quality", label: t("gateway.routing.quality") },
+  { value: "quota", label: t("gateway.routing.quota") },
+  { value: "smart", label: t("gateway.routing.smart") },
+]);
+
+const ROUTING_HINT_KEY: Record<string, MessageKey> = {
+  balanced: "gateway.routing.balancedHint",
+  quality: "gateway.routing.qualityHint",
+  quota: "gateway.routing.quotaHint",
+  smart: "gateway.routing.smartHint",
+};
+
+const routingHint = computed(() => {
+  const key = ROUTING_HINT_KEY[store.form.routingMode];
+  return key ? t(key) : t("gateway.routing.balancedHint");
+});
 
 function saveForm(): void {
   void store.save({
@@ -14,6 +35,9 @@ function saveForm(): void {
     allowNonLoopback: store.form.allowNonLoopback,
     maxHops: Number(store.form.maxHops),
     logKeep: Number(store.form.logKeep),
+    routingMode: store.form.routingMode,
+    minCredits: Number(store.form.minCredits),
+    maxInflightPerAccount: Number(store.form.maxInflightPerAccount),
   });
 }
 </script>
@@ -164,6 +188,71 @@ function saveForm(): void {
         >
           {{ store.status.error }}
         </div>
+      </div>
+    </SectionCard>
+
+    <SectionCard
+      class="lg:col-span-2"
+      :title="t('gateway.routing.title')"
+      :subtitle="t('gateway.routing.subtitle')"
+    >
+      <div class="space-y-3.5">
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="w-24 shrink-0 text-body-sm text-ink-soft">{{ t("gateway.routing.mode") }}</span>
+          <SelectMenu
+            v-model="store.form.routingMode"
+            :options="routingOptions"
+            class="w-[260px]"
+          />
+        </div>
+        <p class="pl-[108px] text-caption leading-relaxed text-muted">{{ routingHint }}</p>
+
+        <label class="flex flex-wrap items-center gap-3">
+          <span class="w-24 shrink-0 text-body-sm text-ink-soft">{{
+            t("gateway.routing.minCredits")
+          }}</span>
+          <input
+            v-model.number="store.form.minCredits"
+            type="number"
+            min="0"
+            max="100000"
+            step="any"
+            class="h-8 w-32 rounded-control border border-line bg-surface px-3 text-body-sm text-ink focus:border-line-strong focus:outline-none"
+          />
+          <span class="text-caption text-muted">{{ t("gateway.routing.minCreditsHint") }}</span>
+        </label>
+
+        <label class="flex flex-wrap items-center gap-3">
+          <span class="w-24 shrink-0 text-body-sm text-ink-soft">{{
+            t("gateway.routing.maxInflight")
+          }}</span>
+          <input
+            v-model.number="store.form.maxInflightPerAccount"
+            type="number"
+            min="0"
+            max="8"
+            class="h-8 w-32 rounded-control border border-line bg-surface px-3 text-body-sm text-ink focus:border-line-strong focus:outline-none"
+          />
+          <span class="text-caption text-muted">{{ t("gateway.routing.maxInflightHint") }}</span>
+        </label>
+
+        <div class="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            class="rounded-control bg-brand px-3.5 py-2 text-body-sm font-medium text-white transition-colors hover:bg-brand-dark disabled:opacity-60"
+            :disabled="store.saving || !store.dirty"
+            @click="saveForm"
+          >
+            {{ store.saving ? t("gateway.service.saving") : t("gateway.service.save") }}
+          </button>
+          <span v-if="store.dirty" class="text-caption text-warn">{{
+            t("gateway.service.dirty")
+          }}</span>
+        </div>
+
+        <p class="border-t border-line-soft pt-3 text-caption leading-relaxed text-muted">
+          {{ t("gateway.routing.note") }}
+        </p>
       </div>
     </SectionCard>
   </div>

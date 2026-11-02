@@ -64,6 +64,9 @@ export interface GatewayStore {
     maxHops: number;
     catalogRefreshMinutes: number;
     logKeep: number;
+    routingMode: string;
+    minCredits: number;
+    maxInflightPerAccount: number;
   };
   newLabel: string;
   /** 正在改名的 Key id（null = 没有在改名）与其草稿值。 */
@@ -148,6 +151,9 @@ export function createGatewayStore(): GatewayStore {
       maxHops: 3,
       catalogRefreshMinutes: 0,
       logKeep: 200,
+      routingMode: "balanced",
+      minCredits: 0,
+      maxInflightPerAccount: 0,
     },
     newLabel: "",
     renaming: null as string | null,
@@ -194,6 +200,9 @@ export function createGatewayStore(): GatewayStore {
       maxHops: next.maxHops,
       catalogRefreshMinutes: next.catalogRefreshMinutes,
       logKeep: next.logKeep,
+      routingMode: next.routingMode,
+      minCredits: next.minCredits,
+      maxInflightPerAccount: next.maxInflightPerAccount,
     };
     if (!state.probeModel && next.catalog.models.length) {
       state.probeModel = next.catalog.models[0].id;
@@ -469,7 +478,10 @@ export function createGatewayStore(): GatewayStore {
         state.form.allowNonLoopback !== current.allowNonLoopback ||
         state.form.maxHops !== current.maxHops ||
         state.form.catalogRefreshMinutes !== current.catalogRefreshMinutes ||
-        state.form.logKeep !== current.logKeep
+        state.form.logKeep !== current.logKeep ||
+        state.form.routingMode !== current.routingMode ||
+        state.form.minCredits !== current.minCredits ||
+        state.form.maxInflightPerAccount !== current.maxInflightPerAccount
       );
     }),
     logsExportUrl: computed(() => api.gatewayLogsExportUrl(logFilters())),

@@ -31,8 +31,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
@@ -607,11 +609,19 @@ def fetch_workbuddy_credits(
 class CreditsService:
     """按账号查询积分，带短期内存缓存与并发。"""
 
-    def __init__(self, repository: Any, *, ttl: float = CACHE_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        repository: Any,
+        *,
+        ttl: float = CACHE_TTL_SECONDS,
+        on_snapshot: Callable[[str, CreditInfo], None] | None = None,
+    ) -> None:
         self._repo = repository
         self._ttl = ttl
         self._cache: dict[str, tuple[float, CreditInfo]] = {}
         self._lock = threading.Lock()
+        #: 每次拿到**新数据**（不是缓存命中）时的回调，网关靠它攒积分快照账本。
+        self._on_snapshot = on_snapshot
         # trust_env=False：两个平台都是国内直连端点，不应走本机环境代理
         # （旧项目同样显式 no_proxy，理由是自建 MITM 代理会把请求引向死端口）。
         self._client = httpx.Client(timeout=TIMEOUT_SECONDS, trust_env=False)
@@ -640,8 +650,17 @@ class CreditsService:
                     result[account.id] = info
                     with self._lock:
                         self._cache[account.id] = (time.time(), info)
+                    self._snapshot(account.id, info)
 
         return result
+
+    def _snapshot(self, account_id: str, info: CreditInfo) -> None:
+        """把新查到的余额交给订阅方（网关账本）；回调失败不影响查询结果。"""
+        if self._on_snapshot is None or not info.available or info.credits is None:
+            return
+        with contextlib.suppress(Exception):
+            # 账本写失败不能连累积分查询。
+            self._on_snapshot(account_id, info)
 
     def cached(self, account_id: str) -> CreditInfo | None:
         """只读缓存：回「还新鲜」的那一条，**绝不触发新请求**。

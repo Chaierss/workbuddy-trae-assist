@@ -1189,6 +1189,17 @@ export interface GatewayKeyUsage {
   recent: GatewayLogEntry[];
 }
 
+/** 一次换号尝试：日志展开后按顺序列出每跳账号、结果与耗时。 */
+export interface GatewayLogAttempt {
+  accountId: string;
+  accountName: string;
+  /** ok / status / transport / credential / busy。 */
+  outcome: string;
+  status: number;
+  durationMs: number;
+  error: string;
+}
+
 export interface GatewayLogEntry {
   id: string;
   at: string;
@@ -1215,6 +1226,8 @@ export interface GatewayLogEntry {
   sessionId?: string;
   /** 请求内容摘要：最后一条用户消息的文本（截断）；取不到时是空串。探测条目没有这个键。 */
   promptPreview?: string;
+  /** 逐跳轨迹；旧日志条目没有这个字段，前端按空数组处理。 */
+  attempts?: GatewayLogAttempt[];
 }
 
 export interface GatewayStats {
@@ -1242,6 +1255,10 @@ export interface GatewayBreakdown {
     ok: number;
     failed: number;
     hops: number;
+    /** 采样窗口内该号的成功率；没有请求时为 null。 */
+    successRate: number | null;
+    /** 采样窗口内该号的平均耗时（毫秒）；没有可算的样本时为 null。 */
+    avgDurationMs: number | null;
   }[];
   /** 每把下发的 Key 在这批采样里用了多少（与 Key 记录上的累计值不是同一口径）。 */
   byKey: { keyId: string; keyLabel: string; requests: number; tokens: number; ok: number; failed: number }[];
@@ -1261,6 +1278,12 @@ export interface GatewayStatus {
   catalogRefreshMinutes: number;
   /** 请求日志保留条数（50..5000）。 */
   logKeep: number;
+  /** 选号策略：balanced / quality / quota / smart。 */
+  routingMode: string;
+  /** 低于这个积分余额的账号不参与转发；0 = 不设门槛。 */
+  minCredits: number;
+  /** 每个账号允许同时进行的请求数；0 = 不限。 */
+  maxInflightPerAccount: number;
   baseUrl: string;
   chatUrl: string;
   modelsUrl: string;
@@ -1285,6 +1308,9 @@ export interface GatewayConfigPatch {
   maxHops?: number;
   catalogRefreshMinutes?: number;
   logKeep?: number;
+  routingMode?: string;
+  minCredits?: number;
+  maxInflightPerAccount?: number;
 }
 
 export interface GatewayPoolAccount {
@@ -1320,6 +1346,67 @@ export interface GatewayProbeResult {
   accountId: string;
   accountName: string;
   error: string;
+}
+
+/** 日账本里的一天（缺失日由后端补 0，图表不必自己补空）。 */
+export interface GatewayDailyPoint {
+  date: string;
+  requests: number;
+  ok: number;
+  failed: number;
+  promptTokens: number;
+  completionTokens: number;
+  tokens: number;
+}
+
+/** 单号预测：余额 + 消耗速度 + 预计耗尽日；数据不足时字段为 null。 */
+export interface GatewayForecastAccount {
+  accountId: string;
+  name: string;
+  state: string;
+  credits: number | null;
+  total: number | null;
+  tokensWindow: number;
+  tokensPerDay: number | null;
+  trend: "up" | "down" | "stable";
+  creditsBurnPerDay: number | null;
+  daysLeft: number | null;
+  exhaustDate: string | null;
+}
+
+/** 单把 Key 的当日预算进度（只提示，不改限额）。 */
+export interface GatewayForecastKey {
+  keyId: string;
+  label: string;
+  mask: string;
+  active: boolean;
+  todayTokens: number;
+  todayRequests: number;
+  tokenLimit: number;
+  requestLimit: number;
+  todayPercent: number | null;
+  requestPercent: number | null;
+  avgTokensPerDay: number | null;
+  pace: "ok" | "watch" | "over";
+}
+
+export interface GatewayForecast {
+  generatedAt: string;
+  days: number;
+  /** 趋势窗口（天），当前固定 7。 */
+  window: number;
+  series: GatewayDailyPoint[];
+  accounts: GatewayForecastAccount[];
+  keys: GatewayForecastKey[];
+  totals: {
+    tokensWindow: number;
+    tokensPerDay: number | null;
+    requestsWindow: number;
+    activeDays: number;
+    activeKeys: number;
+    topModel: string | null;
+    confidence: "insufficient" | "medium" | "high";
+  };
 }
 
 export interface DocEntry {
@@ -1834,6 +1921,10 @@ export const api = {
 
   /** 网关状态：配置 + 是否在监听 + 计数 + 模型目录。 */
   gatewayStatus: () => request<GatewayStatus>("/api/gateway/status"),
+
+  /** 用量预测：趋势、每号耗尽日、每把 Key 的今日预算（只读，不触发积分查询）。 */
+  gatewayForecast: (days = 14) =>
+    request<GatewayForecast>(`/api/gateway/forecast?days=${days}`),
 
   /** 改网关配置（局部更新，改完立即生效：按下开关就会起停网关端口）。 */
   gatewayConfig: (patch: GatewayConfigPatch) =>

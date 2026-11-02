@@ -1,5 +1,6 @@
 import type { Component } from "vue";
 import {
+  ChartNoAxesColumnIncreasing,
   Gauge,
   KeyRound,
   Layers,
@@ -9,6 +10,7 @@ import {
 } from "lucide-vue-next";
 import type { MessageKey } from "../../lib/i18n";
 import OverviewTab from "./OverviewTab.vue";
+import ForecastTab from "./ForecastTab.vue";
 import ServiceTab from "./ServiceTab.vue";
 import AccessTab from "./AccessTab.vue";
 import KeysTab from "./KeysTab.vue";
@@ -39,6 +41,13 @@ export const GATEWAY_TABS: GatewayTab[] = [
     hintKey: "gateway.tab.overview.hint",
     icon: Gauge,
     component: OverviewTab,
+  },
+  {
+    key: "forecast",
+    labelKey: "gateway.tab.forecast.label",
+    hintKey: "gateway.tab.forecast.hint",
+    icon: ChartNoAxesColumnIncreasing,
+    component: ForecastTab,
   },
   {
     key: "service",

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ from typing import Any
 
 from chaierww.domain.accounts.models import Account, CredentialState
 from chaierww.domain.credits import CreditInfo
+from chaierww.domain.gateway_routing import AccountSignal, RoutingPolicy, rank_accounts
 from chaierww.domain.platform_api import CredentialError, workbuddy_credentials
 
 WB_SCOPE = "workbuddy-cn"
@@ -334,6 +336,9 @@ class GatewayRelay:
         self._failure_streak: dict[str, tuple[str, int]] = {}
         self._sticky: dict[str, str] = {}
         self._rotor: dict[str, int] = {}
+        #: 每个账号当前在途请求数；上限来自路由策略，0 = 不限。
+        self._inflight: dict[str, int] = {}
+        self._inflight_lock = threading.Lock()
         self._catalog: list[CatalogModel] | None = None
         self._catalog_at: float = 0.0
         #: 目录上次写入的**墙上时间**（ISO），只用于界面展示；TTL 判定仍用单调时钟。
@@ -418,13 +423,23 @@ class GatewayRelay:
         remaining = until - self._clock()
         return max(0.0, remaining)
 
-    def pick_order(self, scope: str, *, preferred_account_id: str | None = None) -> list[Account]:
+    def pick_order(
+        self,
+        scope: str,
+        *,
+        preferred_account_id: str | None = None,
+        policy: RoutingPolicy | None = None,
+        signals: dict[str, AccountSignal] | None = None,
+    ) -> list[Account]:
         """挑号顺序：指定偏好 → 粘住上次成功的账号 → 轮转起点依次补位。
 
         已被排除的、积分耗尽的、需重登/凭据坏了的一律**不出现**在结果里；
         冷却中的账号仍然留在队尾等着被重试（冷却只是「先别首选」，不是「不能用」）。
         `preferred_account_id` 只在它**当前可用**时才被提到最前，否则回退常规择优 ——
         对齐「指定账号不可用会回退」的语义。
+
+        传入 `policy` 时改由 `gateway_routing.rank_accounts` 排序（质量 / 余额 /
+        智能打分）；`policy=None` 保持 1.0.0 的「偏好 → 粘性 → 轮转」。
         """
         accounts = self.candidates(scope)
         if not accounts:
@@ -442,27 +457,53 @@ class GatewayRelay:
             else:
                 healthy.append(account)
 
-        preferred = (
-            next((item for item in healthy if item.id == preferred_account_id), None)
-            if preferred_account_id
-            else None
-        )
-        if preferred is not None:
-            healthy = [preferred, *(item for item in healthy if item.id != preferred.id)]
+        if policy is None:
+            preferred = (
+                next((item for item in healthy if item.id == preferred_account_id), None)
+                if preferred_account_id
+                else None
+            )
+            if preferred is not None:
+                healthy = [preferred, *(item for item in healthy if item.id != preferred.id)]
+            else:
+                sticky_id = self._sticky.get(scope)
+                if sticky_id:
+                    healthy.sort(key=lambda account: 0 if account.id == sticky_id else 1)
+                elif len(healthy) > 1:
+                    start = self._rotor.get(scope, 0) % len(healthy)
+                    healthy = healthy[start:] + healthy[:start]
         else:
-            sticky_id = self._sticky.get(scope)
-            if sticky_id:
-                healthy.sort(key=lambda account: 0 if account.id == sticky_id else 1)
-            elif len(healthy) > 1:
-                start = self._rotor.get(scope, 0) % len(healthy)
-                healthy = healthy[start:] + healthy[:start]
+            # `rank_accounts` 已经把冷却中的号按剩余秒数排在队尾，直接整体采用。
+            healthy = rank_accounts(
+                healthy,
+                cooling,
+                signals or {},
+                policy,
+                preferred_id=preferred_account_id,
+                sticky_id=self._sticky.get(scope),
+                rotor=self._rotor.get(scope, 0),
+                cooldown_seconds={account.id: self.cooldown(account.id) for account in cooling},
+            )
+            cooling = []
 
         self._rotor[scope] = self._rotor.get(scope, 0) + 1
         return healthy + cooling
 
-    def pick(self, scope: str, *, preferred_account_id: str | None = None) -> Account | None:
+    def pick(
+        self,
+        scope: str,
+        *,
+        preferred_account_id: str | None = None,
+        policy: RoutingPolicy | None = None,
+        signals: dict[str, AccountSignal] | None = None,
+    ) -> Account | None:
         """挑一个账号：`pick_order(...)` 的第一名；一个都挑不到时返回 `None`。"""
-        order = self.pick_order(scope, preferred_account_id=preferred_account_id)
+        order = self.pick_order(
+            scope,
+            preferred_account_id=preferred_account_id,
+            policy=policy,
+            signals=signals,
+        )
         return order[0] if order else None
 
     def sticky_account(self, scope: str) -> str | None:
@@ -479,7 +520,36 @@ class GatewayRelay:
             except Exception:  # noqa: BLE001 - 持久层写失败不影响本次转发
                 logger.exception("清除账号池持久排除失败：%s", account_id)
 
-    def report_failure(self, account_id: str, *, status: int = 0, reason: str = "") -> None:
+    def try_acquire(self, account_id: str, limit: int = 0) -> bool:
+        """占用一个在途名额。`limit<=0` 表示不限并发，总是成功。"""
+        with self._inflight_lock:
+            current = self._inflight.get(account_id, 0)
+            if limit > 0 and current >= limit:
+                return False
+            self._inflight[account_id] = current + 1
+            return True
+
+    def release(self, account_id: str) -> None:
+        """释放一个在途名额；计数归零时从字典里摘掉，避免无界增长。"""
+        with self._inflight_lock:
+            current = self._inflight.get(account_id, 0)
+            if current <= 1:
+                self._inflight.pop(account_id, None)
+            else:
+                self._inflight[account_id] = current - 1
+
+    def inflight(self, account_id: str) -> int:
+        with self._inflight_lock:
+            return self._inflight.get(account_id, 0)
+
+    def report_failure(
+        self,
+        account_id: str,
+        *,
+        status: int = 0,
+        reason: str = "",
+        retry_after: float | None = None,
+    ) -> None:
         if reason == "credential":
             # 凭据解不开（客户端 DPAPI 信封）是**结构性**问题，本次进程内不再尝试；
             # 同时落盘永久排除，直到用户重新导入凭据 —— 重启不该让死号复活。
@@ -499,6 +569,10 @@ class GatewayRelay:
         else:
             seconds = COOLDOWN_TRANSPORT
             category = "transport"
+        if retry_after is not None and retry_after > 0:
+            # 上游给了 Retry-After 就听它的，但不超过 30 分钟：
+            # 过长的封禁交给持久排除机制，不让一个号在内存里挂一整天。
+            seconds = max(seconds, min(float(retry_after), 1800.0))
         self._cooldown[account_id] = self._clock() + seconds
         # 单次 401/403 只冷却：偶发 WAF 拦截不是死号，不能升级成持久排除。
         if category in ("rate_limited", "upstream"):

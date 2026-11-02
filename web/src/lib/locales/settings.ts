@@ -255,6 +255,8 @@ export const settingsZh = {
 
   "gateway.tab.overview.label": "概览",
   "gateway.tab.overview.hint": "运行状态、用量看板与健康度",
+  "gateway.tab.forecast.label": "用量预测",
+  "gateway.tab.forecast.hint": "7 天趋势、每号耗尽日与 Key 预算",
   "gateway.tab.service.label": "服务",
   "gateway.tab.service.hint": "开停开关、监听地址与换号次数",
   "gateway.tab.access.label": "接入信息",
@@ -608,6 +610,8 @@ export const settingsEn = {
 
   "gateway.tab.overview.label": "Overview",
   "gateway.tab.overview.hint": "Run status, usage board and health",
+  "gateway.tab.forecast.label": "Forecast",
+  "gateway.tab.forecast.hint": "7-day trend, exhaustion dates and key budgets",
   "gateway.tab.service.label": "Service",
   "gateway.tab.service.hint": "Start/stop toggle, listen address and rotation count",
   "gateway.tab.access.label": "Access info",

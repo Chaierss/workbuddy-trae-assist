@@ -23,7 +23,8 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import UTC, date, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -44,6 +45,7 @@ from chaierww.domain.gateway import (
     GatewayRuntime,
     GatewayStore,
 )
+from chaierww.domain.gateway_forecast import build_forecast
 from chaierww.domain.gateway_relay import (
     DEFAULT_SCOPE,
     PROTOCOL_CHAT,
@@ -63,6 +65,7 @@ from chaierww.domain.gateway_relay import (
     resolve_model,
     usage_tokens,
 )
+from chaierww.domain.gateway_routing import RoutingPolicy
 from chaierww.domain.platform_api import CredentialError
 
 logger = logging.getLogger("chaierww")
@@ -88,6 +91,12 @@ class GatewayConfigRequest(BaseModel):
     catalogRefreshMinutes: int | None = None
     #: 请求日志保留条数（50..5000）。
     logKeep: int | None = None
+    #: 选号策略：`balanced` / `quality` / `quota` / `smart`。
+    routingMode: str | None = None
+    #: 低于这个积分余额的账号不参与转发；0 = 不设门槛。
+    minCredits: float | None = None
+    #: 每个账号允许同时进行的请求数；0 = 不限。
+    maxInflightPerAccount: int | None = None
 
 
 class GatewayKeyRequest(BaseModel):
@@ -255,6 +264,43 @@ def gateway_status(request: Request) -> dict[str, Any]:
     }
 
 
+@api_router.get("/forecast", summary="用量预测：趋势、每号耗尽日、每把 Key 的今日预算")
+def gateway_forecast(
+    request: Request, days: int = Query(14, ge=3, le=30)
+) -> dict[str, Any]:
+    """只读日账本 + 积分缓存，**不触发积分查询、不产生任何上游请求**。
+
+    数据不足时照实返回 `confidence = insufficient` 与 `null`，不编造数字。
+    """
+    store, relay = _store(request), _relay(request)
+    series = store.daily(days)
+    # `daily()` 的末行就是「今天」，日期口径与 Key 日额度完全一致。
+    today = date.fromisoformat(series[-1]["date"])
+
+    accounts: list[dict[str, Any]] = []
+    for account in relay.candidates(DEFAULT_SCOPE):
+        info = relay.credits_cached(account.id)
+        available = info is not None and info.available
+        accounts.append(
+            {
+                "id": account.id,
+                "name": account.display_name,
+                "state": relay.state(account),
+                "credits": info.credits if available else None,
+                "total": info.total if available else None,
+                "snapshots": store.credit_snapshots(account.id),
+            }
+        )
+
+    keys = [record.payload() for record in store.keys()]  # noqa: SIM118 - 这是方法不是字典
+    forecast = build_forecast(series, accounts, keys, today=today, window=7)
+    return {
+        "generatedAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
+        "days": days,
+        **forecast,
+    }
+
+
 @api_router.put("/config", summary="修改网关配置（改完立即生效，按下开关会起停网关端口）")
 def update_config(request: Request, body: GatewayConfigRequest) -> dict[str, Any]:
     store = _store(request)
@@ -273,6 +319,11 @@ def update_config(request: Request, body: GatewayConfigRequest) -> dict[str, Any
             pick(body.catalogRefreshMinutes, current.catalog_refresh_minutes)
         ),
         log_keep=int(pick(body.logKeep, current.log_keep)),
+        routing_mode=str(pick(body.routingMode, current.routing_mode)),
+        min_credits=float(pick(body.minCredits, current.min_credits)),
+        max_inflight_per_account=int(
+            pick(body.maxInflightPerAccount, current.max_inflight_per_account)
+        ),
     )
     try:
         store.save_config(updated)
@@ -720,10 +771,19 @@ async def _relay_request(request: Request, protocol: str) -> Response:
     if not decision.allowed:
         return _rate_limited(protocol, decision)
 
+    config = store.config()
     stream = bool(body.get("stream"))
-    hops = store.config().max_hops
+    hops = config.max_hops
+    limit = config.max_inflight_per_account
+    policy = RoutingPolicy.from_config(config)
+    signals = store.account_signals(relay.credits_cached)
     # 「指定账号偏好」来自账号池的人工设置：它可用时才优先，不可用由选号器回退。
-    accounts = relay.pick_order(scope, preferred_account_id=store.preferred_account())
+    accounts = relay.pick_order(
+        scope,
+        preferred_account_id=store.preferred_account(),
+        policy=policy,
+        signals=signals,
+    )
     if not accounts:
         return _protocol_error(
             protocol, 503, "号池里没有可用账号，请先在「号池」里添加账号", code="no_account"
@@ -732,15 +792,33 @@ async def _relay_request(request: Request, protocol: str) -> Response:
     client = httpx.AsyncClient(timeout=_timeout(), trust_env=False)
     handed_off = False
     skipped: list[str] = []
+    attempts: list[dict[str, Any]] = []
+    busy = 0
+    tried = 0
     try:
         for account in accounts[:hops]:
+            # 并发闸门：每号在途上限。调满就跳过这个号，换下一个；
+            # 一个都没能真正发出去时下面回 503 + Retry-After，让客户端过一秒再试。
+            if not relay.try_acquire(account.id, limit):
+                busy += 1
+                skipped.append(f"{account.display_name}（并发已满）")
+                attempts.append(
+                    _attempt(account, outcome="busy", status=0, duration_ms=0)
+                )
+                continue
+
             try:
                 target = _upstream_target(relay, protocol, account, chat_body, model)
             except CredentialError as exc:
+                relay.release(account.id)
                 relay.report_failure(account.id, reason="credential")
                 skipped.append(f"{account.display_name}（{exc}）")
+                attempts.append(
+                    _attempt(account, outcome="credential", status=0, duration_ms=0, error=str(exc))
+                )
                 continue
 
+            tried += 1
             started = time.monotonic()
             try:
                 upstream = await client.send(
@@ -750,13 +828,32 @@ async def _relay_request(request: Request, protocol: str) -> Response:
                     stream=True,
                 )
             except httpx.HTTPError as exc:
+                relay.release(account.id)
                 relay.report_failure(account.id)
-                skipped.append(f"{account.display_name}（上游不可达：{type(exc).__name__}）")
+                detail = f"上游不可达：{type(exc).__name__}"
+                skipped.append(f"{account.display_name}（{detail}）")
+                attempts.append(
+                    _attempt(
+                        account,
+                        outcome="transport",
+                        status=0,
+                        duration_ms=int((time.monotonic() - started) * 1000),
+                        error=detail,
+                    )
+                )
                 continue
 
             status = upstream.status_code
             if status == 200:
                 relay.report_success(scope, account.id)
+                attempts.append(
+                    _attempt(
+                        account,
+                        outcome="ok",
+                        status=200,
+                        duration_ms=int((time.monotonic() - started) * 1000),
+                    )
+                )
                 if stream:
                     handed_off = True
                     if protocol == PROTOCOL_RESPONSES:
@@ -765,6 +862,7 @@ async def _relay_request(request: Request, protocol: str) -> Response:
                             _translated_body(
                                 store, key, account, model, requested_model, protocol,
                                 upstream, client, started, skipped, session_id, prompt_preview,
+                                attempts=attempts, relay=relay,
                             ),
                             media_type="text/event-stream",
                         )
@@ -773,33 +871,64 @@ async def _relay_request(request: Request, protocol: str) -> Response:
                         _stream_body(
                             store, key, account, model, requested_model, protocol,
                             upstream, client, started, skipped, session_id, prompt_preview,
+                            attempts=attempts, relay=relay,
                         ),
                         media_type=upstream.headers.get("content-type", "text/event-stream"),
                     )
-                return await _buffered_response(
-                    store, key, account, model, requested_model, protocol,
-                    upstream, started, skipped, session_id, prompt_preview,
-                )
+                try:
+                    return await _buffered_response(
+                        store, key, account, model, requested_model, protocol,
+                        upstream, started, skipped, session_id, prompt_preview,
+                        attempts=attempts,
+                    )
+                finally:
+                    relay.release(account.id)
 
             text = (await upstream.aread()).decode("utf-8", "replace")
+            retry_after = _retry_after(upstream.headers)
             await upstream.aclose()
-            relay.report_failure(account.id, status=status)
+            relay.release(account.id)
+            relay.report_failure(account.id, status=status, retry_after=retry_after)
             message = _upstream_message(text) or f"上游返回 HTTP {status}"
+            skipped.append(f"{account.display_name}（HTTP {status}）")
+            attempts.append(
+                _attempt(
+                    account,
+                    outcome="status",
+                    status=status,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    error=message,
+                )
+            )
             if not _retryable(status):
                 # 400/404 这类是我们发出去的请求本身有问题，换号也没用 → 直接透给调用方。
                 store.log(_entry(key, account, model, requested_model, ok=False, stream=stream,
                                  status=status, started=started, error=message, skipped=skipped,
-                                 session_id=session_id, prompt_preview=prompt_preview))
+                                 session_id=session_id, prompt_preview=prompt_preview,
+                                 attempts=attempts))
                 store.record_use(key.id)
                 return _protocol_error(protocol, 400 if status < 500 else 502, message)
 
-            skipped.append(f"{account.display_name}（HTTP {status}）")
+        if tried == 0 and busy:
+            store.log(_entry(key, None, model, requested_model, ok=False, stream=stream, status=503,
+                             started=time.monotonic(), error="号池并发已满", skipped=skipped,
+                             session_id=session_id, prompt_preview=prompt_preview,
+                             attempts=attempts))
+            store.record_use(key.id)
+            return _protocol_error(
+                protocol,
+                503,
+                "号池所有账号并发已满，请稍后重试（可提高「每号并发」或增加账号）",
+                code="pool_busy",
+                headers={"Retry-After": "1"},
+            )
 
         last = skipped[-1] if skipped else "没有可用账号"
         message = f"所有账号都没能完成请求：{last}"
         store.log(_entry(key, None, model, requested_model, ok=False, stream=stream, status=502,
                          started=time.monotonic(), error=message, skipped=skipped,
-                         session_id=session_id, prompt_preview=prompt_preview))
+                         session_id=session_id, prompt_preview=prompt_preview,
+                         attempts=attempts))
         store.record_use(key.id)
         return _protocol_error(protocol, 502, message, code="upstream_failed")
     finally:
@@ -819,7 +948,8 @@ async def _buffered_response(
     skipped: list[str],
     session_id: str = "",
     prompt_preview: str = "",
-) -> Response:
+    attempts: list[dict[str, Any]] | None = None,
+) -> Any:
     """非流式：读完上游响应，按入站协议回写。
 
     - chat / responses：上游恒 SSE（`chat_target` 强制流式），先聚合成一条 chat
@@ -837,7 +967,8 @@ async def _buffered_response(
         message = "上游对 Anthropic 非流式请求返回了 SSE，网关不支持这种形状"
         store.log(_entry(key, account, model, requested_model, ok=False, stream=False, status=502,
                          started=started, error=message, skipped=skipped,
-                         session_id=session_id, prompt_preview=prompt_preview))
+                         session_id=session_id, prompt_preview=prompt_preview,
+                         attempts=attempts))
         store.record_use(key.id)
         return _protocol_error(protocol, 502, message, code="bad_upstream_body")
 
@@ -855,14 +986,16 @@ async def _buffered_response(
         message = _upstream_message(text) or "上游返回了无法解析的内容"
         store.log(_entry(key, account, model, requested_model, ok=False, stream=False, status=502,
                          started=started, error=message, skipped=skipped,
-                         session_id=session_id, prompt_preview=prompt_preview))
+                         session_id=session_id, prompt_preview=prompt_preview,
+                         attempts=attempts))
         store.record_use(key.id)
         return _protocol_error(protocol, 502, message, code="bad_upstream_body")
 
     prompt, output = _usage_of(protocol, completion)
     store.log(_entry(key, account, model, requested_model, ok=True, stream=False, status=200,
                      started=started, prompt=prompt, completion=output, skipped=skipped,
-                     session_id=session_id, prompt_preview=prompt_preview))
+                     session_id=session_id, prompt_preview=prompt_preview,
+                     attempts=attempts))
     store.record_use(key.id, tokens=prompt + output)
     return JSONResponse(content=_client_object(protocol, completion, model))
 
@@ -880,6 +1013,8 @@ async def _translated_body(
     skipped: list[str],
     session_id: str = "",
     prompt_preview: str = "",
+    attempts: list[dict[str, Any]] | None = None,
+    relay: GatewayRelay | None = None,
 ) -> AsyncIterator[bytes]:
     """流式：把上游 chat SSE 逐条翻成 Responses 事件（只对 responses 有意义）。"""
     translator = _translator(protocol, model)
@@ -906,10 +1041,14 @@ async def _translated_body(
     finally:
         await upstream.aclose()
         await client.aclose()
+        # 并发名额跟着流一起释放：客户端中途断开也会走到这里（`aclose`）。
+        if relay is not None:
+            relay.release(account.id)
         store.log(_entry(key, account, model, requested_model, ok=ok, stream=True,
                          status=200 if ok else 502, started=started,
                          prompt=prompt, completion=output, error=error, skipped=skipped,
-                         session_id=session_id, prompt_preview=prompt_preview))
+                         session_id=session_id, prompt_preview=prompt_preview,
+                         attempts=attempts))
         store.record_use(key.id, tokens=prompt + output)
 
 
@@ -926,6 +1065,8 @@ async def _stream_body(
     skipped: list[str],
     session_id: str = "",
     prompt_preview: str = "",
+    attempts: list[dict[str, Any]] | None = None,
+    relay: GatewayRelay | None = None,
 ) -> AsyncIterator[bytes]:
     """流式：原样透传上游字节，只在收尾时从尾部解析 usage 并记账。
 
@@ -944,11 +1085,15 @@ async def _stream_body(
     finally:
         await upstream.aclose()
         await client.aclose()
+        # 并发名额跟着流一起释放：客户端中途断开也会走到这里（`aclose`）。
+        if relay is not None:
+            relay.release(account.id)
         prompt, completion = _tail_usage(tail, protocol)
         store.log(_entry(key, account, model, requested_model, ok=ok, stream=True,
                          status=200 if ok else 502, started=started,
                          prompt=prompt, completion=completion, error=error, skipped=skipped,
-                         session_id=session_id, prompt_preview=prompt_preview))
+                         session_id=session_id, prompt_preview=prompt_preview,
+                         attempts=attempts))
         store.record_use(key.id, tokens=prompt + completion)
 
 
@@ -1034,6 +1179,45 @@ def _prompt_preview(body: dict[str, Any] | None) -> str:
     return ""
 
 
+def _attempt(
+    account: Account,
+    *,
+    outcome: str,
+    status: int,
+    duration_ms: int,
+    error: str = "",
+) -> dict[str, Any]:
+    """一次换号尝试的轨迹（随日志落盘，界面展开后按顺序展示）。"""
+    return {
+        "accountId": account.id,
+        "accountName": account.display_name,
+        "outcome": outcome,
+        "status": status,
+        "durationMs": duration_ms,
+        "error": error,
+    }
+
+
+def _retry_after(headers: httpx.Headers) -> float | None:
+    """解析上游 `Retry-After`：秒数或 HTTP-date；解析不出来返回 `None`。"""
+    raw = (headers.get("retry-after") or "").strip()
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
+
+
 def _entry(
     key: ApiKeyRecord,
     account: Account | None,
@@ -1050,6 +1234,7 @@ def _entry(
     skipped: list[str] | None = None,
     session_id: str = "",
     prompt_preview: str = "",
+    attempts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "ok": ok,
@@ -1072,6 +1257,8 @@ def _entry(
         "sessionId": session_id,
         # 请求内容摘要：最后一条用户消息的文本，截断后落盘，供日志与用量抽屉展示。
         "promptPreview": prompt_preview,
+        # 换号轨迹：每次尝试的账号/结果/耗时，界面按顺序展开。
+        "attempts": list(attempts or []),
     }
 
 

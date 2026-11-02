@@ -39,6 +39,11 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
+from chaierww.domain.gateway_routing import (
+    ROUTING_BALANCED,
+    ROUTING_MODES,
+    AccountSignal,
+)
 from chaierww.infra.fsutil import read_json_or_default, write_json_atomic
 from chaierww.logging_setup import mask_identity, redact_text
 
@@ -49,6 +54,9 @@ KEYS_FILENAME = "gateway-keys.json"
 LOGS_FILENAME = "gateway-logs.jsonl"
 STATS_FILENAME = "gateway-stats.json"
 POOL_FILENAME = "gateway-pool.json"
+#: 90 天日级账本（按自然日累计请求/令牌，另存积分快照），供用量预测用。
+DAILY_FILENAME = "gateway-daily.json"
+DAILY_KEEP_DAYS = 90
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8788
@@ -216,6 +224,12 @@ class GatewayConfig:
     catalog_refresh_minutes: int = 30
     #: 请求日志保留条数（50..5000）。调小后立即裁剪内存与落盘。
     log_keep: int = LOG_KEEP
+    #: 选号策略；`balanced` 为默认值，完整兼容 1.0.0 的「粘性 → 轮转」。
+    routing_mode: str = ROUTING_BALANCED
+    #: 低于这个积分余额的账号不参与转发；0 = 不设门槛。
+    min_credits: float = 0.0
+    #: 每个账号允许同时进行的请求数；0 = 不限（升级前行为）。
+    max_inflight_per_account: int = 0
 
     def validate(self) -> None:
         if not self.host or self.host.strip() != self.host:
@@ -226,6 +240,12 @@ class GatewayConfig:
             raise GatewayError("换号次数需在 1-8 之间")
         if not (LOG_KEEP_MIN <= self.log_keep <= LOG_KEEP_MAX):
             raise GatewayError(f"日志保留条数需在 {LOG_KEEP_MIN}-{LOG_KEEP_MAX} 之间")
+        if self.routing_mode not in ROUTING_MODES:
+            raise GatewayError("路由策略不合法")
+        if not (0 <= self.min_credits <= 100_000):
+            raise GatewayError("最低积分需在 0-100000 之间（0 = 不设门槛）")
+        if not (0 <= self.max_inflight_per_account <= 8):
+            raise GatewayError("每号并发需在 0-8 之间（0 = 不限）")
         if self.catalog_refresh_minutes != 0 and not (
             CATALOG_REFRESH_MIN_MINUTES
             <= self.catalog_refresh_minutes
@@ -256,6 +276,9 @@ class GatewayConfig:
             "maxHops": self.max_hops,
             "catalogRefreshMinutes": self.catalog_refresh_minutes,
             "logKeep": self.log_keep,
+            "routingMode": self.routing_mode,
+            "minCredits": self.min_credits,
+            "maxInflightPerAccount": self.max_inflight_per_account,
             "baseUrl": self.base_url,
             "chatUrl": f"{self.base_url}/v1/chat/completions",
             "modelsUrl": f"{self.base_url}/v1/models",
@@ -274,6 +297,9 @@ class GatewayConfig:
                 data.get("catalogRefreshMinutes", DEFAULT_CATALOG_REFRESH_MINUTES)
             ),
             log_keep=int(data.get("logKeep", LOG_KEEP)),
+            routing_mode=str(data.get("routingMode") or ROUTING_BALANCED),
+            min_credits=float(data.get("minCredits") or 0.0),
+            max_inflight_per_account=int(data.get("maxInflightPerAccount") or 0),
         )
 
 
@@ -478,6 +504,7 @@ class GatewayStore:
         self._logs_file = home / LOGS_FILENAME
         self._stats_file = home / STATS_FILENAME
         self._pool_file = home / POOL_FILENAME
+        self._daily_file = home / DAILY_FILENAME
         self._lock = threading.RLock()
         #: 可注入的时钟：跨日滚动与 RPM 窗口都靠它，单测不必真等一天 / 一分钟。
         self._now = now or (lambda: datetime.now().astimezone())
@@ -488,6 +515,9 @@ class GatewayStore:
         self._keys = self._load_keys()
         self._logs = self._load_logs()
         self._pool = self._load_pool()
+        self._daily = self._load_daily()
+        if self._trim_daily_locked():
+            self._save_daily_locked()
         self._stats = _read_json(self._stats_file)
         if not isinstance(self._stats, dict):
             self._stats = {}
@@ -950,6 +980,248 @@ class GatewayStore:
                 self._save_pool_locked()
             return changed
 
+    # ----- 日账本 / 积分快照 -----
+
+    def _load_daily(self) -> dict[str, Any]:
+        data = _read_json(self._daily_file)
+        days = data.get("days") if isinstance(data, dict) else None
+        snapshots = data.get("creditSnapshots") if isinstance(data, dict) else None
+        return {
+            "days": days if isinstance(days, dict) else {},
+            "creditSnapshots": snapshots if isinstance(snapshots, list) else [],
+        }
+
+    def _save_daily_locked(self) -> None:
+        try:
+            _write_json(self._daily_file, self._daily)
+        except OSError:
+            logger.warning("网关日账本写入失败", exc_info=True)
+
+    def _daily_cutoff(self) -> str:
+        return (self._now().date() - timedelta(days=DAILY_KEEP_DAYS - 1)).isoformat()
+
+    def _trim_daily_locked(self) -> bool:
+        """裁掉超过 90 天的日账本与积分快照。返回是否真的删掉了东西。"""
+        cutoff = self._daily_cutoff()
+        days = self._daily["days"]
+        stale_days = [key for key in days if key < cutoff]
+        for key in stale_days:
+            days.pop(key, None)
+        snapshots = self._daily["creditSnapshots"]
+        kept = [
+            item
+            for item in snapshots
+            if isinstance(item, dict) and str(item.get("at") or "")[:10] >= cutoff
+        ]
+        changed = bool(stale_days) or len(kept) != len(snapshots)
+        self._daily["creditSnapshots"] = kept
+        return changed
+
+    def _bump_daily_locked(self, entry: dict[str, Any]) -> None:
+        """一笔业务请求计入当天账本。探测（运维动作）与累计计数一样不计入。"""
+        if entry.get("kind") == "probe":
+            return
+
+        def slot_for(bucket: dict[str, Any], name: str) -> dict[str, Any]:
+            return bucket.setdefault(
+                name,
+                {
+                    "requests": 0,
+                    "ok": 0,
+                    "failed": 0,
+                    "promptTokens": 0,
+                    "completionTokens": 0,
+                },
+            )
+
+        def bump(target: dict[str, Any], prompt: int, completion: int) -> None:
+            target["requests"] = int(target.get("requests") or 0) + 1
+            target["ok" if entry.get("ok") else "failed"] = (
+                int(target.get("ok" if entry.get("ok") else "failed") or 0) + 1
+            )
+            target["promptTokens"] = int(target.get("promptTokens") or 0) + prompt
+            target["completionTokens"] = int(target.get("completionTokens") or 0) + completion
+
+        # 日期用本地时区：日志时间戳是 UTC，直接取前 10 位会在跨零点的那几个小时错一天。
+        day = self._today()
+        prompt = int(entry.get("promptTokens") or 0)
+        completion = int(entry.get("completionTokens") or 0)
+        day_slot = slot_for(self._daily["days"], day)
+        for bucket in ("accounts", "keys", "models"):
+            day_slot.setdefault(bucket, {})
+        bump(day_slot, prompt, completion)
+        account_id = str(entry.get("accountId") or "")
+        if account_id:
+            bump(slot_for(day_slot["accounts"], account_id), prompt, completion)
+        key_id = str(entry.get("keyId") or "")
+        if key_id:
+            bump(slot_for(day_slot["keys"], key_id), prompt, completion)
+        model = str(entry.get("model") or "")
+        if model:
+            bump(slot_for(day_slot["models"], model), prompt, completion)
+        self._trim_daily_locked()
+        self._save_daily_locked()
+
+    def record_credit_snapshot(self, account_id: str, info: Any) -> None:
+        """记一笔积分快照（网关预测靠它算「每天掉多少积分」）。
+
+        `info` 是 `CreditInfo`（鸭子类型取值，避免与积分模块耦合）：
+        查不到余额（`available=False` / `credits=None`）时**不写**，
+        绝不把「查不到」当成 0。同一账号同一天只保留最后一次快照，
+        避免密集采样把账本撑大。
+        """
+        if not account_id or info is None:
+            return
+        if not getattr(info, "available", False) or getattr(info, "credits", None) is None:
+            return
+        credits = float(info.credits)
+        total = getattr(info, "total", None)
+        total_value = float(total) if total is not None else None
+        today = self._today()
+        record = {
+            # 用本地时钟写 `at`：预测按本地自然日切窗口，UTC 时间戳在跨零点时会错一天。
+            "at": self._now().replace(microsecond=0).isoformat(),
+            "accountId": account_id,
+            "credits": round(credits, 4),
+            "total": None if total_value is None else round(total_value, 4),
+            "expiresAt": getattr(info, "expires_at", None),
+        }
+        with self._lock:
+            snapshots = self._daily["creditSnapshots"]
+            # 同一账号同一天只留最后一次快照：账本按天用，不需要小时内的高频点。
+            replaced = False
+            for index, item in enumerate(snapshots):
+                if not isinstance(item, dict):
+                    continue
+                if item.get("accountId") != account_id:
+                    continue
+                if str(item.get("at") or "")[:10] != today:
+                    continue
+                snapshots[index] = record
+                replaced = True
+            if not replaced:
+                snapshots.append(record)
+            self._trim_daily_locked()
+            self._save_daily_locked()
+
+    def latest_credit_snapshot(self, account_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            for item in reversed(self._daily["creditSnapshots"]):
+                if isinstance(item, dict) and item.get("accountId") == account_id:
+                    return dict(item)
+        return None
+
+    def credit_snapshots(self, account_id: str) -> list[dict[str, Any]]:
+        """某账号的全部积分快照（时间升序），供预测算日均消耗。"""
+        with self._lock:
+            return [
+                dict(item)
+                for item in self._daily["creditSnapshots"]
+                if isinstance(item, dict) and item.get("accountId") == account_id
+            ]
+
+    def daily(self, days: int = 14) -> list[dict[str, Any]]:
+        """最近 `days` 天的日账本（升序补齐空白日期，图表不必自己补零）。"""
+        days = max(3, min(days, DAILY_KEEP_DAYS))
+        end = self._now().date()
+        start = end - timedelta(days=days - 1)
+        with self._lock:
+            ledger = dict(self._daily["days"])
+        rows: list[dict[str, Any]] = []
+        cursor = start
+        while cursor <= end:
+            key = cursor.isoformat()
+            slot = ledger.get(key) or {}
+            prompt = int(slot.get("promptTokens") or 0)
+            completion = int(slot.get("completionTokens") or 0)
+            rows.append(
+                {
+                    "date": key,
+                    "requests": int(slot.get("requests") or 0),
+                    "ok": int(slot.get("ok") or 0),
+                    "failed": int(slot.get("failed") or 0),
+                    "promptTokens": prompt,
+                    "completionTokens": completion,
+                    "tokens": prompt + completion,
+                    "accounts": dict(slot.get("accounts") or {}),
+                    "keys": dict(slot.get("keys") or {}),
+                    "models": dict(slot.get("models") or {}),
+                }
+            )
+            cursor += timedelta(days=1)
+        return rows
+
+    def account_signals(
+        self, credits: Callable[[str], Any] | None = None
+    ) -> dict[str, AccountSignal]:
+        """从保留的日志派生每号的成功率 / 平均耗时，并附上积分缓存快照。
+
+        优先用换号轨迹（`attempts`）统计：失败的上游尝试不会成为日志主账号，
+        只看主账号会漏掉一半失败。没有轨迹的旧日志退回主账号口径。
+        """
+        with self._lock:
+            entries = [item for item in self._logs if item.get("kind") != "probe"]
+        raw: dict[str, dict[str, int]] = {}
+        for entry in entries:
+            attempts = entry.get("attempts")
+            if isinstance(attempts, list) and attempts:
+                for attempt in attempts:
+                    if not isinstance(attempt, dict):
+                        continue
+                    account_id = str(attempt.get("accountId") or "")
+                    if not account_id:
+                        continue
+                    outcome = str(attempt.get("outcome") or "")
+                    slot = raw.setdefault(
+                        account_id,
+                        {"success": 0, "failed": 0, "durationSum": 0, "durationCount": 0},
+                    )
+                    if outcome == "ok":
+                        slot["success"] += 1
+                    elif outcome in ("status", "transport", "credential"):
+                        slot["failed"] += 1
+                    duration = attempt.get("durationMs")
+                    if isinstance(duration, int) and duration >= 0:
+                        slot["durationSum"] += duration
+                        slot["durationCount"] += 1
+                continue
+            account_id = str(entry.get("accountId") or "")
+            if not account_id:
+                continue
+            slot = raw.setdefault(
+                account_id,
+                {"success": 0, "failed": 0, "durationSum": 0, "durationCount": 0},
+            )
+            slot["success" if entry.get("ok") else "failed"] += 1
+            duration = entry.get("durationMs")
+            if isinstance(duration, int) and duration >= 0:
+                slot["durationSum"] += duration
+                slot["durationCount"] += 1
+
+        signals: dict[str, AccountSignal] = {}
+        for account_id, slot in raw.items():
+            info = credits(account_id) if credits is not None else None
+            signals[account_id] = AccountSignal(
+                success=slot["success"],
+                failed=slot["failed"],
+                avg_duration_ms=(
+                    int(slot["durationSum"] / slot["durationCount"])
+                    if slot["durationCount"]
+                    else None
+                ),
+                credits=(
+                    float(info.credits)
+                    if info is not None and getattr(info, "credits", None) is not None
+                    else None
+                ),
+                total=(
+                    float(info.total)
+                    if info is not None and getattr(info, "total", None) is not None
+                    else None
+                ),
+            )
+        return signals
+
     # ----- 请求日志 -----
 
     def _load_logs(self) -> list[dict[str, Any]]:
@@ -992,6 +1264,7 @@ class GatewayStore:
                 self._logs = self._logs[-keep:]
                 self._rewrite_logs_locked()
             self._bump_stats_locked(record)
+            self._bump_daily_locked(record)
         return record
 
     def _rewrite_logs_locked(self) -> None:
@@ -1186,12 +1459,18 @@ class GatewayStore:
                     "ok": 0,
                     "failed": 0,
                     "hops": 0,
+                    "durationSum": 0,
+                    "durationCount": 0,
                 },
             )
             acc["requests"] += 1
             acc["tokens"] += tokens
             acc["hops"] += hops
             acc["ok" if ok else "failed"] += 1
+            entry_duration = entry.get("durationMs")
+            if isinstance(entry_duration, int) and entry_duration >= 0:
+                acc["durationSum"] += entry_duration
+                acc["durationCount"] += 1
 
             key_slot = by_key.setdefault(
                 str(entry.get("keyId") or ""),
@@ -1225,6 +1504,15 @@ class GatewayStore:
                 item["tokens"] += tokens
                 if not ok:
                     item["errors"] += 1
+
+        for acc in by_account.values():
+            total_acc = int(acc.get("requests") or 0)
+            count = int(acc.pop("durationCount", 0) or 0)
+            duration_sum_acc = int(acc.pop("durationSum", 0) or 0)
+            acc["successRate"] = (
+                round(int(acc.get("ok") or 0) / total_acc, 4) if total_acc else None
+            )
+            acc["avgDurationMs"] = round(duration_sum_acc / count) if count else None
 
         return {
             "scope": self.log_keep(),

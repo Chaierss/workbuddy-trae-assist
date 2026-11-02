@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { Download, MessageSquareText, Network, Trash2 } from "lucide-vue-next";
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  MessageSquareText,
+  Network,
+  Trash2,
+} from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import SelectMenu from "../../components/SelectMenu.vue";
 import StatusPill from "../../components/StatusPill.vue";
 import { formatTime, type GatewayLogEntry } from "../../api";
-import { t } from "../../lib/i18n";
+import { t, type MessageKey } from "../../lib/i18n";
 import { useGateway } from "./useGateway";
 
 /**
@@ -68,6 +75,34 @@ function resetFilters(): void {
   store.logKeyFilter = "";
   store.logSessionFilter = "";
   void store.reloadLogs();
+}
+
+/** 展开过换号轨迹的日志 id；默认全部收起。 */
+const expanded = ref<string[]>([]);
+
+function toggleAttempts(entry: GatewayLogEntry): void {
+  expanded.value = expanded.value.includes(entry.id)
+    ? expanded.value.filter((id) => id !== entry.id)
+    : [...expanded.value, entry.id];
+}
+
+/** 只有一次尝试且成功时没有可看的东西，其余都值得展开。 */
+function canExpand(entry: GatewayLogEntry): boolean {
+  const attempts = entry.attempts ?? [];
+  return attempts.length > 1 || (attempts.length === 1 && !entry.ok);
+}
+
+const OUTCOME_KEY: Record<string, MessageKey> = {
+  ok: "gateway.logs.outcomeOk",
+  busy: "gateway.logs.outcomeBusy",
+  credential: "gateway.logs.outcomeCredential",
+  transport: "gateway.logs.outcomeTransport",
+  status: "gateway.logs.outcomeStatus",
+};
+
+function outcomeText(outcome: string): string {
+  const key = OUTCOME_KEY[outcome];
+  return key ? t(key) : outcome;
 }
 </script>
 
@@ -196,6 +231,53 @@ function resetFilters(): void {
           </div>
           <div v-if="entry.skipped.length" class="mt-1 text-caption text-muted">
             {{ t("gateway.logs.skipped", { items: entry.skipped.join("；") }) }}
+          </div>
+
+          <div v-if="canExpand(entry)" class="mt-1.5">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/50 hover:text-brand-dark"
+              @click="toggleAttempts(entry)"
+            >
+              <ChevronUp
+                v-if="expanded.includes(entry.id)"
+                :size="12"
+                :stroke-width="1.9"
+              />
+              <ChevronDown v-else :size="12" :stroke-width="1.9" />
+              {{ t("gateway.logs.attempts", { count: (entry.attempts ?? []).length }) }}
+            </button>
+            <ol
+              v-if="expanded.includes(entry.id)"
+              class="mt-1.5 space-y-1 border-l border-line pl-3"
+            >
+              <li
+                v-for="(attempt, index) in entry.attempts ?? []"
+                :key="index"
+                class="flex flex-wrap items-center gap-x-2 text-caption text-muted"
+              >
+                <span class="w-4 shrink-0 text-micro text-muted">{{ index + 1 }}</span>
+                <span class="text-ink-soft">
+                  {{ attempt.accountName || t("gateway.logs.noAccount") }}
+                </span>
+                <span
+                  :class="
+                    attempt.outcome === 'ok'
+                      ? 'text-brand-dark'
+                      : attempt.outcome === 'busy'
+                        ? 'text-warn'
+                        : 'text-danger'
+                  "
+                >
+                  {{ outcomeText(attempt.outcome) }}
+                </span>
+                <span v-if="attempt.status">{{ attempt.status }}</span>
+                <span>{{ attempt.durationMs }}ms</span>
+                <span v-if="attempt.error" class="min-w-0 break-all text-danger">
+                  {{ attempt.error }}
+                </span>
+              </li>
+            </ol>
           </div>
         </li>
       </ul>

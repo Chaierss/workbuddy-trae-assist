@@ -1,7 +1,8 @@
 /**
  * 网关分片：网关各子页、网关视图容器、useGateway、api.ts 里的前端文案。
  * key 前缀：`gateway.*` / `api.*`
- * 注意：`gateway.tab.*` 与 `gateway.shell.*` 归设置分片（网关分栏注册表），本片不要占用。
+ * 注意：`gateway.tab.*` 与 `gateway.shell.*` 归设置分片（网关分栏注册表），本片不要占用；
+ * 新增 tab 时把 label/hint 加到 settings.ts。
  */
 
 export const gatewayZh = {
@@ -289,6 +290,84 @@ export const gatewayZh = {
   "gateway.logs.emptyFiltered": "没有匹配该筛选条件的请求。",
   "gateway.logs.groupByKey": "按 Key 分组",
   "gateway.logs.groupCount": "{count} 条",
+  "gateway.logs.attempts": "换号轨迹（{count} 跳）",
+  "gateway.logs.outcomeOk": "成功",
+  "gateway.logs.outcomeBusy": "并发已满，跳过",
+  "gateway.logs.outcomeCredential": "凭据不可用",
+  "gateway.logs.outcomeTransport": "网络错误",
+  "gateway.logs.outcomeStatus": "上游状态码",
+
+  "gateway.routing.title": "选号策略",
+  "gateway.routing.subtitle": "决定同一个请求优先落到哪个账号；保存后立即生效",
+  "gateway.routing.mode": "策略",
+  "gateway.routing.balanced": "均衡（兼容旧行为）",
+  "gateway.routing.quality": "质量优先",
+  "gateway.routing.quota": "余额优先",
+  "gateway.routing.smart": "智能综合",
+  "gateway.routing.balancedHint":
+    "按「偏好 → 粘性 → 轮转」排序，与升级前完全一致；适合多号同质、想摊平用量。",
+  "gateway.routing.qualityHint":
+    "按成功率降序，成功率相同再比平均耗时；样本少于 5 次的账号按中性处理，不会被误判。",
+  "gateway.routing.quotaHint":
+    "剩余积分多的账号优先；查不到余额的账号不会被排除，只排在有数据的账号之后。",
+  "gateway.routing.smartHint":
+    "成功率占 6 成、余额占 4 成；当前粘性账号加一点小加成，但压不过明显更好的号。",
+  "gateway.routing.minCredits": "积分门槛",
+  "gateway.routing.minCreditsHint":
+    "余额低于该值的账号不参与选号；0 = 不设门槛，查不到余额的账号不受影响",
+  "gateway.routing.maxInflight": "每号并发",
+  "gateway.routing.maxInflightHint":
+    "同一账号同时最多几个请求；0 = 不限，超限自动换号，全部占满时返回 503",
+  "gateway.routing.note":
+    "排序只影响「先用谁」，不会跳过冷却、排除或积分耗尽这些硬约束；冷却中的账号始终排在队尾。",
+
+  "gateway.forecast.readonly": "只读：不触发积分查询，也不发上游请求",
+  "gateway.forecast.refresh": "刷新",
+  "gateway.forecast.loading": "正在计算预测…",
+  "gateway.forecast.empty": "还没有日账本数据。",
+  "gateway.forecast.tokensWindow": "近 {days} 天 tokens",
+  "gateway.forecast.requestsWindow": "{count} 次请求",
+  "gateway.forecast.tokensPerDay": "日均 tokens",
+  "gateway.forecast.activeKeys": "活跃 Key",
+  "gateway.forecast.keysTotal": "共 {count} 把",
+  "gateway.forecast.topModel": "Top 模型",
+  "gateway.forecast.activeDays": "{window} 天里 {days} 天有请求",
+  "gateway.forecast.insufficient": "数据不足",
+  "gateway.forecast.insufficientShort": "数据不足",
+  "gateway.forecast.insufficientHint":
+    "均值只用完整的自然日（不含今天），且至少要有 2 天请求才会给出数字；积分耗尽日需要至少两个不同日期的真实余额快照。数据不足时不做推测。",
+  "gateway.forecast.confidenceInsufficient": "样本不足",
+  "gateway.forecast.confidenceMedium": "样本中等",
+  "gateway.forecast.confidenceHigh": "样本充足",
+  "gateway.forecast.seriesTitle": "日用量趋势",
+  "gateway.forecast.seriesSubtitle": "最近 {days} 天（缺失日按 0 计；与日志条数口径不同）",
+  "gateway.forecast.seriesEmpty": "账本里还没有任何一天的请求。",
+  "gateway.forecast.seriesPoint": "{date} · {requests} 次 · {tokens} tokens",
+  "gateway.forecast.accountsTitle": "每号余额与耗尽日",
+  "gateway.forecast.accountsSubtitle": "按预计耗尽日升序，数据不足的排最后",
+  "gateway.forecast.colAccount": "账号",
+  "gateway.forecast.colState": "状态",
+  "gateway.forecast.colCredits": "积分余额",
+  "gateway.forecast.colPerDay": "日均 tokens",
+  "gateway.forecast.colExhaust": "预计耗尽",
+  "gateway.forecast.colTrend": "趋势",
+  "gateway.forecast.daysLeft": "剩 {days} 天",
+  "gateway.forecast.trendUp": "上升",
+  "gateway.forecast.trendDown": "下降",
+  "gateway.forecast.trendStable": "平稳",
+  "gateway.forecast.accountsNote":
+    "耗尽日 = 最近真实余额 / 窗口内余额下降速度；余额上升（充值）时不计算。趋势是近 3 天对比前 4 天。",
+  "gateway.forecast.keysTitle": "Key 今日预算",
+  "gateway.forecast.keysSubtitle": "只提示，不替用户改限额",
+  "gateway.forecast.keyToday": "今日 tokens",
+  "gateway.forecast.noLimit": "未设限额",
+  "gateway.forecast.keyLimit": "限额 {tokens} / {requests} 次",
+  "gateway.forecast.keyAvg": "日均 {tokens}",
+  "gateway.forecast.paceOk": "正常",
+  "gateway.forecast.paceWatch": "接近上限",
+  "gateway.forecast.paceOver": "已到上限",
+  "gateway.forecast.keysNote":
+    "接近上限 = 今日用量 ≥80% 或 7 天日均超过限额；已到上限 = 今日用量达到限额，之后会返回 429。",
 
   "api.requestFailed": "请求失败（{status}）",
   "api.never": "从未",
@@ -594,6 +673,87 @@ export const gatewayEn = {
   "gateway.logs.emptyFiltered": "No requests match these filters.",
   "gateway.logs.groupByKey": "Group by key",
   "gateway.logs.groupCount": "{count} entries",
+  "gateway.logs.attempts": "Attempt trail ({count} hops)",
+  "gateway.logs.outcomeOk": "Succeeded",
+  "gateway.logs.outcomeBusy": "Concurrency full, skipped",
+  "gateway.logs.outcomeCredential": "Credential unusable",
+  "gateway.logs.outcomeTransport": "Network error",
+  "gateway.logs.outcomeStatus": "Upstream status",
+
+  "gateway.routing.title": "Routing policy",
+  "gateway.routing.subtitle":
+    "Decides which account a request lands on first; changes apply as soon as you save",
+  "gateway.routing.mode": "Policy",
+  "gateway.routing.balanced": "Balanced (legacy behaviour)",
+  "gateway.routing.quality": "Quality first",
+  "gateway.routing.quota": "Balance first",
+  "gateway.routing.smart": "Smart mix",
+  "gateway.routing.balancedHint":
+    "Orders accounts by preferred → sticky → rotation, exactly like before the upgrade; good when accounts are equivalent and you want usage spread evenly.",
+  "gateway.routing.qualityHint":
+    "Sorts by success rate, then by average latency; accounts with fewer than 5 samples stay neutral so they aren't misjudged.",
+  "gateway.routing.quotaHint":
+    "Accounts with more credits go first; accounts whose balance can't be read are not excluded, just placed after those with data.",
+  "gateway.routing.smartHint":
+    "60% success rate plus 40% balance; the current sticky account gets a small bonus that never outweighs a clearly better one.",
+  "gateway.routing.minCredits": "Credit floor",
+  "gateway.routing.minCreditsHint":
+    "Accounts below this balance are left out; 0 = no floor, and accounts with unknown balance are unaffected",
+  "gateway.routing.maxInflight": "Per-account concurrency",
+  "gateway.routing.maxInflightHint":
+    "How many requests one account may serve at once; 0 = unlimited, over-limit requests switch accounts and a full pool returns 503",
+  "gateway.routing.note":
+    "Ordering only decides who goes first; it never bypasses cooldowns, exclusions or exhausted credits. Cooling accounts always stay at the end of the queue.",
+
+  "gateway.forecast.readonly": "Read-only: triggers no credit lookup and no upstream request",
+  "gateway.forecast.refresh": "Refresh",
+  "gateway.forecast.loading": "Calculating forecast…",
+  "gateway.forecast.empty": "No daily ledger data yet.",
+  "gateway.forecast.tokensWindow": "Tokens, last {days} days",
+  "gateway.forecast.requestsWindow": "{count} requests",
+  "gateway.forecast.tokensPerDay": "Tokens per day",
+  "gateway.forecast.activeKeys": "Active keys",
+  "gateway.forecast.keysTotal": "{count} total",
+  "gateway.forecast.topModel": "Top model",
+  "gateway.forecast.activeDays": "{days} of {window} days with requests",
+  "gateway.forecast.insufficient": "Not enough data",
+  "gateway.forecast.insufficientShort": "Not enough data",
+  "gateway.forecast.insufficientHint":
+    "Averages only use complete calendar days (excluding today) and require at least 2 days with requests; the exhaustion date needs real balance snapshots from at least two different dates. When data is insufficient, no estimate is shown.",
+  "gateway.forecast.confidenceInsufficient": "Low confidence",
+  "gateway.forecast.confidenceMedium": "Medium confidence",
+  "gateway.forecast.confidenceHigh": "High confidence",
+  "gateway.forecast.seriesTitle": "Daily usage trend",
+  "gateway.forecast.seriesSubtitle":
+    "Last {days} days (missing days count as 0; not the same as log retention)",
+  "gateway.forecast.seriesEmpty": "No requests in the ledger yet.",
+  "gateway.forecast.seriesPoint": "{date} · {requests} requests · {tokens} tokens",
+  "gateway.forecast.accountsTitle": "Balance and exhaustion by account",
+  "gateway.forecast.accountsSubtitle":
+    "Sorted by estimated exhaustion date; accounts without enough data come last",
+  "gateway.forecast.colAccount": "Account",
+  "gateway.forecast.colState": "State",
+  "gateway.forecast.colCredits": "Credits",
+  "gateway.forecast.colPerDay": "Tokens/day",
+  "gateway.forecast.colExhaust": "Exhaustion",
+  "gateway.forecast.colTrend": "Trend",
+  "gateway.forecast.daysLeft": "{days} days left",
+  "gateway.forecast.trendUp": "Rising",
+  "gateway.forecast.trendDown": "Falling",
+  "gateway.forecast.trendStable": "Stable",
+  "gateway.forecast.accountsNote":
+    "Exhaustion date = latest real balance / balance drop rate inside the window; it is not computed when the balance rose (top-up). Trend compares the last 3 days with the previous 4.",
+  "gateway.forecast.keysTitle": "Key budget today",
+  "gateway.forecast.keysSubtitle": "Advice only — limits are never changed for you",
+  "gateway.forecast.keyToday": "Tokens today",
+  "gateway.forecast.noLimit": "No limit",
+  "gateway.forecast.keyLimit": "Limit {tokens} / {requests} requests",
+  "gateway.forecast.keyAvg": "{tokens} per day",
+  "gateway.forecast.paceOk": "On track",
+  "gateway.forecast.paceWatch": "Near limit",
+  "gateway.forecast.paceOver": "Limit reached",
+  "gateway.forecast.keysNote":
+    "Near limit = 80%+ of today's quota or a 7-day average above the limit; limit reached = today's usage hit the cap, so further calls get a 429.",
 
   "api.requestFailed": "Request failed ({status})",
   "api.never": "Never",

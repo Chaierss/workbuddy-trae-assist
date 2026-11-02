@@ -2157,3 +2157,302 @@ def test_config_endpoint_updates_log_keep(client):
     assert body["logKeep"] == LOG_KEEP_MIN
     rejected = client.put("/api/gateway/config", json={"logKeep": LOG_KEEP_MIN - 1})
     assert rejected.status_code == 400
+
+
+# ---------- 1.1.0：日账本 / 积分快照 / 并发闸门 / 路由配置 ----------
+
+
+def test_daily_ledger_counts_business_requests_only(client, recorder):
+    """日账本按本地自然日累计请求与令牌；运维探测写日志但不进账本。"""
+    token = _issue_key(client)
+    account_id = _seed(client, "u-1", "账号甲")
+    recorder.responses.append(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(
+                'data: {"choices":[{"index":0,"delta":{"content":"好"}}],'
+                '"usage":{"prompt_tokens":4,"completion_tokens":6}}',
+                "data: [DONE]",
+            ),
+        )
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "deepseek-v3", "stream": True, "messages": []},
+    )
+    assert response.status_code == 200, response.text
+
+    store = client.app.state.gateway
+    key_id = client.get("/api/gateway/keys").json()["keys"][0]["id"]
+    today = store.daily(3)[-1]
+    assert today["requests"] == 1
+    assert today["ok"] == 1
+    assert today["tokens"] == 10
+    assert today["accounts"][account_id]["requests"] == 1
+    assert today["accounts"][account_id]["promptTokens"] == 4
+    assert today["accounts"][account_id]["completionTokens"] == 6
+    assert today["keys"][key_id]["requests"] == 1
+    assert today["models"]["deepseek-v3"]["requests"] == 1
+
+    # 探测是运维动作：写日志、写累计计数，但**不**进日账本。
+    recorder.responses.append(httpx.Response(200, json={"id": "msg_1", "content": []}))
+    probe = client.post(
+        "/api/gateway/pool/probe", json={"accountId": account_id, "model": "deepseek-v3"}
+    )
+    assert probe.status_code == 200
+    assert client.app.state.gateway.daily(3)[-1]["requests"] == 1
+
+
+def test_daily_ledger_trims_beyond_ninety_days(tmp_path):
+    """超过 90 天的日账本与积分快照在启动时裁掉；缺失日期由 `daily()` 补零。"""
+    moment = datetime(2026, 11, 2, 12, 0, tzinfo=timezone(timedelta(hours=8)))
+    stale = (moment - timedelta(days=100)).date().isoformat()
+    recent = (moment - timedelta(days=1)).date().isoformat()
+    (tmp_path / "gateway-daily.json").write_text(
+        json.dumps(
+            {
+                "days": {
+                    stale: {"requests": 3, "promptTokens": 30, "completionTokens": 10},
+                    recent: {"requests": 1, "promptTokens": 5, "completionTokens": 2},
+                },
+                "creditSnapshots": [
+                    {"accountId": "a", "at": f"{stale}T10:00:00", "credits": 10.0},
+                    {"accountId": "a", "at": f"{recent}T10:00:00", "credits": 20.0},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = GatewayStore(tmp_path, now=lambda: moment)
+    saved = json.loads((tmp_path / "gateway-daily.json").read_text(encoding="utf-8"))
+    assert stale not in saved["days"]
+    assert recent in saved["days"]
+    assert [item["at"][:10] for item in saved["creditSnapshots"]] == [recent]
+
+    rows = store.daily(90)
+    assert len(rows) == 90
+    assert rows[0]["date"] == (moment.date() - timedelta(days=89)).isoformat()
+    assert rows[-1]["date"] == moment.date().isoformat()
+    assert rows[0]["requests"] == 0
+    assert rows[-2]["requests"] == 1
+    assert rows[-2]["tokens"] == 7
+
+
+def test_credit_snapshot_keeps_last_of_day_and_skips_unavailable(tmp_path):
+    """同一账号同一天只留最后一次快照；查不到余额时绝不写成 0。"""
+    moment = datetime(2026, 11, 2, 12, 0, tzinfo=timezone(timedelta(hours=8)))
+    store = GatewayStore(tmp_path, now=lambda: moment)
+    store.record_credit_snapshot("a", CreditInfo(available=True, credits=100.0, total=200.0))
+    store.record_credit_snapshot("a", CreditInfo(available=True, credits=80.0, total=200.0))
+
+    snapshots = store.credit_snapshots("a")
+    assert len(snapshots) == 1
+    assert snapshots[0]["credits"] == 80.0
+    assert snapshots[0]["total"] == 200.0
+
+    store.record_credit_snapshot("a", CreditInfo(available=False, error="查不了"))
+    store.record_credit_snapshot("a", CreditInfo(available=True, credits=None))
+    assert len(store.credit_snapshots("a")) == 1
+    assert store.latest_credit_snapshot("a")["credits"] == 80.0
+
+    # 换一天再记：覆盖规则只作用于同一天。
+    later = GatewayStore(tmp_path, now=lambda: moment + timedelta(days=1))
+    later.record_credit_snapshot("a", CreditInfo(available=True, credits=50.0))
+    assert len(later.credit_snapshots("a")) == 2
+
+
+def test_inflight_gate_counts_and_never_goes_negative(client):
+    """每号在途计数：上限拒绝、释放归零、多释放不减成负数，0 = 不限。"""
+    relay = client.app.state.gateway_relay
+    account_id = _seed(client, "u-1", "账号甲")
+
+    assert relay.try_acquire(account_id, 2) is True
+    assert relay.try_acquire(account_id, 2) is True
+    assert relay.try_acquire(account_id, 2) is False
+    assert relay.inflight(account_id) == 2
+
+    relay.release(account_id)
+    assert relay.inflight(account_id) == 1
+    relay.release(account_id)
+    assert relay.inflight(account_id) == 0
+    relay.release(account_id)
+    assert relay.inflight(account_id) == 0
+
+    assert relay.try_acquire(account_id, 0) is True
+    assert relay.try_acquire(account_id, 0) is True
+    assert relay.inflight(account_id) == 2
+    relay.release(account_id)
+    relay.release(account_id)
+    assert relay.inflight(account_id) == 0
+
+
+def test_report_failure_honors_retry_after_with_cap(client):
+    """429 的 `Retry-After` 取「基础冷却」与上游值的较大者，并封顶 30 分钟。"""
+    relay = client.app.state.gateway_relay
+    relay.report_failure("slow", status=429, retry_after=120)
+    assert 119 <= relay.cooldown("slow") <= 121
+
+    relay.report_failure("capped", status=429, retry_after=9999)
+    assert 1799 <= relay.cooldown("capped") <= 1800
+
+    # 上游没给 `Retry-After` 时沿用 429 的基础冷却 60 秒。
+    relay.report_failure("plain", status=429)
+    assert 59 <= relay.cooldown("plain") <= 60
+
+
+def test_legacy_gateway_config_uses_new_defaults(tmp_path):
+    """旧版 `gateway.json` 没有三个新字段：读入后按 1.0.0 行为取默认值。"""
+    (tmp_path / "gateway.json").write_text(
+        json.dumps({"enabled": True, "host": "127.0.0.1", "port": 8790}),
+        encoding="utf-8",
+    )
+    config = GatewayStore(tmp_path).config()
+    assert config.enabled is True
+    assert config.port == 8790
+    assert config.routing_mode == "balanced"
+    assert config.min_credits == 0.0
+    assert config.max_inflight_per_account == 0
+
+
+def test_config_endpoint_saves_routing_fields(client):
+    """`PUT /api/gateway/config` 保存三个新字段并在状态里回显。"""
+    body = client.put(
+        "/api/gateway/config",
+        json={"routingMode": "smart", "minCredits": 12.5, "maxInflightPerAccount": 2},
+    ).json()
+    assert body["routingMode"] == "smart"
+    assert body["minCredits"] == 12.5
+    assert body["maxInflightPerAccount"] == 2
+
+    status = client.get("/api/gateway/status").json()
+    assert status["routingMode"] == "smart"
+    assert status["minCredits"] == 12.5
+    assert status["maxInflightPerAccount"] == 2
+
+    assert client.put("/api/gateway/config", json={"routingMode": "nope"}).status_code == 400
+    assert (
+        client.put("/api/gateway/config", json={"maxInflightPerAccount": 9}).status_code
+        == 400
+    )
+    # 被拒绝的修改不留痕：上一次的合法值仍然生效。
+    assert client.app.state.gateway.config().max_inflight_per_account == 2
+
+
+def test_forecast_endpoint_window_bounds_and_empty_ledger(client):
+    """预测端点：`days` 只允许 3..30；空账本照实返回 insufficient。"""
+    assert client.get("/api/gateway/forecast", params={"days": 3}).status_code == 200
+    assert client.get("/api/gateway/forecast", params={"days": 30}).status_code == 200
+    assert client.get("/api/gateway/forecast", params={"days": 2}).status_code == 422
+    assert client.get("/api/gateway/forecast", params={"days": 31}).status_code == 422
+
+    body = client.get("/api/gateway/forecast").json()
+    assert body["days"] == 14
+    assert len(body["series"]) == 14
+    assert "generatedAt" in body
+    assert body["totals"]["confidence"] == "insufficient"
+    assert body["totals"]["tokensPerDay"] is None
+    assert body["totals"]["topModel"] is None
+    assert body["series"][-1]["requests"] == 0
+
+
+def test_pool_busy_returns_503_with_retry_after(client, recorder):
+    """所有账号在途名额都被占满时：503 + `Retry-After: 1` + `pool_busy`，不打上游。"""
+    token = _issue_key(client)
+    account_id = _seed(client, "u-1", "账号甲")
+    relay = client.app.state.gateway_relay
+    saved = client.put("/api/gateway/config", json={"maxInflightPerAccount": 1})
+    assert saved.status_code == 200
+
+    assert relay.try_acquire(account_id, 1)
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "deepseek-v3", "messages": []},
+    )
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "1"
+    assert response.json()["error"]["code"] == "pool_busy"
+    assert recorder.requests == []
+    relay.release(account_id)
+
+
+def test_v1_chat_applies_upstream_retry_after_to_cooldown(client, recorder):
+    """上游 429 带 `Retry-After: 120`：换号成功，同时把冷却时间拉长到 120 秒。"""
+    token = _issue_key(client)
+    _seed(client, "u-1", "账号甲")
+    _seed(client, "u-2", "账号乙")
+    relay = client.app.state.gateway_relay
+    first = relay.candidates(SCOPE)[0].id
+
+    recorder.responses.append(
+        httpx.Response(
+            429,
+            headers={"Retry-After": "120"},
+            json={"error": {"message": "slow down"}},
+        )
+    )
+    recorder.responses.append(
+        httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={
+                "id": "c4",
+                "object": "chat.completion",
+                "model": "deepseek-v3",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "deepseek-v3", "messages": []},
+    )
+    assert response.status_code == 200
+    assert response.json()["choices"][0]["message"]["content"] == "ok"
+    assert len(recorder.requests) == 2
+    assert relay.cooldown(first) >= 119
+
+    logs = client.get("/api/gateway/logs").json()["logs"]
+    assert logs[0]["ok"] is True
+    assert [item["outcome"] for item in logs[0]["attempts"]] == ["status", "ok"]
+    assert logs[0]["attempts"][0]["status"] == 429
+
+
+def test_stream_request_releases_inflight_after_completion(client, recorder):
+    """流式请求收尾（含客户端断开）必须把在途名额还回去。"""
+    token = _issue_key(client)
+    account_id = _seed(client, "u-1", "账号甲")
+    relay = client.app.state.gateway_relay
+    recorder.responses.append(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(
+                'data: {"choices":[{"index":0,"delta":{"content":"流式"}}]}',
+                'data: {"choices":[{"index":0,"delta":{},'
+                '"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":6}}',
+                "data: [DONE]",
+            ),
+        )
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"model": "deepseek-v3", "stream": True, "messages": []},
+    )
+    assert response.status_code == 200
+    assert "流式" in response.text
+    assert relay.inflight(account_id) == 0
