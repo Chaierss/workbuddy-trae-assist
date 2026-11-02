@@ -151,7 +151,14 @@ NSIS 安装器（`oneClick: false`，辅助向导）比「一键装」多了几�
 三份文件随包分发到安装目录：`LICENSE.txt`（PolyForm 全文）、`DISCLAIMER.md`（免责声明）、
 `INSTALL.txt`（`extraFiles` 配置）。协议页只放要点，完整法律文本以安装目录里的为准。
 
-向导一共五页：**欢迎 → 协议 → 安装目录 → 安装中 → 完成**。
+向导页数分两种：
+
+- **首次安装五页**：欢迎 → 协议 → 安装目录 → 安装中 → 完成。
+- **已装过 chaierww 再运行安装包（重装）**：自动切到升级流程，**三页**：升级信息 →
+  安装中 → 完成。协议页与安装目录页由模板的 `skipPageIfUpdated` 跳过，升级信息页显示
+  「已安装版本 → 本次版本、安装位置、资料不动」。
+
+代价是重装向导里不再能改安装位置：确实要换目录，请先卸载再安装。
 
 界面语言在 `package.json` 的 `build.nsis` 里定：`language: "2052"` +
 `installerLanguages: ["zh_CN"]`。不设的话 electron-builder 默认 `1033`（英文），
@@ -160,21 +167,30 @@ NSIS 自带的全套语言编进去再按系统区域挑，英文系统上又会
 
 `build/installer.nsh` 里跟界面有关的动作：
 
-- **欢迎页**（`customWelcomePage` → `MUI_PAGE_WELCOME`）：electron-builder 的辅助向导
+- **欢迎页 + 升级信息页**（`customWelcomePage`）：electron-builder 的辅助向导
   **默认不插欢迎页**，所以 `MUI_WELCOMEPAGE_*` 那组 define 不先补页就是死配置，
-  用户打开安装包第一屏直接是协议要点。这里只多插一个**标准**页，不接管向导流程。
+  用户打开安装包第一屏直接是协议要点。这里插入两页：标准欢迎页（首次安装显示，
+  `--updated` 时由 PRE 回调 `Abort` 跳过）+ 一页自绘的「升级/修复」信息页
+  （只在 `--updated` 显示，首次安装时在 create 里 `Abort`）。
+- **重装自动切升级流程**（`preInit`）：读 `HKCU ${INSTALL_REGISTRY_KEY}` 的
+  `InstallLocation` 判断是否已安装；已安装且非静默时，用 `Exec "$EXEPATH" --updated"`
+  重启自己，命中模板的 `skipPageIfUpdated`。`${isUpdated}` 防止自重启死循环，
+  `${Silent}`（`/S`）不重启，`Exec` 失败则继续走完整五页，不阻断安装。
 - **跳过「为所有用户 / 仅为我安装」**（`customInstallMode`）：模板里的安装范围页
   （`multiUserUi.nsh`）对本软件没用——只写 HKCU、装当前用户目录，留着只会多一次 UAC 提权。
   置 `$isForceCurrentInstall=1` 后该页在 PRE 回调里 `Abort`，等于跳过。
 - **文案**（`MUI_WELCOMEPAGE_*` / `MUI_DIRECTORYPAGE_*` / `MUI_FINISHPAGE_*`）：这些是
   MUI2 的「默认值」——在 `!include MUI2.nsh` 之前 `!define`，MUI_DEFAULT 就不会覆盖。
-  **不要**改写成 `customFinishPage` / `customWelcomePage` 里自绘页面：那会整段替换模板、
-  连带丢掉 `StartApp` 函数，升级 electron-builder 必炸（`customWelcomePage` 只插标准页，安全）。
+  **不要**改写 `customFinishPage`：那会整段替换模板、连带丢掉 `StartApp` 函数，
+  升级 electron-builder 必炸。`customWelcomePage` / `customUnWelcomePage` 里自绘页面是官方钩子，
+  可以用，但里面的 `Function` 必须定义在**宏体内**（宏在页面插入点展开，此时 MUI2 / LogicLib
+  已就位）；顶层只能放 `!include` / `!define` / `Var`。
   完成页文本区默认只有 40u（约 3 行），长文案要加 `MUI_FINISHPAGE_TEXT_LARGE` 才不被裁。
-- **卸载前提示**（`customUnInit` 开头）：弹一次「数据在 `~/.chaierww` 不会被删，重装会回来」，
-  允许取消。**用 `IfSilent` 而不是 LogicLib 的 `${IfNot}`**——本文件被前插在
-  `!include MUI2.nsh` 之前，LogicLib 还没进来；静默卸载（自动更新带 `/S`）绝不能弹框，
-  否则升级会永久卡住。
+- **卸载时由用户决定是否删资料**（`customUnWelcomePage`）：替换默认卸载欢迎页，自绘一页
+  「同时删除我的资料（不可恢复）」勾选框，**默认不勾**、显示位置为 `~/.chaierww`。
+  `customUnInit` 先把 `$cwDeleteUserData` 置 `0`，因此静默卸载（自动更新 / `/S`）永不删除；
+  只有用户在页面上勾选才会在 `customUnInstall` 里 `RMDir /r "$PROFILE\.chaierww"` 与
+  `RMDir /r "$APPDATA\chaierww"`（`HKCU\Software\Chaierss\chaierww` 的路径记忆保留）。
 
 
 ## 开发模式运行

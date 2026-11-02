@@ -4,13 +4,15 @@
 
 【数据位置】账号、凭据、备份、日志、网页版登录态都在：
     %USERPROFILE%\.chaierww
-整个目录拷走就是完整迁移。升级（覆盖安装）不会动它，卸载也不会删除它。
+整个目录拷走就是完整迁移。升级（覆盖安装）不会动它；卸载时默认也保留，是否删除由你当场决定。
 
 【更新偏好】「启动时是否自动检查更新」与「跳过的版本」保存在：
     %APPDATA%\chaierww\update-prefs.json
 
 【怎么卸载】Windows 设置 → 应用 → 已安装的应用 → 找到 chaierww → 卸载。
-卸载只删除程序文件、快捷方式和开始菜单项，不会删除上面的数据目录。
-要彻底清干净，卸载后手动删除 %USERPROFILE%\.chaierww（以及需要重置更新偏好时删除 %APPDATA%\chaierww）。
+卸载会删除程序文件、快捷方式和开始菜单项；向导里有一项「同时删除我的资料」，默认不勾选：
+    不勾选 → 上面的数据目录原样保留，重装后账号自动回来；
+    勾选   → %USERPROFILE%\.chaierww 与 %APPDATA%\chaierww 一并删除，不可恢复。
+静默卸载（自动更新）不会删除任何资料。想事后清理也可以手动删除上面两个目录。
 
 【许可】PolyForm Noncommercial License 1.0.0，全文见本目录 LICENSE.txt；免责声明见 DISCLAIMER.md。
