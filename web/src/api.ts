@@ -25,6 +25,16 @@ export interface Account {
   credentialExpiresAt: string | null;
   /** 是否可自动续期：只有扫码来的 oauth_token 且带 refreshToken 才是 true。 */
   credentialRefreshable: boolean;
+  /** 凭据绑在另一台设备上：客户端侧续期会失败，只能靠号池续期。 */
+  credentialDeviceForeign: boolean;
+  /** 上次凭据巡检时间（ISO）；从未巡检过为 null。 */
+  credentialCheckedAt: string | null;
+  /** 上次成功续期时间（ISO）；失败不更新。 */
+  credentialRefreshedAt: string | null;
+  /** 上次续期的上游原文（失败时是错误信息），没有为空串。 */
+  credentialDetail: string;
+  /** 上次失败的上游错误码（如 Trae 的 20101 / 20403），没有为空串。 */
+  credentialErrorCode: string;
   lastUsedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -145,6 +155,14 @@ export interface CredentialGap {
   expired?: boolean;
   /** 连续认证失败次数；≥3 会熔断自动续期。 */
   probeFailures?: number;
+  /** 上次巡检时间（ISO）。 */
+  credentialCheckedAt?: string | null;
+  /** 上次成功续期时间（ISO）；失败不更新。 */
+  credentialRefreshedAt?: string | null;
+  /** 上次续期的上游原文（失败时是错误信息）。 */
+  probeDetail?: string;
+  /** 上次失败的上游错误码（如 Trae 的 20101 / 20403）。 */
+  probeErrorCode?: string;
   /** 后端给的一句话原因，界面直接展示。 */
   reason?: string;
 }
@@ -1018,6 +1036,8 @@ export interface CredentialRefreshResult {
     | "ok";
   detail: string;
   expiresAt: string | null;
+  /** 上游错误码原文（如 Trae 20403）；成功时为空串。 */
+  errorCode?: string;
 }
 
 export interface CredentialRefreshSummary {

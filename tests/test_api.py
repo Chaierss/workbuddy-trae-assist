@@ -1746,6 +1746,32 @@ def test_account_payload_exposes_expiry_and_refreshability(client):
     assert "refresh-oauth-secret" not in raw
 
 
+def test_account_payload_exposes_audit_and_health_reason(client):
+    from chaierww.domain.accounts.models import CredentialState
+
+    seeded = _seed_oauth(client, external_id="u-bad", name="失效号")
+    repo = client.app.state.repository
+    repo.record_probe(
+        seeded.account.id,
+        "relogin_required",
+        failed=True,
+        detail="20101 refresh token is invalid",
+        error_code="20101",
+    )
+    repo.set_credential_state(seeded.account.id, CredentialState.RELOGIN_REQUIRED)
+
+    accounts = client.get("/api/accounts", params={"scope": SCOPE}).json()["accounts"]
+    item = next(row for row in accounts if row["id"] == seeded.account.id)
+    assert item["credentialCheckedAt"] is not None
+    assert item["credentialRefreshedAt"] is None
+    assert item["credentialDetail"] == "20101 refresh token is invalid"
+    assert item["credentialErrorCode"] == "20101"
+
+    health = client.get("/api/accounts/credential-health").json()
+    assert health["accounts"][0]["probeErrorCode"] == "20101"
+    assert health["accounts"][0]["reason"] == "refreshToken 已被上游吊销，需重新登录"
+
+
 def test_merged_pool_carries_same_credential_meta(client):
     expires = "2031-02-03T04:05:06+00:00"
     _seed_oauth(client, expires_at=expires)

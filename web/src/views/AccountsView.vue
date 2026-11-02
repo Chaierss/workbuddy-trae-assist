@@ -84,7 +84,7 @@ const toast = ref<string | null>(null);
  * - 正面口径（usable / today）：筛可用账号 / 有活动余量的账号；
  * - total 是「号池总数」专用：点它不是筛，而是清空筛选回到全部。
  */
-type RiskKey = "" | "credential" | "expiring" | "low" | "usable" | "today";
+type RiskKey = "" | "credential" | "expiring" | "low" | "usable" | "today" | "renew" | "relogin";
 type FilterKey = RiskKey | "total";
 const riskFilter = ref<RiskKey>("");
 
@@ -129,11 +129,12 @@ function readViewPrefs(): void {
     if (["all", "workbuddy", "trae"].includes(data.platform ?? "")) {
       platformFilter.value = data.platform as PoolViewPrefs["platform"];
     }
-    // 0.9.x 存的是 relogin，0.10.0 起统一叫 credential。
     const storedRisk = data.risk as string | undefined;
-    if (storedRisk === "relogin") {
-      riskFilter.value = "credential";
-    } else if (["", "credential", "expiring", "low", "usable", "today"].includes(storedRisk ?? "")) {
+    if (
+      ["", "credential", "expiring", "low", "usable", "today", "renew", "relogin"].includes(
+        storedRisk ?? "",
+      )
+    ) {
       riskFilter.value = (storedRisk ?? "") as RiskKey;
     }
   } catch {
@@ -146,7 +147,7 @@ readViewPrefs();
 // URL 上的 ?risk= 预置筛选优先级高于 localStorage：概览等页面点「凭据异常」跳过来
 // 时带上参数，号池页直接落到对应筛选，不用再手点一次。合法值才认，非法忽略。
 const route = useRoute();
-const RISK_KEYS: RiskKey[] = ["credential", "expiring", "low", "usable", "today"];
+const RISK_KEYS: RiskKey[] = ["credential", "expiring", "low", "usable", "today", "renew", "relogin"];
 if (route.query.risk === "relogin") {
   riskFilter.value = "credential";
 } else if (
@@ -576,6 +577,17 @@ const visible = computed(() => {
     list = list.filter((item) => credentialIssueAccounts.value.includes(item));
   } else if (riskFilter.value === "usable") {
     list = list.filter((item) => item.credentialState === "usable");
+  } else if (riskFilter.value === "relogin") {
+    list = list.filter((item) => item.credentialState === "relogin_required");
+  } else if (riskFilter.value === "renew") {
+    const limit = 6 * 3600 * 1000;
+    list = list.filter((item) => {
+      if (!item.credentialRefreshable || !item.credentialExpiresAt) return false;
+      const at = Date.parse(item.credentialExpiresAt);
+      if (Number.isNaN(at)) return false;
+      const left = at - Date.now();
+      return left > 0 && left <= limit;
+    });
   } else if (riskFilter.value === "expiring") {
     list = list.filter((item) => credits.value[item.id]?.expiringSoon === true);
   } else if (riskFilter.value === "low") {
@@ -810,6 +822,17 @@ const TONE_TEXT: Record<HealthStat["tone"], string> = {
 
 const health = computed<HealthStat[]>(() => {
   const usable = accounts.value.filter((item) => item.credentialState === "usable").length;
+  const relogin = accounts.value.filter(
+    (item) => item.credentialState === "relogin_required",
+  ).length;
+  // 待续期：可自动续期且 6 小时内到期（与后端提前窗口上限一致）。
+  const renewSoon = accounts.value.filter((item) => {
+    if (!item.credentialRefreshable || !item.credentialExpiresAt) return false;
+    const at = Date.parse(item.credentialExpiresAt);
+    if (Number.isNaN(at)) return false;
+    const left = at - Date.now();
+    return left > 0 && left <= 6 * 3600 * 1000;
+  }).length;
   const expiring = Object.values(credits.value).filter((item) => item.expiringSoon).length;
   const low = accounts.value.filter((item) => {
     const info = credits.value[item.id];
@@ -841,6 +864,22 @@ const health = computed<HealthStat[]>(() => {
       hint: t("accounts.health.credentialHint", credentialIssueCounts.value),
       tone: attentionCount.value ? "warn" : "neutral",
       risk: attentionCount.value ? "credential" : undefined,
+    },
+    {
+      key: "renew",
+      label: t("accounts.health.renew"),
+      value: renewSoon,
+      hint: t("accounts.health.renewHint"),
+      tone: renewSoon ? "warn" : "neutral",
+      risk: renewSoon ? "renew" : undefined,
+    },
+    {
+      key: "relogin",
+      label: t("accounts.health.relogin"),
+      value: relogin,
+      hint: t("accounts.health.reloginHint"),
+      tone: relogin ? "danger" : "neutral",
+      risk: relogin ? "relogin" : undefined,
     },
     {
       key: "expiring",
@@ -882,6 +921,8 @@ function applyRisk(risk?: FilterKey): void {
 
 const riskLabel = computed(() => {
   if (riskFilter.value === "credential") return t("accounts.health.credential");
+  if (riskFilter.value === "renew") return t("accounts.health.renew");
+  if (riskFilter.value === "relogin") return t("accounts.health.relogin");
   if (riskFilter.value === "expiring") return t("accounts.health.expiring");
   if (riskFilter.value === "low") return t("accounts.health.low");
   if (riskFilter.value === "usable") return t("accounts.health.usable");
@@ -1271,6 +1312,17 @@ const detectedBundle = computed(() => {
     return null;
   }
 });
+
+/** 卡片「重新扫码登录」：按这个号的平台打开对应二维码弹窗。 */
+function openRelogin(item: Account): void {
+  oauthPlatform.value = item.platform === "trae" ? "trae" : "workbuddy";
+  oauthOpen.value = true;
+}
+
+/** 卡片「从客户端导入」：复用统一导入入口（导入当前客户端登录的号）。 */
+function reimportFromClient(): void {
+  void onImport();
+}
 
 async function onImport(): Promise<void> {
   importing.value = true;
@@ -2018,6 +2070,8 @@ const confirmText = computed(() => {
           @filter="applyRisk"
           @preview="loadPreview"
           @refresh-credential="(item) => runCredentialSweep('due', [item.id])"
+          @relogin="openRelogin"
+          @reimport="reimportFromClient"
           @run-activity="(item) => runActivitiesFor([item.id])"
         />
       </div>

@@ -100,6 +100,8 @@ class RefreshOutcome:
     expires_at: str | None = None
     detail: str = ""
     retry_after: float | None = None
+    #: 上游返回的错误码原文（如 Trae ``20101`` / ``20403``）。成功时为空。
+    error_code: str = ""
 
 
 def _now_iso() -> str:
@@ -225,6 +227,7 @@ def _outcome_from_response(
     status = resp.status_code
     code = _code_of(payload)
     message = _message_of(payload)
+    code_text = "" if code is None else str(code).strip()
 
     if status == 200:
         access = _search(payload, _ACCESS_KEYS)
@@ -258,6 +261,7 @@ def _outcome_from_response(
         return RefreshOutcome(
             status=STATUS_TRANSIENT,
             detail="上游 WAF 拦截（code=10085），不是令牌失效",
+            error_code=code_text,
         )
 
     if status == 429 or status >= 500:
@@ -265,23 +269,27 @@ def _outcome_from_response(
             status=STATUS_TRANSIENT,
             detail=message or f"上游暂不可用（HTTP {status}）",
             retry_after=_retry_after(resp),
+            error_code=code_text,
         )
 
     if status in (400, 401):
         return RefreshOutcome(
             status=STATUS_RELOGIN_REQUIRED,
             detail=message or f"刷新被拒绝（HTTP {status}），请重新登录",
+            error_code=code_text,
         )
 
     if status == 403:
         return RefreshOutcome(
             status=STATUS_RELOGIN_REQUIRED,
             detail=message or "刷新被拒绝（HTTP 403），请重新登录",
+            error_code=code_text,
         )
 
     return RefreshOutcome(
         status=STATUS_TRANSIENT,
         detail=message or f"未预期的响应（HTTP {status}）",
+        error_code=code_text,
     )
 
 
@@ -520,6 +528,7 @@ class TraeRefresher(_Refresher):
             return RefreshOutcome(
                 status=STATUS_RELOGIN_REQUIRED,
                 detail=message or f"刷新被拒绝（code={code}），请重新登录",
+                error_code=code,
             )
         if status in (404, 405, 501):
             return RefreshOutcome(
@@ -530,16 +539,19 @@ class TraeRefresher(_Refresher):
                 status=STATUS_TRANSIENT,
                 detail=message or f"上游暂不可用（HTTP {status}）",
                 retry_after=_retry_after(resp),
+                error_code=code,
             )
         if status in (400, 401, 403):
             return RefreshOutcome(
                 status=STATUS_RELOGIN_REQUIRED,
                 detail=message or f"刷新被拒绝（HTTP {status}），请重新登录",
+                error_code=code,
             )
         if status != 200:
             return RefreshOutcome(
                 status=STATUS_TRANSIENT,
                 detail=message or f"未预期的响应（HTTP {status}）",
+                error_code=code,
             )
 
         result = payload.get("Result") if isinstance(payload, dict) else None
@@ -681,3 +693,20 @@ def refresher_for(platform: str) -> _Refresher | None:
     if platform == "trae":
         return TraeRefresher()
     return None
+
+
+def trae_device_foreign(credential: dict[str, Any]) -> bool:
+    """这份 Trae 扫码凭据是否绑在别的设备上（本机续期过不了 DeviceProof）。
+
+    只看 ``oauth-token``：信封凭据的设备密钥就在信封里，不存在「导入到别处」。
+    缺设备私钥且 deviceId 又与本站不匹配时返回 True；判断本身绝不抛错。
+    """
+    if credential.get("format") != "oauth-token":
+        return False
+    refresher = refresher_for("trae")
+    if not isinstance(refresher, TraeRefresher):
+        return False
+    try:
+        return refresher._device(credential) is None
+    except (CredentialError, TraeCryptoError):
+        return False

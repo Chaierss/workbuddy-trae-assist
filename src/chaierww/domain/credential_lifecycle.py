@@ -9,8 +9,9 @@
 
 ## 三种模式
 
-- ``due``：只续「有效期已知且距到期 ≤30 分钟」的号。未知有效期的号**不发请求** ——
-  这是把「默认开启自动续期」的日常上游压力压到接近零的关键。
+- ``due``：只续「有效期已知且进入提前窗口」的号。窗口 = min(6 小时, 寿命 × 10%)，
+  下限 30 分钟；寿命未知的老凭据退回 30 分钟。这是把「默认开启自动续期」的日常
+  上游压力压到接近零的关键。连续失败还会退避（1h / 6h / 熔断）。
 - ``force``：逐号强制续期（用户手动点的「续期凭据」）。没有 refreshToken 的号如实
   报「不支持」，不算失败。
 - ``check``：不刷新，只打一次只读的状态接口验活（Trae `checkin_credits/status`、
@@ -39,6 +40,7 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -75,11 +77,19 @@ from chaierww.domain.trae_crypto import TraeCryptoError, tc_decrypt
 
 logger = logging.getLogger("chaierww")
 
-#: 续期窗口：只在到期前 30 分钟内才发刷新请求。
+#: 续期窗口下限：最短也要提前 30 分钟，避免短寿命令牌刚拿到就过期。
 REFRESH_WINDOW = timedelta(minutes=30)
+#: 续期窗口上限：再长的令牌也不提前超过 6 小时续期，控制日常上游压力。
+MAX_REFRESH_WINDOW = timedelta(hours=6)
 #: 过期时间未知的号：不再永久跳过，而是按这个间隔做一次「盲续期」探针。
 #: 12 小时 ≈ 一天两次巡检各命中一次，不会变成持续打上游。
 BLIND_REFRESH_INTERVAL = timedelta(hours=12)
+#: 失败退避：连续失败第 1 次等 1 小时、第 2 次等 6 小时；第 3 次直接熔断。
+#: 退避只作用于自动巡检，手动 force 与 check 不受影响。
+FAILURE_BACKOFF: dict[int, timedelta] = {
+    1: timedelta(hours=1),
+    2: timedelta(hours=6),
+}
 #: 连续认证失败（401/403）达到这个次数就停止自动续期：再试也只是再失败一次，
 #: 而且会给上游网关累积「坏请求」画像。手动「强制续期」不受此限。
 AUTH_FAILURE_LIMIT = 3
@@ -112,6 +122,8 @@ class SweepResult:
     status: str
     detail: str = ""
     expires_at: str | None = None
+    #: 上游错误码原文（如 Trae ``20101``）。没有就为空串。
+    error_code: str = ""
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -121,6 +133,7 @@ class SweepResult:
             "status": self.status,
             "detail": self.detail,
             "expiresAt": self.expires_at,
+            "errorCode": self.error_code,
         }
 
 
@@ -276,6 +289,64 @@ def token_expiry(kind: str, credential: dict[str, Any]) -> datetime | None:
     return None
 
 
+def _refresh_window(lifetime: timedelta | None) -> timedelta:
+    """提前续期窗口 = min(6h, 寿命 × 10%)，下限 30 分钟。
+
+    寿命未知（老导入凭据）时退回 30 分钟：宁可晚一点续，也不凭空放大上游压力。
+    """
+    if lifetime is None or lifetime <= timedelta(0):
+        return REFRESH_WINDOW
+    window = lifetime * 0.1
+    return max(REFRESH_WINDOW, min(MAX_REFRESH_WINDOW, window))
+
+
+def _jwt_issued(token: str) -> datetime | None:
+    """解 JWT payload 的 ``iat``（**不验签**），用于估算令牌寿命。"""
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    segment = parts[1]
+    padding = "=" * (-len(segment) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(segment + padding))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return _as_datetime(payload.get("iat"))
+
+
+def token_lifetime(kind: str, credential: dict[str, Any]) -> timedelta | None:
+    """估算令牌寿命（过期 - 签发）。拿不到签发时间就返回 None，绝不猜。"""
+    expiry = token_expiry(kind, credential)
+    if expiry is None:
+        return None
+
+    issued = _as_datetime(
+        credential.get("issuedAt") or credential.get("issued_at")
+    )
+    if issued is None:
+        for key in ("accessToken", "access_token", "jwt", "JWT", "token", "Token"):
+            value = credential.get(key)
+            if isinstance(value, str) and value.strip():
+                issued = _jwt_issued(value.strip())
+                if issued is not None:
+                    break
+    if issued is None:
+        # Trae 信封里的 cloudide 会话也带 token；解不出来就不猜。
+        info = _cloudide_session(credential) if credential.get("format") == "raw-file" else None
+        if info is not None:
+            issued = _as_datetime(info.get("issuedAt") or info.get("iat"))
+            if issued is None:
+                token = info.get("token")
+                if isinstance(token, str) and token.strip():
+                    issued = _jwt_issued(token.strip())
+    if issued is None:
+        return None
+    lifetime = expiry - issued
+    return lifetime if lifetime > timedelta(0) else None
+
+
 def refreshable(kind: str, credential: dict[str, Any]) -> bool:
     """这个号能不能自动续期。
 
@@ -335,11 +406,15 @@ class CredentialLifecycleService:
         gap_seconds: float = ACCOUNT_GAP_SECONDS,
         cache_ttl: float = CACHE_TTL_SECONDS,
         now: Any = None,
+        reconcile: Callable[[list[Account]], None] | None = None,
     ) -> None:
         self._repo = repository
         self._gap = max(0.0, float(gap_seconds))
         self._cache_ttl = max(0.0, float(cache_ttl))
         self._now = now or (lambda: datetime.now(UTC))
+        #: 巡检前回调：把「当前客户端登录的号」的最新会话收回号池。
+        #: 只对 due / force 生效；check 是只读验活，不该顺手改凭据。
+        self._reconcile = reconcile
         self._locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
         self._cache: dict[str, tuple[float, SweepResult]] = {}
@@ -353,6 +428,11 @@ class CredentialLifecycleService:
         """按模式巡检一批账号。账号之间串行 + 固定间隔，单号失败不影响其余。"""
         if mode not in MODES:
             raise ValueError(f"未知的巡检模式：{mode}")
+        if mode != MODE_CHECK and self._reconcile is not None:
+            try:
+                self._reconcile(accounts)
+            except Exception:  # noqa: BLE001 - 对账只是增益，失败不能阻断巡检
+                logger.exception("巡检前客户端凭据对账失败")
         results: list[SweepResult] = []
         for index, account in enumerate(accounts):
             if index and mode != MODE_CHECK:
@@ -462,6 +542,18 @@ class CredentialLifecycleService:
                 f"连续 {failures} 次认证失败，已暂停自动续期；请重新登录后再试",
                 _iso(expiry),
             )
+        if not force and failures:
+            # 失败退避：第 1 次等 1 小时、第 2 次等 6 小时，避免对死号反复打上游。
+            wait = FAILURE_BACKOFF.get(failures)
+            last = parse_expiry(self._repo.probe_times([account.id]).get(account.id))
+            if wait is not None and last is not None and now - last < wait:
+                return self._result(
+                    account,
+                    RESULT_NOOP,
+                    f"上次失败后 {_human_delta(now - last)}，"
+                    f"{_human_delta(wait - (now - last))}后再试",
+                    _iso(expiry),
+                )
         if not force:
             if expiry is None:
                 # 过期时间未知：不猜时间点，但也不能永远跳过。
@@ -477,11 +569,13 @@ class CredentialLifecycleService:
                     )
             else:
                 remaining = expiry - now
-                if remaining > REFRESH_WINDOW:
+                window = _refresh_window(token_lifetime(kind, credential))
+                if remaining > window:
                     return self._result(
                         account,
                         RESULT_NOOP,
-                        f"距到期还有 {_human_delta(remaining)}，暂不续期",
+                        f"距到期还有 {_human_delta(remaining)}，"
+                        f"{_human_delta(remaining - window)}后再续期",
                         _iso(expiry),
                     )
 
@@ -495,6 +589,9 @@ class CredentialLifecycleService:
             account.id,
             outcome.status,
             failed=outcome.status == STATUS_RELOGIN_REQUIRED,
+            detail=outcome.detail,
+            error_code=outcome.error_code,
+            refreshed=outcome.status == STATUS_REFRESHED,
         )
         if outcome.status == STATUS_REFRESHED and outcome.credential is not None:
             expires_at = outcome.expires_at or _iso(token_expiry(kind, outcome.credential))
@@ -526,7 +623,13 @@ class CredentialLifecycleService:
             self._set_state(account.id, CredentialState.RELOGIN_REQUIRED)
             self.invalidate(account.id)
             logger.info("凭据需重新登录：%s（%s）", account.id, account.display_name)
-            return self._result(account, RESULT_RELOGIN_REQUIRED, outcome.detail, _iso(expiry))
+            return self._result(
+                account,
+                RESULT_RELOGIN_REQUIRED,
+                outcome.detail,
+                _iso(expiry),
+                error_code=outcome.error_code,
+            )
 
         if outcome.status == STATUS_UNSUPPORTED:
             # 端点不存在 / 响应形状不认识：账号本身没坏，状态不动 ——
@@ -540,10 +643,22 @@ class CredentialLifecycleService:
                     f"凭据已过期且续期未成功：{outcome.detail}",
                     _iso(expiry),
                 )
-            return self._result(account, RESULT_UNSUPPORTED, outcome.detail, _iso(expiry))
+            return self._result(
+                account,
+                RESULT_UNSUPPORTED,
+                outcome.detail,
+                _iso(expiry),
+                error_code=outcome.error_code,
+            )
 
         # transient：保持原状态，如实报失败。
-        return self._result(account, RESULT_FAILED, outcome.detail, _iso(expiry))
+        return self._result(
+            account,
+            RESULT_FAILED,
+            outcome.detail,
+            _iso(expiry),
+            error_code=outcome.error_code,
+        )
 
     def _check(
         self,
@@ -634,6 +749,8 @@ class CredentialLifecycleService:
         status: str,
         detail: str,
         expires_at: str | None = None,
+        *,
+        error_code: str = "",
     ) -> SweepResult:
         return SweepResult(
             account_id=account.id,
@@ -642,16 +759,33 @@ class CredentialLifecycleService:
             status=status,
             detail=detail,
             expires_at=expires_at,
+            error_code=error_code,
         )
 
     def _set_state(self, account_id: str, state: CredentialState) -> None:
         with contextlib.suppress(AccountNotFound):
             self._repo.set_credential_state(account_id, state)
 
-    def _note_probe(self, account_id: str, status: str, *, failed: bool = False) -> None:
+    def _note_probe(
+        self,
+        account_id: str,
+        status: str,
+        *,
+        failed: bool = False,
+        detail: str = "",
+        error_code: str = "",
+        refreshed: bool = False,
+    ) -> None:
         """记录一次续期探测；写失败只降级为日志，不让巡检因此中断。"""
         try:
-            self._repo.record_probe(account_id, status, failed=failed)
+            self._repo.record_probe(
+                account_id,
+                status,
+                failed=failed,
+                detail=detail,
+                error_code=error_code,
+                refreshed=refreshed,
+            )
         except Exception:  # noqa: BLE001 - 探测时间只是节流信息，写不进去不影响结论
             logger.exception("记录凭据探测时间失败：%s", account_id)
 

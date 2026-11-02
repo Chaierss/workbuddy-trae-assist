@@ -49,6 +49,7 @@ from chaierww.domain.credential_lifecycle import (
     parse_expiry,
     refreshable,
 )
+from chaierww.domain.credential_refresh import trae_device_foreign
 from chaierww.domain.preferences import (
     clean_global_parts,
     clean_onboarding_steps,
@@ -107,12 +108,15 @@ def _account_payload(
     *,
     credential_expires_at: str | None = None,
     credential_refreshable: bool = False,
+    credential_device_foreign: bool = False,
+    probe: dict[str, object] | None = None,
 ) -> dict[str, Any]:
     """对外只暴露界面需要的字段，凭据永远不出现在响应里。
 
-    `credentialExpiresAt` / `credentialRefreshable` 由列表接口批量注入
-    （见 `_credential_meta`），单号接口保持默认值也不会误报「可续期」。
+    `credentialExpiresAt` / `credentialRefreshable` / 巡检明细由列表接口批量注入
+    （见 `_credential_meta` / `_probe_meta`），单号接口保持默认值也不会误报。
     """
+    probe = probe or {}
     return {
         "id": account.id,
         "scope": account.scope,
@@ -126,6 +130,11 @@ def _account_payload(
         "credentialState": account.credential_state.value,
         "credentialExpiresAt": credential_expires_at,
         "credentialRefreshable": credential_refreshable,
+        "credentialDeviceForeign": credential_device_foreign,
+        "credentialCheckedAt": probe.get("probedAt") or None,
+        "credentialRefreshedAt": probe.get("lastRefreshAt"),
+        "credentialDetail": probe.get("detail") or "",
+        "credentialErrorCode": probe.get("lastCode") or "",
         "lastUsedAt": account.last_used_at,
         "createdAt": account.created_at,
         "updatedAt": account.updated_at,
@@ -135,35 +144,56 @@ def _account_payload(
 
 def _credential_meta(
     request: Request, accounts: list[Account]
-) -> tuple[dict[str, str | None], dict[str, bool]]:
-    """批量取「有效期 + 可否自动续期」，一次解密、一次查库即可。"""
+) -> tuple[dict[str, str | None], dict[str, bool], dict[str, bool]]:
+    """批量取「有效期 + 可否自动续期 + 设备是否绑在别处」，一次解密、一次查库即可。"""
     repository = request.app.state.repository
     try:
         records = repository.current_credentials([item.id for item in accounts])
     except Exception:  # noqa: BLE001 - 读凭据失败不该让整个列表 500
         logger.warning("批量读取凭据摘要失败", exc_info=True)
-        return {}, {}
+        return {}, {}, {}
     expiries: dict[str, str | None] = {}
     refreshable_map: dict[str, bool] = {}
+    device_foreign: dict[str, bool] = {}
     for account in accounts:
         item = records.get(account.id)
         if item is None:
             expiries[account.id] = None
             refreshable_map[account.id] = False
+            device_foreign[account.id] = False
             continue
         kind, credential, expires_at = item
         expiries[account.id] = expires_at
         refreshable_map[account.id] = refreshable(kind, credential)
-    return expiries, refreshable_map
+        device_foreign[account.id] = (
+            _platform_of(account.scope) == "trae"
+            and trae_device_foreign(credential)
+        )
+    return expiries, refreshable_map, device_foreign
+
+
+def _probe_meta(
+    request: Request, accounts: list[Account]
+) -> dict[str, dict[str, object]]:
+    """批量取巡检明细（上次巡检 / 上次续期 / 失败原文与错误码）。"""
+    repository = request.app.state.repository
+    try:
+        return repository.probe_records([item.id for item in accounts])
+    except Exception:  # noqa: BLE001 - 读巡检明细失败不该让整个列表 500
+        logger.warning("批量读取凭据巡检明细失败", exc_info=True)
+        return {}
 
 
 def _accounts_payload(request: Request, accounts: list[Account]) -> list[dict[str, Any]]:
-    expiries, refreshable_map = _credential_meta(request, accounts)
+    expiries, refreshable_map, device_foreign = _credential_meta(request, accounts)
+    probes = _probe_meta(request, accounts)
     return [
         _account_payload(
             account,
             credential_expires_at=expiries.get(account.id),
             credential_refreshable=refreshable_map.get(account.id, False),
+            credential_device_foreign=device_foreign.get(account.id, False),
+            probe=probes.get(account.id),
         )
         for account in accounts
     ]
@@ -769,7 +799,9 @@ def credential_health(request: Request) -> dict[str, Any]:
         raise _handle(exc) from exc
 
     failures = repository.probe_failures([account.id for account in accounts])
+    probes = repository.probe_records([account.id for account in accounts])
     for account in accounts:
+        probe = probes.get(account.id, {})
         try:
             kind, credential = repository.credential_record(account.id)
         except (AccountNotFound, ValueError):
@@ -786,6 +818,10 @@ def credential_health(request: Request) -> dict[str, Any]:
                     "refreshable": False,
                     "expired": False,
                     "probeFailures": 0,
+                    "credentialCheckedAt": probe.get("probedAt") or None,
+                    "credentialRefreshedAt": probe.get("lastRefreshAt"),
+                    "probeDetail": probe.get("detail") or "",
+                    "probeErrorCode": probe.get("lastCode") or "",
                     "reason": "凭据不可读取，需重新导入或登录",
                 }
             )
@@ -798,6 +834,7 @@ def credential_health(request: Request) -> dict[str, Any]:
         if not gaps and not expired and not relogin:
             continue
         probe_failures = failures.get(account.id, 0)
+        error_code = str(probe.get("lastCode") or "")
         items.append(
             {
                 "accountId": account.id,
@@ -810,7 +847,13 @@ def credential_health(request: Request) -> dict[str, Any]:
                 "refreshable": refreshable(kind, credential),
                 "expired": expired,
                 "probeFailures": probe_failures,
-                "reason": _health_reason(gaps, expired, relogin, probe_failures),
+                "credentialCheckedAt": probe.get("probedAt") or None,
+                "credentialRefreshedAt": probe.get("lastRefreshAt"),
+                "probeDetail": probe.get("detail") or "",
+                "probeErrorCode": error_code,
+                "reason": _health_reason(
+                    gaps, expired, relogin, probe_failures, error_code
+                ),
             }
         )
 
@@ -821,10 +864,30 @@ def credential_health(request: Request) -> dict[str, Any]:
     }
 
 
+#: Trae 续期错误码 → 用户能看懂的一句话。没命中映射的错误码统一提示重新登录。
+_TRAE_CODE_REASONS: dict[str, str] = {
+    "20101": "refreshToken 已被上游吊销，需重新登录",
+    "20324": "refreshToken 已失效，需重新登录",
+    "20315": "refreshToken 已失效，需重新登录",
+    "20125": "refreshToken 已失效，需重新登录",
+    "20126": "refreshToken 已失效，需重新登录",
+    "20401": "refreshToken 已失效，需重新登录",
+    "20403": "令牌绑定在另一台设备（通常是别处导入的号），需在本机重新登录",
+}
+
+
 def _health_reason(
-    gaps: list[str], expired: bool, relogin: bool, probe_failures: int
+    gaps: list[str],
+    expired: bool,
+    relogin: bool,
+    probe_failures: int,
+    error_code: str = "",
 ) -> str:
     """给前端的「为什么这个号需要人工处理」一句话。"""
+    if error_code in _TRAE_CODE_REASONS:
+        return _TRAE_CODE_REASONS[error_code]
+    if error_code:
+        return f"续期被上游拒绝（code={error_code}），需重新登录"
     if relogin or probe_failures >= 3:
         return "登录已失效，需要重新扫码登录"
     if expired:
@@ -2358,7 +2421,7 @@ def overview_actionables(request: Request) -> dict[str, Any]:
     # 2) 凭据已过期 / 即将过期（只看时间轴）
     # 状态类问题（需重新登录 / 需验证）上面已经报过，这里跳过，避免同一个号刷两条；
     # 过期时间未知的号也不猜 —— 没有时间就不编时间。
-    expiries, refreshable_map = _credential_meta(request, accounts)
+    expiries, refreshable_map, _device_foreign = _credential_meta(request, accounts)
     now = datetime.now(UTC)
     warn_before = now + timedelta(days=_EXPIRY_WARN_DAYS)
     expired_count = 0

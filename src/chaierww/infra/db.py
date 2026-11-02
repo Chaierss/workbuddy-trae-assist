@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -240,6 +240,19 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V5 + "\nCOMMIT;")
 
 
+#: v6：续期结果可审计。``detail`` 存上游原文，``last_code`` 存最近一次失败错误码，
+#: ``last_refresh_at`` 只在续期成功时更新 —— 卡片据此区分「巡检过」与「续期过」。
+_SCHEMA_V6 = """
+ALTER TABLE credential_probes ADD COLUMN detail TEXT NOT NULL DEFAULT '';
+ALTER TABLE credential_probes ADD COLUMN last_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE credential_probes ADD COLUMN last_refresh_at TEXT;
+"""
+
+
+def _migrate_v6(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V6 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -255,6 +268,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v4(conn)
     if version < 5:
         _migrate_v5(conn)
+    if version < 6:
+        _migrate_v6(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

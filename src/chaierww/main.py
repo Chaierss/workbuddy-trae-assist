@@ -36,7 +36,11 @@ from chaierww.domain.activities import ActivitiesService, validate_official_cata
 from chaierww.domain.auto_backup import AutoBackupRunner
 from chaierww.domain.backup import BackupService
 from chaierww.domain.client_settings import ClientSettingsService, default_settings_file
-from chaierww.domain.credential_lifecycle import MODE_DUE, CredentialLifecycleService
+from chaierww.domain.credential_lifecycle import (
+    MODE_DUE,
+    CredentialLifecycleService,
+    expiry_text,
+)
 from chaierww.domain.credits import CreditsService
 from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewayStore
 from chaierww.domain.gateway_relay import GatewayRelay
@@ -53,7 +57,7 @@ from chaierww.domain.rotation import (
 )
 from chaierww.domain.scheduler import Scheduler
 from chaierww.domain.scopes import all_scopes
-from chaierww.domain.switching import SwitchEngine, build_adapters
+from chaierww.domain.switching import SwitchEngine, build_adapters, encode_payload
 from chaierww.domain.sync import SyncEngine
 from chaierww.domain.sync.repository import SyncRepository
 from chaierww.domain.trae_oauth import build_trae_oauth
@@ -123,9 +127,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     gateway_runtime = GatewayRuntime(gateway)
 
     activities = ActivitiesService(repository, growth_runner=GrowthTaskRunner())
+
+    def reconcile_client_credential(targets: list[Any]) -> None:
+        """巡检前把「当前客户端登录的 Trae 账号」的最新会话收回号池。
+
+        客户端会自行刷新并轮换 refreshToken，两次切号之间号池那份就会变成死账。
+        这里以客户端为准做一次单向同步，只处理 ``targets`` 里的那一个号；
+        读不到 / 解析失败 / 账号不匹配一律静默跳过，绝不阻断巡检。
+        """
+        scope_key = "trae-cn"
+        adapter = adapters.get(scope_key)
+        if adapter is None:
+            return
+        try:
+            uid = engine.current_uid(scope_key)
+            if not uid:
+                return
+            account = repository.get_by_external(scope_key, uid)
+            if account is None or account.is_deleted:
+                return
+            if not any(item.id == account.id for item in targets):
+                return
+            kind, current = repository.credential_record(account.id)
+            if current.get("format") == "oauth-token":
+                syncer = getattr(adapter, "sync_oauth_credential", None)
+                fresh = syncer(uid, current) if syncer else None
+            else:
+                imported = adapter.import_current()
+                if imported.external_id != uid:
+                    return
+                fresh = encode_payload(imported.payload)
+            if fresh is None or fresh == current:
+                return
+            repository.replace_credential(
+                account.id,
+                credential=fresh,
+                kind=kind,
+                expires_at=expiry_text(kind, fresh),
+            )
+            lifecycle.invalidate(account.id)
+            logger.info("巡检前已对账客户端凭据：%s（%s）", account.id, account.display_name)
+        except Exception:  # noqa: BLE001 - 对账是增益，任何失败都不该影响巡检
+            logger.debug("巡检前客户端凭据对账跳过：%s", scope_key, exc_info=True)
+
     # 凭据生命周期：过期判断 / 续期 / 验活。路由与计划任务共用同一实例，
     # 这样手动点的「验活」结果与定时巡检的结论不会各说各话（缓存也才生效）。
-    lifecycle = CredentialLifecycleService(repository)
+    lifecycle = CredentialLifecycleService(
+        repository, reconcile=reconcile_client_credential
+    )
 
     def scheduled_accounts(account_ids: tuple[str, ...]) -> list[Any]:
         implemented = [scope.key for scope in all_scopes() if scope.implemented]
@@ -169,8 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
             return "；".join(lines) or "没有可同步的账号"
         if key == "credential_refresh":
-            # 只续「有效期已知且到期前 30 分钟」的号；其余轮次是空跑，
-            # 所以默认开启也不会给上游增加日常压力。
+            # 巡检前先对账客户端当前登录的号，再按提前窗口续期；大部分轮次是空跑。
             results = lifecycle.sweep(targets, mode=MODE_DUE)
             return lifecycle.describe(results, MODE_DUE)
         if key == "keepalive":

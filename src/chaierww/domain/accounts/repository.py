@@ -258,27 +258,83 @@ class AccountRepository:
         return {str(row["account_id"]): int(row["failures"]) for row in rows}
 
     @_serialized
-    def record_probe(self, account_id: str, status: str, *, failed: bool = False) -> None:
+    def probe_records(
+        self, account_ids: list[str] | tuple[str, ...]
+    ) -> dict[str, dict[str, object]]:
+        """批量读凭据巡检明细，供号池卡片展示「上次巡检 / 上次续期 / 失败原因」。"""
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"SELECT account_id, probed_at, status, failures, detail, last_code, "
+            f"last_refresh_at FROM credential_probes "
+            f"WHERE account_id IN ({placeholders})",
+            wanted,
+        ).fetchall()
+        return {
+            str(row["account_id"]): {
+                "probedAt": str(row["probed_at"] or ""),
+                "status": str(row["status"] or ""),
+                "failures": int(row["failures"] or 0),
+                "detail": str(row["detail"] or ""),
+                "lastCode": str(row["last_code"] or ""),
+                "lastRefreshAt": (
+                    str(row["last_refresh_at"]) if row["last_refresh_at"] else None
+                ),
+            }
+            for row in rows
+        }
+
+    @_serialized
+    def record_probe(
+        self,
+        account_id: str,
+        status: str,
+        *,
+        failed: bool = False,
+        detail: str = "",
+        error_code: str = "",
+        refreshed: bool = False,
+    ) -> None:
         """记一次续期探测（无论成败）。过期时间未知的号靠它做 12 小时节流。
 
         ``failed=True`` 时把连续认证失败次数 +1，成功则清零 —— 连续 3 次后
         调度停止自动续期（见 ``credential_lifecycle.AUTH_FAILURE_LIMIT``）。
+        ``refreshed=True`` 才更新 ``last_refresh_at``：失败不该伪装成「刚续期过」。
         """
         increment = 1 if failed else 0
+        now = now_iso()
         with transaction(self._conn):
             self._conn.execute(
                 """
-                INSERT INTO credential_probes (account_id, probed_at, status, failures)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO credential_probes (
+                    account_id, probed_at, status, failures, detail, last_code,
+                    last_refresh_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (account_id) DO UPDATE SET
                     probed_at = excluded.probed_at,
                     status = excluded.status,
                     failures = CASE
                         WHEN ? = 1 THEN credential_probes.failures + 1
                         ELSE 0
-                    END
+                    END,
+                    detail = excluded.detail,
+                    last_code = excluded.last_code,
+                    last_refresh_at = COALESCE(
+                        excluded.last_refresh_at, credential_probes.last_refresh_at
+                    )
                 """,
-                (account_id, now_iso(), status, increment, increment),
+                (
+                    account_id,
+                    now,
+                    status,
+                    increment,
+                    detail,
+                    error_code,
+                    now if refreshed else None,
+                    increment,
+                ),
             )
 
     @_serialized

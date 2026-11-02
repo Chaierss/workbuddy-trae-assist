@@ -7,9 +7,11 @@ import {
   CircleAlert,
   Clock,
   Coins,
+  Download,
   Layers,
   Loader2,
   Pencil,
+  QrCode,
   RefreshCw,
   Repeat2,
   Sparkles,
@@ -62,6 +64,10 @@ const emit = defineEmits<{
   preview: [account: Account];
   /** 手动触发这个号的凭据续期 / 验活。 */
   refreshCredential: [account: Account];
+  /** 需重新登录时：打开扫码登录。 */
+  relogin: [account: Account];
+  /** 需重新登录时：从本机客户端重新导入。 */
+  reimport: [account: Account];
   /** 点击「今日活动」行：只跑这个号的还能自动完成的项。 */
   runActivity: [account: Account];
 }>();
@@ -301,6 +307,32 @@ const credentialExpired = computed(() => {
 /** compact 下收起次级行；凭据已过期、同步冲突这类异常仍然保留。 */
 const showSecondary = computed(() => props.density !== "compact");
 
+/** 这个号已被上游判定失效：卡片上直接给修复入口，不用再翻菜单。 */
+const needsRelogin = computed(() => props.account.credentialState === "relogin_required");
+
+/**
+ * 凭据巡检明细：只在异常状态下展示，正常号不占高度。
+ * 失败原文可能很长（上游英文），整行截断、完整内容放 tooltip。
+ */
+const credentialAudit = computed(() => {
+  if (!needsRelogin.value && !credentialExpired.value) return null;
+  const checked = props.account.credentialCheckedAt;
+  const refreshed = props.account.credentialRefreshedAt;
+  const detail = props.account.credentialDetail;
+  const code = props.account.credentialErrorCode;
+  if (!checked && !refreshed && !detail && !code) return null;
+  return {
+    text: [
+      checked ? t("accounts.credential.checkedAt", { time: formatTime(checked) }) : "",
+      refreshed ? t("accounts.credential.refreshedAt", { time: formatTime(refreshed) }) : "",
+      detail,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    tooltip: [detail, code ? `code=${code}` : ""].filter(Boolean).join(" · "),
+  };
+});
+
 /** 悬浮卡片时才拉预检，避免进页面就把所有账号的库都打开。 */
 function requestPreview(): void {
   if (props.isCurrent) return;
@@ -433,6 +465,26 @@ function formatCredits(value: number | null): string {
       <span v-if="account.credentialRefreshable" class="shrink-0 text-brand-dark">
         · {{ t("accounts.credential.auto") }}
       </span>
+    </div>
+
+    <!-- 巡检明细：仅异常时显示，交代「上次什么时候试过、上游说了什么」 -->
+    <div
+      v-if="credentialAudit && (showSecondary || needsRelogin)"
+      class="mt-1 flex min-w-0 items-center gap-1 text-micro leading-none text-warn"
+      :title="credentialAudit.tooltip"
+    >
+      <CircleAlert :size="9" :stroke-width="2" class="shrink-0" />
+      <span class="truncate">{{ credentialAudit.text }}</span>
+    </div>
+
+    <!-- 跨机器导入的号：客户端侧续期必然失败，提前说清楚，别让用户白等 -->
+    <div
+      v-if="account.credentialDeviceForeign && showSecondary"
+      class="mt-0.5 flex min-w-0 items-center gap-1 text-micro leading-none text-muted"
+      :title="t('accounts.credential.deviceForeignHint')"
+    >
+      <Layers :size="9" :stroke-width="2" class="shrink-0" />
+      <span class="truncate">{{ t("accounts.credential.deviceForeign") }}</span>
     </div>
 
     <!-- 积分：一行数字 + 一行细条。原先把「剩余积分」标签、余量/已用百分比各占一行，
@@ -628,6 +680,30 @@ function formatCredits(value: number | null): string {
     >
       <Loader2 v-if="preview === 'loading'" :size="10" class="shrink-0 animate-spin" />
       <span class="truncate">{{ previewText }}</span>
+    </div>
+
+    <!-- 需重登：就地修复，不要求用户先去找号池顶部的横幅 -->
+    <div v-if="needsRelogin" class="mt-1 flex items-center gap-1">
+      <button
+        type="button"
+        class="inline-flex flex-1 items-center justify-center gap-1 rounded-control border border-danger/40 bg-surface px-2 py-[3px] text-caption text-danger-dark transition-colors hover:border-danger disabled:opacity-50"
+        :disabled="busy"
+        :title="t('accounts.credential.reloginNow')"
+        @click="emit('relogin', account)"
+      >
+        <QrCode :size="11" :stroke-width="2" />
+        {{ t("accounts.credential.reloginNow") }}
+      </button>
+      <button
+        type="button"
+        class="inline-flex flex-1 items-center justify-center gap-1 rounded-control border border-line bg-surface px-2 py-[3px] text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+        :disabled="busy"
+        :title="t('accounts.credential.reimportHint')"
+        @click="emit('reimport', account)"
+      >
+        <Download :size="11" :stroke-width="2" />
+        {{ t("accounts.credential.reimport") }}
+      </button>
     </div>
 
     <!-- 底部操作 -->

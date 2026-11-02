@@ -20,6 +20,7 @@ from chaierww.domain.credential_lifecycle import (
     RESULT_RELOGIN_REQUIRED,
     RESULT_UNSUPPORTED,
     CredentialLifecycleService,
+    _refresh_window,
     expiry_text,
     refreshable,
     token_expiry,
@@ -50,6 +51,13 @@ def repo(tmp_path):
 def _jwt(exp: int) -> str:
     payload = base64.urlsafe_b64encode(
         json.dumps({"exp": exp, "userId": "u-1"}).encode()
+    ).decode()
+    return f"header.{payload}.signature"
+
+
+def _jwt_with_iat(exp: int, iat: int) -> str:
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"exp": exp, "iat": iat, "userId": "u-1"}).encode()
     ).decode()
     return f"header.{payload}.signature"
 
@@ -527,7 +535,236 @@ def test_expiry_from_nested_absolute_field():
     assert moment is not None and moment.year == 2030
 
 
+def test_trae_error_code_is_exposed_on_rejection():
+    from chaierww.domain.credential_refresh import TraeRefresher
+
+    resp = httpx.Response(
+        200,
+        json={
+            "ResponseMetadata": {
+                "Error": {"Code": "20403", "Message": "Token device not match"}
+            }
+        },
+    )
+    outcome = TraeRefresher()._interpret(resp, {}, endpoint="/x")
+    assert outcome.status == STATUS_RELOGIN_REQUIRED
+    assert outcome.error_code == "20403"
+    assert outcome.detail == "Token device not match"
+
+
+def test_probe_record_persists_detail_and_refresh_time(repo):
+    account = _oauth_account(repo)
+    repo.record_probe(
+        account.id,
+        STATUS_RELOGIN_REQUIRED,
+        failed=True,
+        detail="20101 refresh token is invalid",
+        error_code="20101",
+    )
+    record = repo.probe_records([account.id])[account.id]
+    assert record["detail"] == "20101 refresh token is invalid"
+    assert record["lastCode"] == "20101"
+    # 失败不能伪装成「刚续期过」。
+    assert record["lastRefreshAt"] is None
+
+    repo.record_probe(account.id, STATUS_REFRESHED, refreshed=True, detail="已自动续期")
+    record = repo.probe_records([account.id])[account.id]
+    assert record["lastRefreshAt"] is not None
+    assert record["failures"] == 0
+
+
+def test_sweep_records_upstream_error_code(repo, monkeypatch):
+    account = _oauth_account(repo)
+    stub = _StubRefresher(
+        RefreshOutcome(
+            status=STATUS_RELOGIN_REQUIRED,
+            detail="Token device not match",
+            error_code="20403",
+        )
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    results = _service(repo).sweep([account], mode=MODE_FORCE)
+    assert results[0].status == RESULT_RELOGIN_REQUIRED
+    assert results[0].error_code == "20403"
+
+    record = repo.probe_records([account.id])[account.id]
+    assert record["lastCode"] == "20403"
+    assert record["detail"] == "Token device not match"
+
+
 # ---------- 调度 ----------
+
+
+def test_refresh_window_scales_with_lifetime():
+    """提前窗口 = min(6h, 寿命 × 10%)，下限 30 分钟。"""
+    assert _refresh_window(None) == timedelta(minutes=30)
+    # 2h 寿命按 10% 只有 12 分钟，抬到下限 30 分钟。
+    assert _refresh_window(timedelta(hours=2)) == timedelta(minutes=30)
+    assert _refresh_window(timedelta(hours=30)) == timedelta(hours=3)
+    # 100h 寿命按 10% 是 10h，压到上限 6h。
+    assert _refresh_window(timedelta(hours=100)) == timedelta(hours=6)
+
+
+def test_due_window_scales_with_token_lifetime(repo, monkeypatch):
+    now = datetime.now(UTC).replace(microsecond=0)
+    issued = int((now - timedelta(hours=1)).timestamp())
+    far = _oauth_account(
+        repo,
+        external_id="far",
+        name="远期号",
+        access_token=_jwt_with_iat(int((now + timedelta(hours=29)).timestamp()), issued),
+    )
+    near = _oauth_account(
+        repo,
+        external_id="near",
+        name="临近号",
+        access_token=_jwt_with_iat(
+            int((now + timedelta(hours=2)).timestamp()),
+            int((now - timedelta(hours=28)).timestamp()),
+        ),
+    )
+    stub = _StubRefresher(
+        RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential={"format": "oauth-token", "accessToken": "new", "refreshToken": "r2"},
+            expires_at=None,
+        )
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    service = CredentialLifecycleService(repo, gap_seconds=0.0, now=lambda: now)
+    monkeypatch.setattr(
+        service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效")
+    )
+    results = service.sweep([far, near], mode=MODE_DUE)
+    # 30h 寿命 → 窗口 3h：剩 29h 不动，剩 2h 才续。
+    assert results[0].status == RESULT_NOOP
+    assert results[1].status == RESULT_REFRESHED
+    assert stub.calls == 1
+
+
+def test_failed_probe_backs_off_then_retries(repo, monkeypatch):
+    """第 1 次失败后退避 1 小时；手动 force 不受退避影响。"""
+    account = _oauth_account(
+        repo,
+        expires_at=(datetime.now(UTC) + timedelta(minutes=10)).replace(microsecond=0).isoformat(),
+    )
+    repo.record_probe(
+        account.id, STATUS_RELOGIN_REQUIRED, failed=True, detail="拒绝", error_code="20101"
+    )
+    stub = _StubRefresher(
+        RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential={"format": "oauth-token", "accessToken": "new", "refreshToken": "r2"},
+            expires_at=None,
+        )
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    service = _service(repo)
+    monkeypatch.setattr(
+        service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效")
+    )
+
+    blocked = service.sweep([account], mode=MODE_DUE)
+    assert blocked[0].status == RESULT_NOOP
+    assert "后再试" in blocked[0].detail
+    assert stub.calls == 0
+
+    forced = service.sweep([account], mode=MODE_FORCE)
+    assert forced[0].status == RESULT_REFRESHED
+    assert stub.calls == 1
+    assert repo.probe_failures([account.id]).get(account.id, 0) == 0
+
+
+def test_backoff_expires_after_wait(repo, monkeypatch):
+    """退避窗口过去之后，自动巡检会重新打上游。"""
+    account = _oauth_account(
+        repo,
+        external_id="u-2",
+        name="账号乙",
+        expires_at=(datetime.now(UTC) + timedelta(minutes=10)).replace(microsecond=0).isoformat(),
+    )
+    repo.record_probe(account.id, STATUS_RELOGIN_REQUIRED, failed=True, detail="拒绝")
+    stub = _StubRefresher(
+        RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential={"format": "oauth-token", "accessToken": "new", "refreshToken": "r2"},
+            expires_at=None,
+        )
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    later = CredentialLifecycleService(
+        repo, gap_seconds=0.0, now=lambda: datetime.now(UTC) + timedelta(hours=2)
+    )
+    monkeypatch.setattr(
+        later, "_verify", lambda target, credential: (RESULT_OK, "登录态有效")
+    )
+    results = later.sweep([account], mode=MODE_DUE)
+    assert results[0].status == RESULT_REFRESHED
+    assert stub.calls == 1
+
+
+# ---------- 巡检前对账 ----------
+
+
+def test_reconcile_runs_before_sweep_but_not_in_check_mode(repo, monkeypatch):
+    account = _oauth_account(repo)
+    seen: list[list[str]] = []
+    service = CredentialLifecycleService(
+        repo, gap_seconds=0.0, reconcile=lambda accounts: seen.append([a.id for a in accounts])
+    )
+    monkeypatch.setattr(
+        service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效")
+    )
+    # check 是只读验活，不该顺手改凭据。
+    service.sweep([account], mode=MODE_CHECK)
+    assert seen == []
+
+    stub = _StubRefresher(
+        RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential={"format": "oauth-token", "accessToken": "new", "refreshToken": "r2"},
+            expires_at=None,
+        )
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    service.sweep([account], mode=MODE_FORCE)
+    # 对账拿到的是本次要巡检的号，不是整个号池。
+    assert seen == [[account.id]]
+
+
+def test_reconcile_failure_does_not_block_sweep(repo, monkeypatch):
+    account = _oauth_account(repo)
+
+    def boom(_accounts):
+        raise RuntimeError("客户端目录不可读")
+
+    stub = _StubRefresher(
+        RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential={"format": "oauth-token", "accessToken": "new", "refreshToken": "r2"},
+            expires_at=None,
+        )
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    service = CredentialLifecycleService(repo, gap_seconds=0.0, reconcile=boom)
+    monkeypatch.setattr(
+        service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效")
+    )
+    results = service.sweep([account], mode=MODE_FORCE)
+    assert results[0].status == RESULT_REFRESHED
+    assert stub.calls == 1
 
 
 def test_credential_refresh_task_is_on_by_default():
