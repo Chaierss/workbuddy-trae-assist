@@ -42,6 +42,7 @@ from chaierww.domain.backup import (
 )
 from chaierww.domain.client_settings import ClientSettingsError
 from chaierww.domain.credential_lifecycle import (
+    AUTH_FAILURE_LIMIT,
     MODE_DUE,
     MODES,
     CredentialLifecycleService,
@@ -110,6 +111,7 @@ def _account_payload(
     credential_refreshable: bool = False,
     credential_device_foreign: bool = False,
     probe: dict[str, object] | None = None,
+    reconcile: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """对外只暴露界面需要的字段，凭据永远不出现在响应里。
 
@@ -117,6 +119,8 @@ def _account_payload(
     （见 `_credential_meta` / `_probe_meta`），单号接口保持默认值也不会误报。
     """
     probe = probe or {}
+    reconcile = reconcile or {}
+    failures = int(probe.get("failures") or 0)
     return {
         "id": account.id,
         "scope": account.scope,
@@ -135,6 +139,10 @@ def _account_payload(
         "credentialRefreshedAt": probe.get("lastRefreshAt"),
         "credentialDetail": probe.get("detail") or "",
         "credentialErrorCode": probe.get("lastCode") or "",
+        "credentialNextRetryAt": probe.get("nextRetryAt"),
+        "credentialAutoPaused": bool(failures >= AUTH_FAILURE_LIMIT),
+        "credentialReconcileAt": reconcile.get("at") or None,
+        "credentialReconcileResult": reconcile.get("result") or "",
         "lastUsedAt": account.last_used_at,
         "createdAt": account.created_at,
         "updatedAt": account.updated_at,
@@ -184,9 +192,22 @@ def _probe_meta(
         return {}
 
 
+def _reconcile_meta(
+    request: Request, accounts: list[Account]
+) -> dict[str, dict[str, str]]:
+    """批量取巡检前「客户端凭据对账」的结论，供卡片解释凭据为什么变了。"""
+    repository = request.app.state.repository
+    try:
+        return repository.reconcile_records([item.id for item in accounts])
+    except Exception:  # noqa: BLE001 - 对账审计读不出来不该让整个列表 500
+        logger.warning("批量读取凭据对账记录失败", exc_info=True)
+        return {}
+
+
 def _accounts_payload(request: Request, accounts: list[Account]) -> list[dict[str, Any]]:
     expiries, refreshable_map, device_foreign = _credential_meta(request, accounts)
     probes = _probe_meta(request, accounts)
+    reconciles = _reconcile_meta(request, accounts)
     return [
         _account_payload(
             account,
@@ -194,6 +215,7 @@ def _accounts_payload(request: Request, accounts: list[Account]) -> list[dict[st
             credential_refreshable=refreshable_map.get(account.id, False),
             credential_device_foreign=device_foreign.get(account.id, False),
             probe=probes.get(account.id),
+            reconcile=reconciles.get(account.id),
         )
         for account in accounts
     ]
@@ -822,6 +844,8 @@ def credential_health(request: Request) -> dict[str, Any]:
                     "credentialRefreshedAt": probe.get("lastRefreshAt"),
                     "probeDetail": probe.get("detail") or "",
                     "probeErrorCode": probe.get("lastCode") or "",
+                    "nextRetryAt": probe.get("nextRetryAt"),
+                    "healthy": False,
                     "reason": "凭据不可读取，需重新导入或登录",
                 }
             )
@@ -831,10 +855,9 @@ def credential_health(request: Request) -> dict[str, Any]:
         moment = parse_expiry(expires_at)
         expired = bool(moment is not None and moment <= datetime.now(UTC))
         relogin = account.credential_state is CredentialState.RELOGIN_REQUIRED
-        if not gaps and not expired and not relogin:
-            continue
         probe_failures = failures.get(account.id, 0)
         error_code = str(probe.get("lastCode") or "")
+        healthy = not gaps and not expired and not relogin
         items.append(
             {
                 "accountId": account.id,
@@ -851,8 +874,12 @@ def credential_health(request: Request) -> dict[str, Any]:
                 "credentialRefreshedAt": probe.get("lastRefreshAt"),
                 "probeDetail": probe.get("detail") or "",
                 "probeErrorCode": error_code,
-                "reason": _health_reason(
-                    gaps, expired, relogin, probe_failures, error_code
+                "nextRetryAt": probe.get("nextRetryAt"),
+                "healthy": healthy,
+                "reason": (
+                    ""
+                    if healthy
+                    else _health_reason(gaps, expired, relogin, probe_failures, error_code)
                 ),
             }
         )
@@ -860,8 +887,57 @@ def credential_health(request: Request) -> dict[str, Any]:
     return {
         "accounts": items,
         "total": len(accounts),
-        "withGaps": len(items),
+        "withGaps": sum(1 for item in items if not item["healthy"]),
     }
+
+
+@router.get(
+    "/accounts/{account_id}/credential-probes",
+    summary="某个号最近的凭据巡检历史",
+    tags=["账号"],
+)
+def credential_probe_history(
+    request: Request, account_id: str, limit: int = 20
+) -> dict[str, Any]:
+    """只读时间线，用于回答「这个号昨天是不是失败过」。不含任何 token。"""
+    repository = request.app.state.repository
+    try:
+        repository.get(account_id)
+    except AccountNotFound as exc:
+        raise HTTPException(status_code=404, detail="账号不存在") from exc
+    items = repository.probe_history(account_id, limit=limit)
+    return {"items": items, "total": len(items)}
+
+
+@router.delete(
+    "/accounts/{account_id}/credential-failures",
+    summary="清除熔断计数，恢复自动续期",
+    tags=["账号"],
+)
+def clear_credential_failures(request: Request, account_id: str) -> dict[str, Any]:
+    """手动解除退避 / 熔断：只清汇总计数，历史时间线保留。"""
+    repository = request.app.state.repository
+    try:
+        repository.get(account_id)
+    except AccountNotFound as exc:
+        raise HTTPException(status_code=404, detail="账号不存在") from exc
+    request.app.state.credential_lifecycle.clear_failures(account_id)
+    return {"ok": True}
+
+
+@router.post(
+    "/accounts/{account_id}/credential-diagnose",
+    summary="一键诊断：六步找出凭据为什么不能用",
+    tags=["账号"],
+)
+def diagnose_credential(request: Request, account_id: str) -> dict[str, Any]:
+    """只读诊断，不续期（续期会轮换 refreshToken）。"""
+    repository = request.app.state.repository
+    try:
+        account = repository.get(account_id)
+    except AccountNotFound as exc:
+        raise HTTPException(status_code=404, detail="账号不存在") from exc
+    return request.app.state.credential_lifecycle.diagnose(account)
 
 
 #: Trae 续期错误码 → 用户能看懂的一句话。没命中映射的错误码统一提示重新登录。
@@ -2415,6 +2491,8 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 "detail": f"{account.display_name}（{_scope_label(account.scope)}）：{reason}",
                 "accountId": account.id,
                 "action": action,
+                # 诊断候选：重登前先看清卡在哪一步（只读，不续期、不写库）。
+                "diagnose": {"type": "diagnose", "accountId": account.id},
             }
         )
 

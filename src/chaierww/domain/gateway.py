@@ -168,6 +168,36 @@ def _read_json(path: Path) -> Any:
     return read_json_or_default(path, None, logger=logger)
 
 
+def _pool_entries(raw: Any) -> list[dict[str, Any]]:
+    """把池配置里的排除项统一成 v2 条目。
+
+    兼容 v1 的纯字符串列表：旧文件里的排除项一律视为「人工永久排除」，
+    升级不需要用户重做一遍，也不会让老条目突然消失。
+    """
+    entries: list[dict[str, Any]] = []
+    if not isinstance(raw, list):
+        return entries
+    for item in raw:
+        if isinstance(item, str) and item:
+            entries.append({"id": item, "reason": "manual", "until": None})
+            continue
+        if not isinstance(item, dict):
+            continue
+        ident = item.get("id")
+        if not isinstance(ident, str) or not ident:
+            continue
+        reason = item.get("reason")
+        until = item.get("until")
+        entries.append(
+            {
+                "id": ident,
+                "reason": reason if isinstance(reason, str) and reason else "manual",
+                "until": until if isinstance(until, str) and until else None,
+            }
+        )
+    return entries
+
+
 # ---------- 配置 ----------
 
 
@@ -769,46 +799,111 @@ class GatewayStore:
     # ----- 账号池：排除 / 指定偏好 -----
 
     def _load_pool(self) -> dict[str, Any]:
-        """账号池的人工处置：排除集 + 指定偏好账号。落盘，跨重启保留。"""
+        """账号池的人工处置：排除条目 + 指定偏好账号。落盘，跨重启保留。
+
+        v1 只有纯字符串列表；v2 每条带 ``reason`` 与 ``until``。读取时统一升级，
+        旧文件无需手工迁移。
+        """
         data = _read_json(self._pool_file)
         excluded = data.get("excluded") if isinstance(data, dict) else None
         preferred = data.get("preferred") if isinstance(data, dict) else None
         return {
-            "excluded": (
-                [str(item) for item in excluded if isinstance(item, str)]
-                if isinstance(excluded, list)
-                else []
-            ),
+            "version": 2,
+            "excluded": _pool_entries(excluded),
             "preferred": preferred if isinstance(preferred, str) else None,
         }
 
     def _save_pool_locked(self) -> None:
         _write_json(self._pool_file, self._pool)
 
+    def _live_exclusions_locked(self) -> list[dict[str, Any]]:
+        """当前有效的排除条目；顺手清掉已到期的一次性条目并落盘。
+
+        人工永久排除（``until`` 为空）永不自动复活；上游限流/异常升级出来的
+        条目到点自动消失，不需要用户再点一次恢复。
+        """
+        now = datetime.now(UTC)
+        live: list[dict[str, Any]] = []
+        changed = False
+        for entry in self._pool["excluded"]:
+            until = entry.get("until")
+            if isinstance(until, str) and until:
+                try:
+                    moment = datetime.fromisoformat(until)
+                except ValueError:
+                    moment = None
+                if moment is not None:
+                    if moment.tzinfo is None:
+                        moment = moment.replace(tzinfo=UTC)
+                    if moment <= now:
+                        changed = True
+                        continue
+            live.append(entry)
+        if changed:
+            self._pool["excluded"] = live
+            self._save_pool_locked()
+        return live
+
     def excluded_accounts(self) -> set[str]:
-        """被手工排除的账号 id。"""
+        """当前有效被排除的账号 id（已到期的不算）。"""
         with self._lock:
-            return set(self._pool["excluded"])
+            return {str(entry["id"]) for entry in self._live_exclusions_locked()}
 
     def is_excluded(self, account_id: str) -> bool:
         with self._lock:
-            return account_id in self._pool["excluded"]
+            return any(
+                entry["id"] == account_id for entry in self._live_exclusions_locked()
+            )
 
-    def exclude(self, account_id: str) -> set[str]:
-        """把账号排除出转发候选（人工操作，落盘保留）。"""
+    def exclusion(self, account_id: str) -> dict[str, Any] | None:
+        """某个号当前的排除条目（原因 / 截止时间）；没被排除返回 ``None``。"""
         with self._lock:
-            if account_id not in self._pool["excluded"]:
-                self._pool["excluded"].append(account_id)
-                self._save_pool_locked()
-            return set(self._pool["excluded"])
+            for entry in self._live_exclusions_locked():
+                if entry["id"] == account_id:
+                    return dict(entry)
+            return None
+
+    def exclude(
+        self,
+        account_id: str,
+        *,
+        reason: str = "manual",
+        minutes: int | None = None,
+    ) -> set[str]:
+        """把账号排除出转发候选（落盘保留）。
+
+        ``minutes`` 为空 = 人工永久排除；给了分钟数 = 到点自动复活
+        （上游连续失败升级为持久排除时用）。
+        """
+        until = None
+        if minutes is not None:
+            until = (
+                datetime.now(UTC) + timedelta(minutes=max(0, int(minutes)))
+            ).replace(microsecond=0).isoformat()
+        with self._lock:
+            self._live_exclusions_locked()
+            for entry in self._pool["excluded"]:
+                if entry["id"] == account_id:
+                    entry["reason"] = reason or "manual"
+                    entry["until"] = until
+                    break
+            else:
+                self._pool["excluded"].append(
+                    {"id": account_id, "reason": reason or "manual", "until": until}
+                )
+            self._save_pool_locked()
+            return {str(entry["id"]) for entry in self._pool["excluded"]}
 
     def include(self, account_id: str) -> set[str]:
         """一键复活：把被排除的账号放回候选。"""
         with self._lock:
-            if account_id in self._pool["excluded"]:
-                self._pool["excluded"].remove(account_id)
+            kept = [
+                entry for entry in self._pool["excluded"] if entry["id"] != account_id
+            ]
+            if len(kept) != len(self._pool["excluded"]):
+                self._pool["excluded"] = kept
                 self._save_pool_locked()
-            return set(self._pool["excluded"])
+            return {str(entry["id"]) for entry in self._pool["excluded"]}
 
     def preferred_account(self) -> str | None:
         """指定账号偏好：它可用时优先被挑中；不可用时回退常规择优。"""
@@ -827,7 +922,10 @@ class GatewayStore:
     def pool_payload(self) -> dict[str, Any]:
         with self._lock:
             return {
-                "excluded": sorted(self._pool["excluded"]),
+                "version": 2,
+                "excluded": [
+                    dict(entry) for entry in self._live_exclusions_locked()
+                ],
                 "preferred": self._pool["preferred"],
             }
 
@@ -839,10 +937,12 @@ class GatewayStore:
         返回是否真的改过。
         """
         with self._lock:
-            changed = False
-            if account_id in self._pool["excluded"]:
-                self._pool["excluded"].remove(account_id)
-                changed = True
+            kept = [
+                entry for entry in self._pool["excluded"] if entry["id"] != account_id
+            ]
+            changed = len(kept) != len(self._pool["excluded"])
+            if changed:
+                self._pool["excluded"] = kept
             if self._pool["preferred"] == account_id:
                 self._pool["preferred"] = None
                 changed = True

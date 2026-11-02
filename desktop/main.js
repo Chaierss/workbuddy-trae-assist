@@ -88,9 +88,15 @@ let backendProcess = null;
 let mainWindow = null;
 let webLoginWindow = null;
 let tray = null;
-/** 托盘「切换账号」子菜单的数据源：只存 id / name / platform，由渲染进程同步。 */
+/** 托盘「切换账号」子菜单的数据源：只存 id / name / platform / needsAttention。 */
 let trayAccounts = [];
 let trayCurrentId = '';
+/** 需处理凭据的账号数：tooltip 与菜单都要在窗口不可见时也能看到。 */
+let trayAttention = 0;
+/** 凭据提醒节流：每号每天最多一次系统通知（id -> YYYY-MM-DD）。 */
+const healthNotified = new Map();
+/** 最近一次凭据通知：留引用，否则对象被回收后 click 回调失效。 */
+let healthNotification = null;
 let quitting = false;
 
 // ---------------------------------------------------------------------------
@@ -453,13 +459,24 @@ function createTray() {
 function refreshTrayMenu() {
   if (!tray) return;
   const items = [{ label: '打开 chaierww', click: () => showWindow() }];
+  if (trayAttention > 0) {
+    items.push({
+      label: `处理凭据问题（${trayAttention}）`,
+      click: () => {
+        showWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('tray:focus-credential-health');
+        }
+      },
+    });
+  }
   // 有号才渲染子菜单：没有账号时不给一个点开全是空的入口。
   if (trayAccounts.length) {
     items.push({
       label: '切换账号',
       submenu: [
         ...trayAccounts.map((account) => ({
-          label: account.name,
+          label: account.needsAttention ? `${account.name}（需处理）` : account.name,
           type: 'radio',
           checked: account.id === trayCurrentId,
           click: () => {
@@ -510,6 +527,7 @@ function refreshTrayStatus() {
   } else if (updateState.status === 'downloaded') {
     text = `chaierww · ${updateState.version} 已下载，重启生效`;
   }
+  if (trayAttention > 0) text += ` · ${trayAttention} 个号需处理`;
   tray.setToolTip(text);
   refreshTrayMenu();
 }
@@ -1043,9 +1061,48 @@ ipcMain.on('tray:sync-accounts', (event, payload) => {
       id: item.id,
       name: item.name.slice(0, 60),
       platform: typeof item.platform === 'string' ? item.platform : '',
+      needsAttention: item.needsAttention === true,
     }));
   trayCurrentId = typeof payload?.currentId === 'string' ? payload.currentId : '';
-  refreshTrayMenu();
+  trayAttention = trayAccounts.filter((item) => item.needsAttention).length;
+  refreshTrayStatus();
+});
+/**
+ * 凭据问题系统通知：每号每天最多一次。
+ *
+ * 渲染进程会在「号进入需处理状态」时推送，页面刷新也会重发，所以节流放在
+ * 主进程：同一个号当天已提醒过就直接丢掉，避免反复弹窗。点击通知等同点
+ * 托盘里的「处理凭据问题」。
+ */
+ipcMain.on('health:notify', (event, payload) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  if (!Notification.isSupported()) return;
+  const today = new Date().toISOString().slice(0, 10);
+  // 顺手清掉旧日期的记录，否则 Map 会随着账号增删一直变长。
+  for (const [id, day] of healthNotified) {
+    if (day !== today) healthNotified.delete(id);
+  }
+  const names = [];
+  const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+  for (const item of rawItems.slice(0, 5)) {
+    if (!item || typeof item.id !== 'string' || typeof item.name !== 'string') continue;
+    if (healthNotified.get(item.id) === today) continue;
+    healthNotified.set(item.id, today);
+    names.push(item.name.slice(0, 40));
+  }
+  if (!names.length) return;
+  const body =
+    names.length === 1
+      ? `${names[0]} 的凭据需要处理（可能需重新登录）`
+      : `${names.slice(0, 3).join('、')}${names.length > 3 ? ` 等 ${names.length} 个号` : ''} 的凭据需要处理`;
+  healthNotification = new Notification({ title: 'chaierww 凭据提醒', body });
+  healthNotification.on('click', () => {
+    showWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('tray:focus-credential-health');
+    }
+  });
+  healthNotification.show();
 });
 ipcMain.handle('update:get', () => updateState);
 // 备份恢复只在下次启动时生效：界面确认后调它重启应用（不重开新实例）。

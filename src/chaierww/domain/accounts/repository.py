@@ -268,7 +268,7 @@ class AccountRepository:
         placeholders = ",".join("?" for _ in wanted)
         rows = self._conn.execute(
             f"SELECT account_id, probed_at, status, failures, detail, last_code, "
-            f"last_refresh_at FROM credential_probes "
+            f"last_refresh_at, next_retry_at FROM credential_probes "
             f"WHERE account_id IN ({placeholders})",
             wanted,
         ).fetchall()
@@ -281,6 +281,9 @@ class AccountRepository:
                 "lastCode": str(row["last_code"] or ""),
                 "lastRefreshAt": (
                     str(row["last_refresh_at"]) if row["last_refresh_at"] else None
+                ),
+                "nextRetryAt": (
+                    str(row["next_retry_at"]) if row["next_retry_at"] else None
                 ),
             }
             for row in rows
@@ -296,12 +299,14 @@ class AccountRepository:
         detail: str = "",
         error_code: str = "",
         refreshed: bool = False,
+        next_retry_at: str | None = None,
     ) -> None:
         """记一次续期探测（无论成败）。过期时间未知的号靠它做 12 小时节流。
 
         ``failed=True`` 时把连续认证失败次数 +1，成功则清零 —— 连续 3 次后
         调度停止自动续期（见 ``credential_lifecycle.AUTH_FAILURE_LIMIT``）。
         ``refreshed=True`` 才更新 ``last_refresh_at``：失败不该伪装成「刚续期过」。
+        同一事务里追加一条历史，每号只保留最近 20 条。
         """
         increment = 1 if failed else 0
         now = now_iso()
@@ -310,8 +315,8 @@ class AccountRepository:
                 """
                 INSERT INTO credential_probes (
                     account_id, probed_at, status, failures, detail, last_code,
-                    last_refresh_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    last_refresh_at, next_retry_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (account_id) DO UPDATE SET
                     probed_at = excluded.probed_at,
                     status = excluded.status,
@@ -323,7 +328,8 @@ class AccountRepository:
                     last_code = excluded.last_code,
                     last_refresh_at = COALESCE(
                         excluded.last_refresh_at, credential_probes.last_refresh_at
-                    )
+                    ),
+                    next_retry_at = excluded.next_retry_at
                 """,
                 (
                     account_id,
@@ -333,9 +339,109 @@ class AccountRepository:
                     detail,
                     error_code,
                     now if refreshed else None,
+                    next_retry_at,
                     increment,
                 ),
             )
+            self._conn.execute(
+                """
+                INSERT INTO credential_probe_log (
+                    account_id, at, status, code, detail, refreshed, next_retry_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    account_id,
+                    now,
+                    status,
+                    error_code,
+                    detail,
+                    1 if refreshed else 0,
+                    next_retry_at,
+                ),
+            )
+            self._conn.execute(
+                """
+                DELETE FROM credential_probe_log
+                WHERE account_id = ?
+                  AND seq NOT IN (
+                      SELECT seq FROM credential_probe_log
+                      WHERE account_id = ?
+                      ORDER BY seq DESC
+                      LIMIT 20
+                  )
+                """,
+                (account_id, account_id),
+            )
+
+    @_serialized
+    def probe_history(
+        self, account_id: str, limit: int = 20
+    ) -> list[dict[str, object]]:
+        """某号最近的巡检记录（新的在前）。"""
+        rows = self._conn.execute(
+            "SELECT at, status, code, detail, refreshed, next_retry_at "
+            "FROM credential_probe_log WHERE account_id = ? "
+            "ORDER BY seq DESC LIMIT ?",
+            (account_id, max(1, min(20, int(limit)))),
+        ).fetchall()
+        return [
+            {
+                "at": str(row["at"] or ""),
+                "status": str(row["status"] or ""),
+                "code": str(row["code"] or ""),
+                "detail": str(row["detail"] or ""),
+                "refreshed": bool(row["refreshed"]),
+                "nextRetryAt": (
+                    str(row["next_retry_at"]) if row["next_retry_at"] else None
+                ),
+            }
+            for row in rows
+        ]
+
+    @_serialized
+    def clear_probe(self, account_id: str) -> None:
+        """清除汇总探测行（保留历史），用于手动解除熔断。"""
+        with transaction(self._conn):
+            self._conn.execute(
+                "DELETE FROM credential_probes WHERE account_id = ?", (account_id,)
+            )
+
+    @_serialized
+    def record_reconcile(self, account_id: str, result: str) -> None:
+        """记一次巡检前对账结论（已更新 / 无需更新 / 客户端未运行 等）。"""
+        with transaction(self._conn):
+            self._conn.execute(
+                """
+                INSERT INTO credential_reconcile (account_id, at, result)
+                VALUES (?, ?, ?)
+                ON CONFLICT (account_id) DO UPDATE SET
+                    at = excluded.at,
+                    result = excluded.result
+                """,
+                (account_id, now_iso(), result),
+            )
+
+    @_serialized
+    def reconcile_records(
+        self, account_ids: list[str] | tuple[str, ...]
+    ) -> dict[str, dict[str, str]]:
+        """批量读对账审计。"""
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"SELECT account_id, at, result FROM credential_reconcile "
+            f"WHERE account_id IN ({placeholders})",
+            wanted,
+        ).fetchall()
+        return {
+            str(row["account_id"]): {
+                "at": str(row["at"] or ""),
+                "result": str(row["result"] or ""),
+            }
+            for row in rows
+        }
 
     @_serialized
     def record_activity_runs(self, rows: list[dict[str, object]]) -> None:

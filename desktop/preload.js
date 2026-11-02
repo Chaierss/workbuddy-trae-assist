@@ -64,7 +64,7 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
 
   /**
    * 托盘换号：把号池摘要同步给主进程，并接收托盘发起的切换请求。
-   * 只传 id / name / platform，凭据与路径一律不出渲染进程。
+   * 只传 id / name / platform / needsAttention，凭据与路径一律不出渲染进程。
    */
   tray: {
     syncAccounts: (payload) => ipcRenderer.send('tray:sync-accounts', payload),
@@ -73,6 +73,16 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
       ipcRenderer.on('tray:switch-account', listener);
       return () => ipcRenderer.removeListener('tray:switch-account', listener);
     },
+    onFocusCredentialHealth: (handler) => {
+      const listener = () => handler();
+      ipcRenderer.on('tray:focus-credential-health', listener);
+      return () => ipcRenderer.removeListener('tray:focus-credential-health', listener);
+    },
+  },
+
+  /** 凭据问题提醒：主进程按「每号每天最多一次」节流后弹系统通知。 */
+  health: {
+    notify: (payload) => ipcRenderer.send('health:notify', payload),
   },
 
   /**

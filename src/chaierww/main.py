@@ -121,54 +121,80 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 选号器同时接两个只读数据源：排除集（持久化）与积分缓存（判断「积分耗尽」）。
     gateway = GatewayStore(resolved.home)
     credits = CreditsService(repository)
+
+    def _pool_on_failure(account_id: str, reason: str, seconds: int | None) -> None:
+        """把转发器的连续失败升级成落盘的持久排除。
+
+        秒数为 ``None`` = 永久（凭据不可解密）；否则到点自动复活。
+        """
+        minutes = None if seconds is None else max(1, int(seconds // 60))
+        gateway.exclude(account_id, reason=reason, minutes=minutes)
+
+    def _pool_on_success(account_id: str) -> None:
+        """成功一次即清除自动排除；人工排除必须由用户自己恢复。"""
+        entry = gateway.exclusion(account_id)
+        if entry is not None and entry.get("reason") != "manual":
+            gateway.include(account_id)
+
     gateway_relay = GatewayRelay(
-        repository, excluded=gateway.excluded_accounts, credits=credits.cached
+        repository,
+        excluded=gateway.excluded_accounts,
+        credits=credits.cached,
+        on_failure=_pool_on_failure,
+        on_success=_pool_on_success,
     )
     gateway_runtime = GatewayRuntime(gateway)
 
     activities = ActivitiesService(repository, growth_runner=GrowthTaskRunner())
 
     def reconcile_client_credential(targets: list[Any]) -> None:
-        """巡检前把「当前客户端登录的 Trae 账号」的最新会话收回号池。
+        """巡检前把「当前客户端登录的账号」的最新会话收回号池。
 
         客户端会自行刷新并轮换 refreshToken，两次切号之间号池那份就会变成死账。
-        这里以客户端为准做一次单向同步，只处理 ``targets`` 里的那一个号；
+        这里以客户端为准做一次单向同步，逐个平台处理 ``targets`` 里的号；
         读不到 / 解析失败 / 账号不匹配一律静默跳过，绝不阻断巡检。
         """
-        scope_key = "trae-cn"
-        adapter = adapters.get(scope_key)
-        if adapter is None:
-            return
-        try:
-            uid = engine.current_uid(scope_key)
-            if not uid:
-                return
-            account = repository.get_by_external(scope_key, uid)
-            if account is None or account.is_deleted:
-                return
-            if not any(item.id == account.id for item in targets):
-                return
-            kind, current = repository.credential_record(account.id)
-            if current.get("format") == "oauth-token":
-                syncer = getattr(adapter, "sync_oauth_credential", None)
-                fresh = syncer(uid, current) if syncer else None
-            else:
-                imported = adapter.import_current()
-                if imported.external_id != uid:
-                    return
-                fresh = encode_payload(imported.payload)
-            if fresh is None or fresh == current:
-                return
-            repository.replace_credential(
-                account.id,
-                credential=fresh,
-                kind=kind,
-                expires_at=expiry_text(kind, fresh),
-            )
-            lifecycle.invalidate(account.id)
-            logger.info("巡检前已对账客户端凭据：%s（%s）", account.id, account.display_name)
-        except Exception:  # noqa: BLE001 - 对账是增益，任何失败都不该影响巡检
-            logger.debug("巡检前客户端凭据对账跳过：%s", scope_key, exc_info=True)
+        wanted = {item.id for item in targets}
+        for scope_key, adapter in adapters.items():
+            try:
+                uid = engine.current_uid(scope_key)
+                if not uid:
+                    continue
+                account = repository.get_by_external(scope_key, uid)
+                if account is None or account.is_deleted:
+                    continue
+                if account.id not in wanted:
+                    repository.record_reconcile(account.id, "不在本次巡检范围")
+                    continue
+                kind, current = repository.credential_record(account.id)
+                if current.get("format") == "oauth-token":
+                    syncer = getattr(adapter, "sync_oauth_credential", None)
+                    fresh = syncer(uid, current) if syncer else None
+                else:
+                    imported = adapter.import_current()
+                    if imported.external_id != uid:
+                        repository.record_reconcile(account.id, "客户端账号不匹配")
+                        continue
+                    fresh = encode_payload(imported.payload)
+                if fresh is None or fresh == current:
+                    repository.record_reconcile(account.id, "无需更新")
+                    continue
+                repository.replace_credential(
+                    account.id,
+                    credential=fresh,
+                    kind=kind,
+                    expires_at=expiry_text(kind, fresh),
+                )
+                lifecycle.invalidate(account.id)
+                repository.record_reconcile(account.id, "已更新")
+                logger.info(
+                    "巡检前已对账客户端凭据：%s（%s / %s）",
+                    account.id,
+                    account.display_name,
+                    scope_key,
+                )
+            except Exception:  # noqa: BLE001 - 对账是增益，任何失败都不该影响巡检
+                logger.debug("巡检前客户端凭据对账跳过：%s", scope_key, exc_info=True)
 
     # 凭据生命周期：过期判断 / 续期 / 验活。路由与计划任务共用同一实例，
     # 这样手动点的「验活」结果与定时巡检的结论不会各说各话（缓存也才生效）。
@@ -220,7 +246,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if key == "credential_refresh":
             # 巡检前先对账客户端当前登录的号，再按提前窗口续期；大部分轮次是空跑。
             results = lifecycle.sweep(targets, mode=MODE_DUE)
-            return lifecycle.describe(results, MODE_DUE)
+            return lifecycle.describe(results, MODE_DUE), lifecycle.summary(results)
         if key == "keepalive":
             # 保活 = 逐账号发一次已鉴权探测（顺带刷新活动缓存），确认登录态仍有效。
             detected = activities.detect(targets, force=True)

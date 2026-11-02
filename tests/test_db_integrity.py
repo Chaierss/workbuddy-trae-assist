@@ -11,6 +11,8 @@ from chaierww.infra.db import (
     _migrate_v2,
     _migrate_v3,
     _migrate_v4,
+    _migrate_v5,
+    _migrate_v6,
     open_database,
 )
 from chaierww.infra.startup import (
@@ -141,6 +143,50 @@ def test_v5_upgrade_adds_group_name_with_empty_default(tmp_path):
         ).fetchone()
         assert row[0] == "老账号"
         assert row[1] == ""
+    finally:
+        conn.close()
+
+
+def test_v7_upgrade_adds_probe_log_and_reconcile_tables(tmp_path):
+    """v6 → v7：新增巡检历史表 / 对账表与 next_retry_at，老数据原地保留。"""
+    db = tmp_path / "v6.db"
+    raw = sqlite3.connect(db)
+    raw.execute("PRAGMA foreign_keys = ON")
+    _migrate_v1(raw)
+    _migrate_v2(raw)
+    _migrate_v3(raw)
+    _migrate_v4(raw)
+    _migrate_v5(raw)
+    _migrate_v6(raw)
+    raw.execute(
+        "INSERT INTO accounts (id, scope, external_id, display_name, credential_state,"
+        " created_at, updated_at) VALUES ('a-1', 'workbuddy-cn', 'u-1', '老账号',"
+        " 'usable', '2026-01-01', '2026-01-01')"
+    )
+    raw.execute(
+        "INSERT INTO credential_probes (account_id, probed_at, status, failures)"
+        " VALUES ('a-1', '2026-10-01T00:00:00+00:00', 'ok', 0)"
+    )
+    raw.execute("PRAGMA user_version = 6")
+    raw.commit()
+    raw.close()
+
+    conn = open_database(db)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        assert {"credential_probe_log", "credential_reconcile"} <= tables
+
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(credential_probes)")}
+        assert "next_retry_at" in columns
+        # 老的汇总行不能因为加列被冲掉。
+        row = conn.execute(
+            "SELECT status FROM credential_probes WHERE account_id = 'a-1'"
+        ).fetchone()
+        assert row[0] == "ok"
     finally:
         conn.close()
 

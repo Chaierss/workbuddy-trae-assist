@@ -30,6 +30,8 @@ import {
 import AccountCard from "../components/AccountCard.vue";
 import AnimatedNumber from "../components/AnimatedNumber.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import CredentialDiagnoseDialog from "../components/CredentialDiagnoseDialog.vue";
+import CredentialHistoryDialog from "../components/CredentialHistoryDialog.vue";
 import EmptyState from "../components/EmptyState.vue";
 import NoteDialog from "../components/NoteDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -216,6 +218,26 @@ function openNote(account: Account): void {
   noteDialog.account = account;
   noteDialog.value = account.note;
   noteDialog.open = true;
+}
+
+/** 只读诊断弹层：记录目标号，具体请求由弹层自己发。 */
+const diagnoseDialog = ref<{ open: boolean; account: Account | null }>({
+  open: false,
+  account: null,
+});
+
+/** 巡检历史弹层：同上。 */
+const historyDialog = ref<{ open: boolean; account: Account | null }>({
+  open: false,
+  account: null,
+});
+
+function openDiagnose(account: Account): void {
+  diagnoseDialog.value = { open: true, account };
+}
+
+function openHistory(account: Account): void {
+  historyDialog.value = { open: true, account };
 }
 
 async function saveNote(note: string): Promise<void> {
@@ -2073,6 +2095,8 @@ const confirmText = computed(() => {
           @relogin="openRelogin"
           @reimport="reimportFromClient"
           @run-activity="(item) => runActivitiesFor([item.id])"
+          @diagnose="openDiagnose"
+          @history="openHistory"
         />
       </div>
     </div>
@@ -2112,6 +2136,20 @@ const confirmText = computed(() => {
     <p v-if="switchBlockedReason" class="mt-4 text-body-sm text-muted">
       {{ t("accounts.hint", { reason: switchBlockedReason }) }}
     </p>
+
+    <CredentialDiagnoseDialog
+      :open="diagnoseDialog.open"
+      :account-id="diagnoseDialog.account?.id ?? null"
+      :account-name="diagnoseDialog.account?.displayName"
+      @close="diagnoseDialog.open = false"
+    />
+
+    <CredentialHistoryDialog
+      :open="historyDialog.open"
+      :account-id="historyDialog.account?.id ?? null"
+      :account-name="historyDialog.account?.displayName"
+      @close="historyDialog.open = false"
+    />
 
     <ConfirmDialog
       :open="confirm.open"

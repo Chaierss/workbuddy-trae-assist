@@ -59,6 +59,7 @@ from chaierww.domain.credential_refresh import (
     STATUS_TRANSIENT,
     STATUS_UNSUPPORTED,
     refresher_for,
+    trae_device_foreign,
 )
 from chaierww.domain.platform_api import (
     ICUBE_CLOUDIDE_KEY,
@@ -124,6 +125,9 @@ class SweepResult:
     expires_at: str | None = None
     #: 上游错误码原文（如 Trae ``20101``）。没有就为空串。
     error_code: str = ""
+    #: 自动续期被退避 / 熔断暂停时的下次可重试时间（UTC ISO）。
+    #: ``None`` 表示没有等待计划：要么刚成功，要么只能手动恢复。
+    next_retry_at: str | None = None
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -134,6 +138,7 @@ class SweepResult:
             "detail": self.detail,
             "expiresAt": self.expires_at,
             "errorCode": self.error_code,
+            "nextRetryAt": self.next_retry_at,
         }
 
 
@@ -476,6 +481,141 @@ class CredentialLifecycleService:
             else:
                 self._cache.pop(account_id, None)
 
+    def clear_failures(self, account_id: str) -> None:
+        """手动解除熔断：删掉汇总探测行（保留历史时间线），状态回「未验证」。
+
+        熔断只是「别自动再试了」，不是对凭据的判决：用户重新登录后点一下
+        「继续自动续期」，应该立刻回到正常巡检，而不是等下一次人工干预。
+        """
+        self._repo.clear_probe(account_id)
+        try:
+            account = self._repo.get(account_id)
+        except AccountNotFound:
+            self.invalidate(account_id)
+            return
+        if account.credential_state is CredentialState.RELOGIN_REQUIRED:
+            self._set_state(account_id, CredentialState.UNVERIFIED)
+        self.invalidate(account_id)
+
+    def diagnose(self, account: Account) -> dict[str, Any]:
+        """只读诊断：六步逐步给出结论，**不续期、不写 probe**。
+
+        续期会轮换 refreshToken，诊断必须无副作用；第 6 步的验活虽然会写账号
+        状态与缓存，但那是「当前真相」，不改变任何凭据。
+        """
+        steps: list[dict[str, Any]] = []
+        kind = ""
+        credential: dict[str, Any] = {}
+        try:
+            kind, credential = self._repo.credential_record(account.id)
+            readable = True
+        except (AccountNotFound, ValueError):
+            readable = False
+            steps.append(
+                {
+                    "key": "readable",
+                    "ok": False,
+                    "detail": "凭据不可读取，请重新导入或登录",
+                }
+            )
+
+        if readable:
+            format_ = str(credential.get("format") or "oauth-token")
+            steps.append(
+                {
+                    "key": "readable",
+                    "ok": True,
+                    "detail": f"凭据可读（{kind} / {format_}）",
+                }
+            )
+            can_refresh = refreshable(kind, credential)
+            steps.append(
+                {
+                    "key": "refreshable",
+                    "ok": can_refresh,
+                    "detail": (
+                        "凭据里有 refreshToken，可自动续期"
+                        if can_refresh
+                        else "没有可用的 refreshToken，无法自动续期"
+                    ),
+                }
+            )
+
+            platform = _platform_of(account.scope)
+            foreign = platform == "trae" and trae_device_foreign(credential)
+            steps.append(
+                {
+                    "key": "device",
+                    "ok": not foreign,
+                    "detail": (
+                        "设备绑定在另一台设备，需在本机重新登录"
+                        if foreign
+                        else (
+                            "设备绑定在本机" if platform == "trae" else "该平台无设备绑定校验"
+                        )
+                    ),
+                }
+            )
+
+            now = self._now()
+            expiry = token_expiry(kind, credential) or parse_expiry(
+                self._repo.credential_expiries([account.id]).get(account.id)
+            )
+            if expiry is None:
+                steps.append(
+                    {
+                        "key": "expiry",
+                        "ok": True,
+                        "detail": "过期时间未知，按 12 小时盲续期节流",
+                    }
+                )
+            elif expiry <= now:
+                steps.append(
+                    {
+                        "key": "expiry",
+                        "ok": False,
+                        "detail": f"凭据已过期（{_iso(expiry)}）",
+                    }
+                )
+            else:
+                steps.append(
+                    {
+                        "key": "expiry",
+                        "ok": True,
+                        "detail": f"距到期还有 {_human_delta(expiry - now)}",
+                    }
+                )
+
+            probe = self._repo.probe_records([account.id]).get(account.id, {})
+            failures = int(probe.get("failures") or 0)
+            paused = failures >= AUTH_FAILURE_LIMIT
+            next_retry = probe.get("nextRetryAt")
+            if paused:
+                backoff_detail = f"连续 {failures} 次认证失败，自动续期已熔断"
+            elif next_retry:
+                backoff_detail = f"连续失败 {failures} 次，下次自动重试：{next_retry}"
+            elif failures:
+                backoff_detail = f"连续失败 {failures} 次，下一次巡检会退避"
+            else:
+                backoff_detail = "没有退避或熔断"
+            steps.append(
+                {"key": "backoff", "ok": not paused, "detail": backoff_detail}
+            )
+
+            status, verify_detail = self._verify(account, credential)
+            steps.append(
+                {
+                    "key": "verify",
+                    "ok": status == RESULT_OK,
+                    "detail": verify_detail,
+                }
+            )
+        else:
+            status = RESULT_UNSUPPORTED
+
+        conclusion, suggest = _diagnosis_conclusion(steps, status)
+        return {"steps": steps, "conclusion": conclusion, "suggest": suggest}
+
     # ----- 单号处理 -----
 
     def _lock_for(self, account_id: str) -> threading.Lock:
@@ -553,6 +693,7 @@ class CredentialLifecycleService:
                     f"上次失败后 {_human_delta(now - last)}，"
                     f"{_human_delta(wait - (now - last))}后再试",
                     _iso(expiry),
+                    next_retry_at=_iso(last + wait),
                 )
         if not force:
             if expiry is None:
@@ -584,6 +725,12 @@ class CredentialLifecycleService:
             return self._result(account, RESULT_UNSUPPORTED, "该平台不支持自动续期", _iso(expiry))
 
         outcome = refresher.refresh(credential)
+        # transient 也要给出「何时再试」：上游给了 Retry-After 就照它，
+        # 否则退回 1 小时，避免下一次巡检立刻再撞同一个错误。
+        next_retry_at = None
+        if outcome.status == STATUS_TRANSIENT:
+            wait = outcome.retry_after if outcome.retry_after else 3600.0
+            next_retry_at = _iso(now + timedelta(seconds=float(wait)))
         # 不管结论是什么都记一笔：未知过期的号靠它节流，避免巡检一轮就盲打一次。
         self._note_probe(
             account.id,
@@ -592,6 +739,7 @@ class CredentialLifecycleService:
             detail=outcome.detail,
             error_code=outcome.error_code,
             refreshed=outcome.status == STATUS_REFRESHED,
+            next_retry_at=next_retry_at,
         )
         if outcome.status == STATUS_REFRESHED and outcome.credential is not None:
             expires_at = outcome.expires_at or _iso(token_expiry(kind, outcome.credential))
@@ -658,6 +806,7 @@ class CredentialLifecycleService:
             outcome.detail,
             _iso(expiry),
             error_code=outcome.error_code,
+            next_retry_at=next_retry_at,
         )
 
     def _check(
@@ -751,6 +900,7 @@ class CredentialLifecycleService:
         expires_at: str | None = None,
         *,
         error_code: str = "",
+        next_retry_at: str | None = None,
     ) -> SweepResult:
         return SweepResult(
             account_id=account.id,
@@ -760,6 +910,7 @@ class CredentialLifecycleService:
             detail=detail,
             expires_at=expires_at,
             error_code=error_code,
+            next_retry_at=next_retry_at,
         )
 
     def _set_state(self, account_id: str, state: CredentialState) -> None:
@@ -775,6 +926,7 @@ class CredentialLifecycleService:
         detail: str = "",
         error_code: str = "",
         refreshed: bool = False,
+        next_retry_at: str | None = None,
     ) -> None:
         """记录一次续期探测；写失败只降级为日志，不让巡检因此中断。"""
         try:
@@ -785,6 +937,7 @@ class CredentialLifecycleService:
                 detail=detail,
                 error_code=error_code,
                 refreshed=refreshed,
+                next_retry_at=next_retry_at,
             )
         except Exception:  # noqa: BLE001 - 探测时间只是节流信息，写不进去不影响结论
             logger.exception("记录凭据探测时间失败：%s", account_id)
@@ -804,3 +957,32 @@ def _human_delta(delta: timedelta) -> str:
     if total >= 3600:
         return f"{total // 3600} 小时"
     return f"{max(1, total // 60)} 分钟"
+
+
+def _diagnosis_conclusion(
+    steps: list[dict[str, Any]], status: str
+) -> tuple[str, str]:
+    """把六步结论压成一句「怎么坏的」+ 一句「该怎么办」。"""
+    by_key = {str(step.get("key")): step for step in steps}
+    if not by_key.get("readable", {}).get("ok", True):
+        return "凭据不可读取", "从客户端导入"
+    if not by_key.get("device", {}).get("ok", True):
+        return "设备绑定在别的机器", "重新登录"
+    if status == RESULT_RELOGIN_REQUIRED:
+        return "登录态已经失效", "重新登录"
+    if status == RESULT_FAILED:
+        return "验活暂时未通过（网络或上游波动）", "等待自动续期"
+    if status == RESULT_UNSUPPORTED:
+        return "该账号无法在线验活", "从客户端导入"
+    refresh_ok = by_key.get("refreshable", {}).get("ok", False)
+    expired = not by_key.get("expiry", {}).get("ok", True)
+    paused = not by_key.get("backoff", {}).get("ok", True)
+    if expired and not refresh_ok:
+        return "凭据已过期且无法自动续期", "重新登录"
+    if expired:
+        return "凭据已过期，等待自动续期", "等待自动续期"
+    if paused:
+        return "自动续期已熔断", "重新登录"
+    if not refresh_ok:
+        return "凭据可用，但无法自动续期", "从客户端导入"
+    return "凭据健康，无需处理", "无需处理"

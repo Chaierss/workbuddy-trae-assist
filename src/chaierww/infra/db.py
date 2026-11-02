@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -253,6 +253,35 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V6 + "\nCOMMIT;")
 
 
+#: v7：巡检历史与对账审计。汇总行仍只保留最后一次结论（供调度节流），
+#: 历史表保存每号最近 20 条，据此还原「哪天失败、哪天恢复」的时间线。
+#: ``next_retry_at`` 记录退避 / 熔断的下次可重试时间，供卡片直接展示。
+_SCHEMA_V7 = """
+ALTER TABLE credential_probes ADD COLUMN next_retry_at TEXT;
+CREATE TABLE IF NOT EXISTS credential_probe_log (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    code TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    refreshed INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_probe_log_account
+    ON credential_probe_log (account_id, seq DESC);
+CREATE TABLE IF NOT EXISTS credential_reconcile (
+    account_id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    result TEXT NOT NULL
+);
+"""
+
+
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V7 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -270,6 +299,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v5(conn)
     if version < 6:
         _migrate_v6(conn)
+    if version < 7:
+        _migrate_v7(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

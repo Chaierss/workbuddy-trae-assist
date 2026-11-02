@@ -183,6 +183,30 @@ def test_run_now_records_result_and_time(tmp_path):
     assert recorder.calls == [("activity_run", (), ())]
 
 
+def test_executor_can_return_structured_meta(tmp_path):
+    """执行体回 (文本, meta)：日志、落盘与重载都带上结构化结论。"""
+    meta = {"total": 3, "refreshed": 1, "reloginRequired": 1}
+
+    def executor(key: str, account_ids: tuple[str, ...], keys: tuple[str, ...]):
+        return "续期 3 个：已续 1", dict(meta)
+
+    scheduler = Scheduler(tmp_path, executor=executor, now=lambda: _at(10, 0))
+    outcome = scheduler.run_now("credential_refresh")
+    assert outcome["result"] == "续期 3 个：已续 1"
+    assert outcome["meta"] == meta
+
+    task = scheduler.get("credential_refresh")
+    assert task.history[-1]["meta"] == meta
+    saved = json.loads((tmp_path / "schedules.json").read_text(encoding="utf-8"))
+    assert saved["tasks"]["credential_refresh"]["history"][-1]["meta"] == meta
+
+    # 重载后 meta 仍在：前端日志的状态徽标依赖它。
+    reloaded = Scheduler(
+        tmp_path, executor=executor, now=lambda: _at(11, 0)
+    )
+    assert reloaded.get("credential_refresh").history[-1]["meta"] == meta
+
+
 def test_executor_failure_does_not_raise(tmp_path):
     def broken(key: str, account_ids: tuple[str, ...], keys: tuple[str, ...]) -> str:
         raise RuntimeError("上游炸了")

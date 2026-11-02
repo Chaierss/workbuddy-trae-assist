@@ -771,3 +771,96 @@ def test_credential_refresh_task_is_on_by_default():
     spec = _default_tasks()["credential_refresh"]
     assert spec.enabled is True
     assert spec.times == ("08:00", "20:00")
+
+
+# ---------- 巡检历史 / 退避时间 / 手动作废 ----------
+
+
+def test_probe_log_trims_to_twenty_and_returns_newest_first(repo):
+    """每号只留最近 20 条历史，读出来新的在前。"""
+    account = _oauth_account(repo)
+    for index in range(25):
+        repo.record_probe(account.id, "ok", detail=f"第 {index} 次")
+
+    items = repo.probe_history(account.id)
+    assert len(items) == 20
+    assert items[0]["detail"] == "第 24 次"
+    assert items[-1]["detail"] == "第 5 次"
+
+
+def test_probe_next_retry_at_is_persisted_and_surfaced(repo):
+    account = _oauth_account(repo)
+    retry = "2026-11-03T00:00:00+00:00"
+    repo.record_probe(account.id, STATUS_TRANSIENT, failed=True, next_retry_at=retry)
+
+    assert repo.probe_records([account.id])[account.id]["nextRetryAt"] == retry
+    assert repo.probe_history(account.id)[0]["nextRetryAt"] == retry
+
+
+def test_transient_failure_returns_next_retry_time(repo, monkeypatch):
+    """上游临时故障：结果里要带「下次重试」，并落进汇总供卡片展示。"""
+    expires = (datetime.now(UTC) + timedelta(minutes=10)).replace(microsecond=0).isoformat()
+    account = _oauth_account(repo, expires_at=expires)
+    stub = _StubRefresher(
+        RefreshOutcome(status=STATUS_TRANSIENT, detail="网络抖动", retry_after=600)
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    results = _service(repo).sweep([account], mode=MODE_DUE)
+
+    assert results[0].status == RESULT_FAILED
+    assert results[0].next_retry_at is not None
+    assert repo.probe_records([account.id])[account.id]["nextRetryAt"] == (
+        results[0].next_retry_at
+    )
+
+
+def test_clear_failures_resets_breaker_but_keeps_history(repo, monkeypatch):
+    """手动解除熔断：计数清零、状态回未验证，历史时间线仍保留。"""
+    account = _oauth_account(repo)
+    stub = _StubRefresher(RefreshOutcome(status=STATUS_RELOGIN_REQUIRED, detail="拒绝"))
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    service = _service(repo)
+    for _ in range(3):
+        service.sweep([account], mode=MODE_FORCE)
+
+    assert repo.probe_failures([account.id])[account.id] == 3
+    assert repo.get(account.id).credential_state is CredentialState.RELOGIN_REQUIRED
+    assert repo.probe_history(account.id)
+
+    service.clear_failures(account.id)
+    assert repo.probe_failures([account.id]).get(account.id, 0) == 0
+    assert repo.get(account.id).credential_state is CredentialState.UNVERIFIED
+    # 历史不清：用户仍能回看「什么时候失败过」。
+    assert len(repo.probe_history(account.id)) == 3
+
+
+def test_diagnose_reports_six_steps_and_writes_no_probe(repo, monkeypatch):
+    """诊断：六步按固定顺序给出结论，且不写任何巡检记录。"""
+    expires = (datetime.now(UTC) + timedelta(hours=2)).replace(microsecond=0).isoformat()
+    account = _oauth_account(repo, expires_at=expires)
+    repo.record_probe(account.id, STATUS_RELOGIN_REQUIRED, failed=True, detail="拒绝")
+    before = repo.probe_history(account.id)
+
+    service = _service(repo)
+    monkeypatch.setattr(
+        service, "_verify", lambda target, credential: (RESULT_OK, "登录态有效")
+    )
+    report = service.diagnose(repo.get(account.id))
+
+    assert [step["key"] for step in report["steps"]] == [
+        "readable",
+        "refreshable",
+        "device",
+        "expiry",
+        "backoff",
+        "verify",
+    ]
+    assert all(isinstance(step["ok"], bool) for step in report["steps"])
+    assert report["conclusion"]
+    assert report["suggest"]
+    # 诊断只读：历史一条都不能多。
+    assert repo.probe_history(account.id) == before

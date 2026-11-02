@@ -500,6 +500,7 @@ def _pool_payload(request: Request) -> dict[str, Any]:
     accounts: list[dict[str, Any]] = []
     for account in relay.candidates(scope):
         info = relay.credits_cached(account.id)
+        exclusion = store.exclusion(account.id)
         accounts.append(
             {
                 "id": account.id,
@@ -507,13 +508,21 @@ def _pool_payload(request: Request) -> dict[str, Any]:
                 "credentialState": str(account.credential_state),
                 "state": relay.state(account),
                 "cooldownSeconds": int(relay.cooldown(account.id)),
-                "excluded": store.is_excluded(account.id),
+                "excluded": exclusion is not None,
+                # 排除原因与截止时间：界面要能回答「为什么被排除、什么时候回来」。
+                "excludeReason": (exclusion or {}).get("reason") or "",
+                "excludeUntil": (exclusion or {}).get("until"),
                 "preferred": account.id == preferred,
                 # 余额查不到时给 None（界面要如实显示「查不到」，不能显示 0）。
                 "credits": info.payload() if info is not None else None,
             }
         )
-    return {"scope": scope, "preferred": preferred, "accounts": accounts}
+    return {
+        "scope": scope,
+        "preferred": preferred,
+        "excluded": store.pool_payload()["excluded"],
+        "accounts": accounts,
+    }
 
 
 @api_router.get("/pool", summary="账号池：每账号的可用 / 冷却 / 积分耗尽 / 已排除与指定偏好")

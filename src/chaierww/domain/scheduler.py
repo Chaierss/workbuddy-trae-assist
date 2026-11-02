@@ -129,8 +129,9 @@ class TaskSpec:
     #: 只要某个时点的计划时刻 ≤ 这个时刻，就认为该档今天已经跑过。
     last_run_at: str | None = None
     last_result: str = ""
-    #: 最近 `HISTORY_KEEP` 次执行记录（`{"at": ..., "result": ...}`），旧的在前。
-    history: tuple[dict[str, str], ...] = ()
+    #: 最近 `HISTORY_KEEP` 次执行记录（`{"at": ..., "result": ..., "meta": {...}}`），
+    #: 旧的在前。``meta`` 是可选的机器可读结论，供界面画状态徽标。
+    history: tuple[dict[str, Any], ...] = ()
 
     def payload(self, next_run_at: str | None = None) -> dict[str, Any]:
         return {
@@ -201,7 +202,10 @@ class Scheduler:
         self,
         home: Path,
         *,
-        executor: Callable[[str, tuple[str, ...], tuple[str, ...]], str],
+        executor: Callable[
+            [str, tuple[str, ...], tuple[str, ...]],
+            str | tuple[str, dict[str, Any]],
+        ],
         tick_seconds: float = DEFAULT_TICK_SECONDS,
         now: Callable[[], datetime] | None = None,
         tick_hook: Callable[[], None] | None = None,
@@ -417,21 +421,28 @@ class Scheduler:
 
     def _execute(self, spec: TaskSpec, *, at: datetime) -> dict[str, Any]:
         try:
-            result = self._executor(spec.key, spec.account_ids, spec.activity_keys)
+            raw = self._executor(spec.key, spec.account_ids, spec.activity_keys)
+            result, meta = _split_outcome(raw)
         except Exception as exc:  # noqa: BLE001 - 单次失败只记结果，绝不退出线程
             logger.exception("计划任务执行异常：%s", spec.key)
             result = f"执行异常：{type(exc).__name__}：{exc}"
-        stamped = self._mark(spec.key, at=at, result=result)
+            meta = {}
+        stamped = self._mark(spec.key, at=at, result=result, meta=meta)
         logger.info("计划任务 %s 执行完成：%s", spec.key, result)
-        return {"key": spec.key, "result": result, "lastRunAt": stamped}
+        return {"key": spec.key, "result": result, "meta": meta, "lastRunAt": stamped}
 
-    def _mark(self, key: str, *, at: datetime, result: str) -> str | None:
+    def _mark(
+        self, key: str, *, at: datetime, result: str, meta: dict[str, Any] | None = None
+    ) -> str | None:
         stamp = at.isoformat(timespec="seconds")
+        entry: dict[str, Any] = {"at": stamp, "result": result}
+        if meta:
+            entry["meta"] = dict(meta)
         with self._lock:
             current = self._tasks.get(key)
             if current is None:
                 return None
-            history = (*current.history, {"at": stamp, "result": result})[-HISTORY_KEEP:]
+            history = (*current.history, entry)[-HISTORY_KEEP:]
             self._tasks[key] = replace(
                 current, last_run_at=stamp, last_result=result, history=history
             )
@@ -484,11 +495,23 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def _read_history(value: Any) -> tuple[dict[str, str], ...]:
+def _split_outcome(raw: Any) -> tuple[str, dict[str, Any]]:
+    """拆执行体返回值：可以只回一行文本，也可以回 ``(文本, 结构化结论)``。
+
+    结构化结论只认字典；回别的东西就当作没有，免得脏数据写进 `schedules.json`。
+    """
+    if isinstance(raw, tuple) and len(raw) == 2:
+        text, meta = raw
+        line = text if isinstance(text, str) else str(text)
+        return line, dict(meta) if isinstance(meta, dict) else {}
+    return (raw if isinstance(raw, str) else str(raw)), {}
+
+
+def _read_history(value: Any) -> tuple[dict[str, Any], ...]:
     """读盘时清洗执行日志：坏项直接丢，只认 `at` 非空且 `result` 是字符串的条目。"""
     if not isinstance(value, list):
         return ()
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict):
             continue
@@ -496,7 +519,14 @@ def _read_history(value: Any) -> tuple[dict[str, str], ...]:
         if not isinstance(at, str) or not at:
             continue
         result = item.get("result")
-        entries.append({"at": at, "result": result if isinstance(result, str) else ""})
+        entry: dict[str, Any] = {
+            "at": at,
+            "result": result if isinstance(result, str) else "",
+        }
+        meta = item.get("meta")
+        if isinstance(meta, dict) and meta:
+            entry["meta"] = dict(meta)
+        entries.append(entry)
     return tuple(entries[-HISTORY_KEEP:])
 
 

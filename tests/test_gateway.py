@@ -26,6 +26,7 @@ from chaierww.domain.gateway import (
     LOG_KEEP,
     LOG_KEEP_MAX,
     LOG_KEEP_MIN,
+    POOL_FILENAME,
     SCOPE_ALL,
     SCOPE_CAPABILITY,
     SCOPE_LIST,
@@ -1840,11 +1841,122 @@ def test_forget_account_clears_excluded_and_preferred(tmp_path):
 
     assert store.forget_account("acc-1") is True
 
-    assert store.pool_payload() == {"excluded": ["acc-2"], "preferred": None}
+    assert store.pool_payload() == {
+        "version": 2,
+        "excluded": [{"id": "acc-2", "reason": "manual", "until": None}],
+        "preferred": None,
+    }
     # 重读落盘文件确认持久化
-    assert GatewayStore(tmp_path).pool_payload() == {"excluded": ["acc-2"], "preferred": None}
+    assert GatewayStore(tmp_path).pool_payload() == {
+        "version": 2,
+        "excluded": [{"id": "acc-2", "reason": "manual", "until": None}],
+        "preferred": None,
+    }
     # 已经不在了，再摘一次如实返回 False
     assert store.forget_account("acc-1") is False
+
+
+def test_old_string_pool_list_is_upgraded_to_v2(tmp_path):
+    """v1 的纯字符串排除项读进来即升级成 v2：老用户不必手工迁移，语义仍是人工永久排除。"""
+    (tmp_path / POOL_FILENAME).write_text(
+        json.dumps({"excluded": ["acc-1"], "preferred": "acc-1"}),
+        encoding="utf-8",
+    )
+    store = GatewayStore(tmp_path)
+    assert store.pool_payload() == {
+        "version": 2,
+        "excluded": [{"id": "acc-1", "reason": "manual", "until": None}],
+        "preferred": "acc-1",
+    }
+    assert store.excluded_accounts() == {"acc-1"}
+    assert store.exclusion("acc-1") == {
+        "id": "acc-1",
+        "reason": "manual",
+        "until": None,
+    }
+
+
+def test_exclusion_with_until_auto_revives(tmp_path):
+    """带截止时间的排除到点自动消失：既从候选里放回，也从落盘里清掉。"""
+    store = GatewayStore(tmp_path)
+    store.exclude("acc-1", reason="upstream", minutes=-1)
+
+    assert store.excluded_accounts() == set()
+    assert store.is_excluded("acc-1") is False
+    assert store.exclusion("acc-1") is None
+    # 重开实例读回来同样是干净的 —— 复活结果已经落盘，而不是只改内存。
+    reopened = GatewayStore(tmp_path)
+    assert reopened.pool_payload() == {
+        "version": 2,
+        "excluded": [],
+        "preferred": None,
+    }
+
+
+def test_persistent_exclusion_survives_restart(tmp_path):
+    """未到期的持久排除跨重启仍生效：死号不该因为重启而复活。"""
+    store = GatewayStore(tmp_path)
+    store.exclude("acc-1", reason="upstream", minutes=30)
+
+    reopened = GatewayStore(tmp_path)
+    assert reopened.excluded_accounts() == {"acc-1"}
+    entry = reopened.exclusion("acc-1")
+    assert entry is not None
+    assert entry["reason"] == "upstream"
+    assert entry["until"] is not None
+
+
+def test_three_rate_limits_trigger_persistent_exclusion(client):
+    """连续 3 次 429 才升级成落盘排除；前两次只做瞬时冷却，不误伤正常号。"""
+    account_id = _seed(client, "acc-429", "限流号")
+    store = client.app.state.gateway
+    relay = client.app.state.gateway_relay
+
+    relay.report_failure(account_id, status=429)
+    relay.report_failure(account_id, status=429)
+    assert store.exclusion(account_id) is None
+
+    relay.report_failure(account_id, status=429)
+    entry = store.exclusion(account_id)
+    assert entry is not None
+    assert entry["reason"] == "upstream"
+    assert entry["until"] is not None
+
+
+def test_success_clears_persistent_exclusion(client):
+    """成功一次即清除自动排除；人工排除必须由用户自己恢复。"""
+    account_id = _seed(client, "acc-recover", "恢复号")
+    store = client.app.state.gateway
+    relay = client.app.state.gateway_relay
+
+    for _ in range(3):
+        relay.report_failure(account_id, status=429)
+    assert store.exclusion(account_id) is not None
+
+    relay.report_success(SCOPE, account_id)
+    assert store.exclusion(account_id) is None
+
+    store.exclude(account_id, reason="manual")
+    relay.report_success(SCOPE, account_id)
+    assert store.exclusion(account_id) == {
+        "id": account_id,
+        "reason": "manual",
+        "until": None,
+    }
+
+
+def test_credential_failure_excludes_permanently(client, tmp_path):
+    """凭据解不开是结构性故障：落盘永久排除，重启也不该反复去撞。"""
+    account_id = _seed(client, "acc-cred", "坏凭据号")
+    store = client.app.state.gateway
+    relay = client.app.state.gateway_relay
+
+    relay.report_failure(account_id, reason="credential")
+    entry = store.exclusion(account_id)
+    assert entry is not None
+    assert entry["reason"] == "credential"
+    assert entry["until"] is None
+    assert GatewayStore(tmp_path).exclusion(account_id) is not None
 
 
 # ---------- 生产化：日志保留 / 限额 / 429 / 导出 ----------

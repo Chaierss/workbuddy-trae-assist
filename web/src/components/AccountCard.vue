@@ -8,6 +8,7 @@ import {
   Clock,
   Coins,
   Download,
+  History,
   Layers,
   Loader2,
   Pencil,
@@ -15,6 +16,7 @@ import {
   RefreshCw,
   Repeat2,
   Sparkles,
+  Stethoscope,
   Trash2,
 } from "lucide-vue-next";
 import StatusPill from "./StatusPill.vue";
@@ -70,6 +72,10 @@ const emit = defineEmits<{
   reimport: [account: Account];
   /** 点击「今日活动」行：只跑这个号的还能自动完成的项。 */
   runActivity: [account: Account];
+  /** 打开只读诊断：六步指出凭据卡在哪一步。 */
+  diagnose: [account: Account];
+  /** 打开凭据巡检历史时间线。 */
+  history: [account: Account];
 }>();
 
 const PALETTE = [
@@ -731,6 +737,24 @@ function formatCredits(value: number | null): string {
         @click="emit('refreshCredential', account)"
       >
         <RefreshCw :size="12" :stroke-width="1.9" />
+      </button>
+      <button
+        type="button"
+        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
+        :disabled="busy"
+        :title="t('accounts.credential.diagnose')"
+        @click="emit('diagnose', account)"
+      >
+        <Stethoscope :size="12" :stroke-width="1.9" />
+      </button>
+      <button
+        type="button"
+        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
+        :disabled="busy"
+        :title="t('accounts.credential.history')"
+        @click="emit('history', account)"
+      >
+        <History :size="12" :stroke-width="1.9" />
       </button>
       <button
         type="button"

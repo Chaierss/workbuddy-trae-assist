@@ -50,8 +50,23 @@ function stateTone(state: string): Tone {
   return STATE_TONE[state] ?? "neutral";
 }
 
-/** 每行右侧的补充说明：冷却剩余 / 积分余额（查不到就如实说查不到，不能显示成 0）。 */
+/** 每行右侧的补充说明：排除原因 / 冷却剩余 / 积分余额（查不到就如实说查不到）。 */
+function exclusionHint(item: GatewayPoolAccount): string {
+  const reason =
+    item.excludeReason === "credential"
+      ? t("gateway.pool.excludeReasonCredential")
+      : item.excludeReason === "upstream"
+        ? t("gateway.pool.excludeReasonUpstream")
+        : t("gateway.pool.excludeReasonManual");
+  if (!item.excludeUntil) return reason;
+  const minutes = Math.round((Date.parse(item.excludeUntil) - Date.now()) / 60000);
+  return minutes > 0
+    ? t("gateway.pool.excludeUntil", { reason, minutes })
+    : reason;
+}
+
 function accountHint(item: GatewayPoolAccount): string {
+  if (item.excluded) return exclusionHint(item);
   if (item.state === "cooling")
     return t("gateway.pool.cooldown", { seconds: item.cooldownSeconds });
   const credits = item.credits;

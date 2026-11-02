@@ -1523,10 +1523,14 @@ def test_credential_health_lists_only_accounts_with_gaps(client):
     body = client.get("/api/accounts/credential-health").json()
 
     assert body["withGaps"] == 1
-    assert [item["displayName"] for item in body["accounts"]] == ["缺 refresh"]
-    assert body["accounts"][0]["gaps"] == ["refreshToken"]
+    # 健康度接口返回全部号：正常的号也要能看到，只是不打「有缺口」标记。
+    rows = {item["displayName"]: item for item in body["accounts"]}
+    assert set(rows) == {"缺 refresh", "完整号"}
+    assert rows["缺 refresh"]["healthy"] is False
+    assert rows["缺 refresh"]["gaps"] == ["refreshToken"]
+    assert rows["完整号"]["healthy"] is True
     # 体检接口只回答「缺什么」，不能顺手把凭据内容带出来。
-    assert "credential" not in body["accounts"][0]
+    assert "credential" not in rows["缺 refresh"]
 
 
 def test_credential_health_does_not_flag_raw_file_envelope(client):
@@ -1548,9 +1552,9 @@ def test_credential_health_does_not_flag_raw_file_envelope(client):
 
     body = client.get("/api/accounts/credential-health").json()
 
-    # 信封账号不该出现在「有缺口」的列表里。
+    # 信封账号不该出现在「有缺口」的列表里，但应作为健康号返回。
     assert body["withGaps"] == 0
-    assert body["accounts"] == []
+    assert [item["healthy"] for item in body["accounts"]] == [True]
 
 
 # ---------- 回收站：永久删除 / 清空 ----------
@@ -1828,3 +1832,57 @@ def test_credentials_refresh_check_marks_client_envelope_unsupported(client):
         body["results"][0]["accountId"]
     ).credential_state.value
     assert state == "unverified"
+
+
+def test_reconcile_walks_both_scopes_and_only_writes_changes(client, monkeypatch):
+    """巡检前对账按平台逐个处理；客户端那份没变就不动号池里的凭据。"""
+    from chaierww.domain.credential_lifecycle import MODE_DUE
+
+    repo = client.app.state.repository
+    wb = repo.upsert(
+        scope=SCOPE,
+        external_id="u-wb",
+        display_name="国内版号",
+        credential={
+            "format": "oauth-token",
+            "uid": "u-wb",
+            "accessToken": "old-wb",
+        },
+        credential_kind="oauth_token",
+    )
+    trae = repo.upsert(
+        scope="trae-cn",
+        external_id="u-trae",
+        display_name="Trae 号",
+        credential={
+            "format": "oauth-token",
+            "uid": "u-trae",
+            "accessToken": "old-trae",
+        },
+        credential_kind="oauth_token",
+    )
+
+    engine = client.app.state.engine
+    adapters = client.app.state.adapters
+    monkeypatch.setattr(
+        engine,
+        "current_uid",
+        lambda scope: {"workbuddy-cn": "u-wb", "trae-cn": "u-trae"}.get(scope),
+    )
+    monkeypatch.setattr(
+        adapters["trae-cn"],
+        "sync_oauth_credential",
+        lambda uid, current: {**current, "accessToken": "fresh-trae"},
+    )
+
+    client.app.state.credential_lifecycle.sweep(
+        [wb.account, trae.account], mode=MODE_DUE
+    )
+
+    records = repo.reconcile_records([wb.account.id, trae.account.id])
+    # 国内版没有可合并的新会话 → 只记「无需更新」，凭据保持原样。
+    assert records[wb.account.id]["result"] == "无需更新"
+    assert repo.credential_record(wb.account.id)[1]["accessToken"] == "old-wb"
+    # Trae 客户端那份变了 → 收回号池并记「已更新」。
+    assert records[trae.account.id]["result"] == "已更新"
+    assert repo.credential_record(trae.account.id)[1]["accessToken"] == "fresh-trae"

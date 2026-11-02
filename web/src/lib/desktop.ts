@@ -95,11 +95,17 @@ export interface DesktopBridge {
    */
   tray?: {
     syncAccounts: (payload: {
-      items: { id: string; name: string; platform: string }[];
+      items: { id: string; name: string; platform: string; needsAttention: boolean }[];
       currentId: string;
     }) => void;
     /** 返回取消订阅函数，组件卸载时必须调用。 */
     onSwitchAccount: (handler: (id: string) => void) => () => void;
+    /** 托盘里点了「处理凭据问题」：跳到号池页。 */
+    onFocusCredentialHealth: (handler: () => void) => () => void;
+  };
+  /** 凭据问题系统通知：主进程按「每号每天一次」节流。 */
+  health?: {
+    notify: (payload: { items: { id: string; name: string }[] }) => void;
   };
 }
 

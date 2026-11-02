@@ -35,6 +35,14 @@ export interface Account {
   credentialDetail: string;
   /** 上次失败的上游错误码（如 Trae 的 20101 / 20403），没有为空串。 */
   credentialErrorCode: string;
+  /** 自动续期被退避 / 熔断暂停时的下次可重试时间（ISO）；没有为 null。 */
+  credentialNextRetryAt: string | null;
+  /** 连续认证失败达到 3 次、自动续期已熔断（只能手动恢复）。 */
+  credentialAutoPaused: boolean;
+  /** 上次巡检前与客户端对账的时间（ISO）；没有为 null。 */
+  credentialReconcileAt: string | null;
+  /** 对账结论：已更新 / 无需更新 / 客户端未运行 等。 */
+  credentialReconcileResult: string;
   lastUsedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -163,8 +171,36 @@ export interface CredentialGap {
   probeDetail?: string;
   /** 上次失败的上游错误码（如 Trae 的 20101 / 20403）。 */
   probeErrorCode?: string;
+  /** 下次自动重试时间（ISO）；没有退避计划为 null。 */
+  nextRetryAt?: string | null;
+  /** 凭据健康（无缺口、未过期、不需要重登）。 */
+  healthy?: boolean;
   /** 后端给的一句话原因，界面直接展示。 */
   reason?: string;
+}
+
+/** 单条凭据巡检历史（只读时间线，不含 token）。 */
+export interface CredentialProbeEntry {
+  at: string;
+  status: string;
+  code: string;
+  detail: string;
+  refreshed: boolean;
+  nextRetryAt: string | null;
+}
+
+/** 一键诊断的单步结论。 */
+export interface CredentialDiagnoseStep {
+  key: "readable" | "refreshable" | "device" | "expiry" | "backoff" | "verify";
+  ok: boolean;
+  detail: string;
+}
+
+/** 一键诊断结果：六步 + 一句结论 + 一句建议。 */
+export interface CredentialDiagnoseResult {
+  steps: CredentialDiagnoseStep[];
+  conclusion: string;
+  suggest: string;
 }
 
 /** 一条活动执行流水。 */
@@ -912,7 +948,7 @@ export interface ScheduleSpec {
   lastRunAt: string | null;
   lastResult: string;
   /** 最近若干次执行记录（时间 + 结果摘要），旧的在前，只保留最近 7 条。 */
-  history: { at: string; result: string }[];
+  history: { at: string; result: string; meta?: Record<string, number> }[];
   nextRunAt: string | null;
 }
 
@@ -1020,6 +1056,8 @@ export interface ActionableItem {
   action:
     | { type: "navigate"; to: string }
     | { type: "run"; endpoint: string; accountIds: string[]; mode?: string; scope?: string };
+  /** 诊断候选：凭据类条目额外给出「先诊断再看要不要重登」的入口（只读）。 */
+  diagnose?: { type: "diagnose"; accountId: string };
 }
 
 /** 凭据巡检的单号结论：`status` 是后端定值，前端只负责翻译。 */
@@ -1258,6 +1296,10 @@ export interface GatewayPoolAccount {
   /** 冷却剩余秒数（0 = 可用）。 */
   cooldownSeconds: number;
   excluded: boolean;
+  /** 排除原因：manual（人工）/ credential（凭据不可解密）/ upstream（连续限流或异常）。 */
+  excludeReason: string;
+  /** 一次性排除的截止时间（UTC ISO）；null = 人工永久排除。 */
+  excludeUntil: string | null;
   /** true = 网关当前指定的偏好账号（它可用时优先被挑中）。 */
   preferred: boolean;
   /** null = 还没查到余额（或这种凭据查不了），不是「0 积分」。 */
@@ -1585,6 +1627,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mode, accountIds: accountIds ?? null }),
     }),
+
+  /** 某个号最近 20 次巡检的时间线（只读、不含 token）。 */
+  credentialProbes: (accountId: string, limit = 20) =>
+    request<{ items: CredentialProbeEntry[]; total: number }>(
+      `/api/accounts/${accountId}/credential-probes?limit=${limit}`,
+    ),
+
+  /** 手动解除熔断：清掉连续失败计数，恢复自动续期。 */
+  clearCredentialFailures: (accountId: string) =>
+    request<{ ok: boolean }>(`/api/accounts/${accountId}/credential-failures`, {
+      method: "DELETE",
+    }),
+
+  /** 一键诊断：六步找出凭据为什么不能用（不续期）。 */
+  diagnoseCredential: (accountId: string) =>
+    request<CredentialDiagnoseResult>(
+      `/api/accounts/${accountId}/credential-diagnose`,
+      { method: "POST" },
+    ),
 
   /** 各账号请求与积分消耗的合并视图。refresh=true 绕过缓存。 */
   usage: (refresh = false, accountIds?: string[]) => {

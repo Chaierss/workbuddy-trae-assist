@@ -124,6 +124,7 @@ function onShortcut(event: KeyboardEvent): void {
 // ---------- 桌面托盘：账号摘要与换号 ----------
 
 let unsubscribeTray: (() => void) | null = null;
+let unsubscribeTrayFocus: (() => void) | null = null;
 
 /** 托盘选中态要的是账号 id；检测结果给的是 externalId，这里翻译一次。 */
 const currentAccountId = computed(() => {
@@ -136,8 +137,18 @@ const currentAccountId = computed(() => {
 
 /**
  * 同步给托盘：最近使用的 8 个号，顺序与号池列表一致。
- * 只传 id / name / platform —— 凭据与路径一律不出渲染进程；浏览器形态没有托盘，整块跳过。
+ * 只传 id / name / platform / needsAttention —— 凭据与路径一律不出渲染进程；
+ * 浏览器形态没有托盘，整块跳过。
  */
+const attentionAccounts = computed(() =>
+  accounts.value.filter(
+    (account) =>
+      account.credentialState === "relogin_required" ||
+      account.credentialAutoPaused ||
+      Boolean(account.credentialErrorCode),
+  ),
+);
+
 watch(
   [accounts, currentAccountId],
   () => {
@@ -149,8 +160,27 @@ watch(
           id: account.id,
           name: account.displayName,
           platform: account.platform,
+          needsAttention:
+            account.credentialState === "relogin_required" ||
+            account.credentialAutoPaused ||
+            Boolean(account.credentialErrorCode),
         })),
       currentId: currentAccountId.value,
+    });
+  },
+  { immediate: true },
+);
+
+/** 凭据出问题的号：交给主进程弹系统通知（每号每天最多一次）。 */
+watch(
+  attentionAccounts,
+  (items) => {
+    if (!items.length) return;
+    desktop?.health?.notify({
+      items: items.map((account) => ({
+        id: account.id,
+        name: account.displayName,
+      })),
     });
   },
   { immediate: true },
@@ -163,6 +193,10 @@ function subscribeTraySwitch(): void {
       const account = accounts.value.find((item) => item.id === id);
       // 清单可能已过期（号刚被删）：静默忽略，不弹一个点不动的错误。
       if (account) openSwitch(account, "tray");
+    }) ?? null;
+  unsubscribeTrayFocus =
+    desktop?.tray?.onFocusCredentialHealth(() => {
+      void router.push(scopedPath("/accounts"));
     }) ?? null;
 }
 
@@ -178,6 +212,8 @@ onBeforeUnmount(() => {
   document.removeEventListener("keydown", onShortcut);
   unsubscribeTray?.();
   unsubscribeTray = null;
+  unsubscribeTrayFocus?.();
+  unsubscribeTrayFocus = null;
 });
 
 // ---------- 本地体验数据 + 首启引导 ----------

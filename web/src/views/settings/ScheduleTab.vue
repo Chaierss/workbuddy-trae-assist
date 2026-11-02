@@ -184,6 +184,60 @@ function logTone(result: string): string {
 /** 与后端 `scheduler.HISTORY_KEEP` 对齐：那里只留最近这么多条，界面直接照实写。 */
 const LOG_LIMIT = 7;
 
+/** 展开过哪些「结构化结论」（key 为 `任务key#日志序号`）。 */
+const expandedLogs = ref(new Set<string>());
+
+function logId(taskKey: string, index: number): string {
+  return `${taskKey}#${index}`;
+}
+
+function toggleLog(taskKey: string, index: number): void {
+  const next = new Set(expandedLogs.value);
+  const id = logId(taskKey, index);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedLogs.value = next;
+}
+
+/**
+ * 一条日志的状态徽标：按「失败 > 需重登 > 已续期 > 无变化」取最要紧的那个。
+ * 没有 `meta` 的旧记录返回 null，界面回落到纯文本。
+ */
+function logBadge(meta?: Record<string, number>): { text: string; tone: string } | null {
+  if (!meta) return null;
+  if (meta.failed) {
+    return { text: t("schedule.logBadgeFailed", { count: meta.failed }), tone: "text-danger" };
+  }
+  if (meta.reloginRequired) {
+    return { text: t("schedule.logBadgeRelogin", { count: meta.reloginRequired }), tone: "text-warn" };
+  }
+  if (meta.refreshed) {
+    return {
+      text: t("schedule.logBadgeRefreshed", { count: meta.refreshed }),
+      tone: "text-brand-dark",
+    };
+  }
+  if (meta.total) return { text: t("schedule.logBadgeNoop"), tone: "text-ink-soft" };
+  return null;
+}
+
+/** 计数项的展示顺序 + 文案 key；只渲染后端真的给出了的字段。 */
+const LOG_COUNT_KEYS: Array<[string, MessageKey]> = [
+  ["total", "schedule.logCountTotal"],
+  ["refreshed", "schedule.logCountRefreshed"],
+  ["ok", "schedule.logCountOk"],
+  ["noop", "schedule.logCountNoop"],
+  ["reloginRequired", "schedule.logCountRelogin"],
+  ["unsupported", "schedule.logCountUnsupported"],
+  ["failed", "schedule.logCountFailed"],
+];
+
+function logCounts(meta: Record<string, number>): string[] {
+  return LOG_COUNT_KEYS.filter(([key]) => typeof meta[key] === "number").map(([key, labelKey]) =>
+    t(labelKey, { count: meta[key] }),
+  );
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = "";
@@ -579,16 +633,33 @@ onMounted(() => {
                   <li
                     v-for="(entry, index) in [...task.history].reverse()"
                     :key="`${task.key}-log-${index}`"
-                    class="flex items-start gap-2"
                   >
-                    <span class="shrink-0 tabular-nums text-muted">{{ formatMoment(entry.at) }}</span>
-                    <span
-                      class="min-w-0 flex-1 truncate"
-                      :class="logTone(entry.result)"
-                      :title="entry.result"
+                    <div class="flex items-start gap-2">
+                      <span class="shrink-0 tabular-nums text-muted">{{ formatMoment(entry.at) }}</span>
+                      <button
+                        v-if="logBadge(entry.meta)"
+                        type="button"
+                        class="shrink-0 cursor-pointer text-caption font-medium hover:underline"
+                        :class="logBadge(entry.meta)?.tone"
+                        :title="t('schedule.logTitle', { count: LOG_LIMIT })"
+                        @click="toggleLog(task.key, index)"
+                      >
+                        {{ logBadge(entry.meta)?.text }}
+                      </button>
+                      <span
+                        class="min-w-0 flex-1 truncate"
+                        :class="logTone(entry.result)"
+                        :title="entry.result"
+                      >
+                        {{ entry.result }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="entry.meta && expandedLogs.has(logId(task.key, index))"
+                      class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 pl-[7.5rem] text-caption text-muted"
                     >
-                      {{ entry.result }}
-                    </span>
+                      <span v-for="line in logCounts(entry.meta)" :key="line">{{ line }}</span>
+                    </div>
                   </li>
                 </ul>
               </div>

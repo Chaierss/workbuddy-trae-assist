@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import CredentialDiagnoseDialog from "../components/CredentialDiagnoseDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatCard from "../components/StatCard.vue";
@@ -105,6 +106,8 @@ interface ActionGroup {
   count: number;
   /** 合并后的动作：可执行项收集全部 accountIds，跳页项沿用第一条。 */
   action: ActionableItem["action"];
+  /** 组里只剩一个号时保留它的 id，供「诊断」这类单号入口使用；多号合并后置空。 */
+  singleAccountId: string | null;
 }
 
 const SEVERITY_RANK: Record<ActionableItem["severity"], number> = {
@@ -131,12 +134,15 @@ const groups = computed<ActionGroup[]>(() => {
         names: item.accountId ? [nameOf(item)] : [],
         count: 1,
         action: item.action,
+        singleAccountId: item.accountId,
       });
       continue;
     }
     found.details.push(item.detail);
     if (item.accountId) found.names.push(nameOf(item));
     found.count += 1;
+    // 多号合并后就没有「这一个号」了，单号入口（诊断）自动收起。
+    found.singleAccountId = null;
     if (SEVERITY_RANK[item.severity] < SEVERITY_RANK[found.severity]) {
       found.severity = item.severity;
     }
@@ -227,6 +233,14 @@ function actionLabel(group: ActionGroup): string {
 
 function busyFor(group: ActionGroup): boolean {
   return busy.value === group.kind;
+}
+
+/** 「诊断」弹层的目标号：只对单号组开放，不改动组自身的 action。 */
+const diagnoseTarget = ref<{ id: string; name: string } | null>(null);
+
+function diagnoseAccount(id: string): void {
+  const found = accounts.value.find((item) => item.id === id);
+  diagnoseTarget.value = { id, name: found?.displayName ?? id };
 }
 
 /** 待确认的活动执行：成长任务首次执行前先做风险告知（见 `lib/growthNotice`）。 */
@@ -491,6 +505,14 @@ async function loadGlobalBackups(): Promise<void> {
             {{ severityLabel(group.severity) }}
           </StatusPill>
           <button
+            v-if="group.kind === 'credential' && group.singleAccountId"
+            type="button"
+            class="inline-flex shrink-0 items-center rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            @click="diagnoseAccount(group.singleAccountId)"
+          >
+            {{ t("overview.action.diagnose") }}
+          </button>
+          <button
             type="button"
             class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
             :disabled="busyFor(group)"
@@ -731,6 +753,13 @@ async function loadGlobalBackups(): Promise<void> {
         </ul>
       </SectionCard>
     </div>
+
+    <CredentialDiagnoseDialog
+      :open="diagnoseTarget !== null"
+      :account-id="diagnoseTarget?.id ?? null"
+      :account-name="diagnoseTarget?.name"
+      @close="diagnoseTarget = null"
+    />
 
     <ConfirmDialog
       :open="pendingRun !== null"

@@ -35,6 +35,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,6 +48,8 @@ from chaierww.domain.credits import CreditInfo
 from chaierww.domain.platform_api import CredentialError, workbuddy_credentials
 
 WB_SCOPE = "workbuddy-cn"
+
+logger = logging.getLogger("chaierww")
 
 WB_CHAT_BASE = "https://copilot.tencent.com"
 WB_BILLING_ORIGIN = "https://www.codebuddy.cn"
@@ -315,12 +318,20 @@ class GatewayRelay:
         *,
         excluded: Callable[[], set[str]] | None = None,
         credits: Callable[[str], CreditInfo | None] | None = None,
+        on_failure: Callable[[str, str, int | None], None] | None = None,
+        on_success: Callable[[str], None] | None = None,
     ) -> None:
         self._repository = repository
         self._excluded_source = excluded
         self._credits = credits
+        #: 连续失败升级为持久排除时的出口（``reason`` + 秒数；``None`` = 永久）。
+        self._on_failure = on_failure
+        #: 成功一次即清除「自动」持久排除（人工排除不在此列）。
+        self._on_success = on_success
         self._cooldown: dict[str, float] = {}
         self._broken: set[str] = set()
+        #: 连续同类失败计数：`account_id -> (类别, 次数)`。成功即清零。
+        self._failure_streak: dict[str, tuple[str, int]] = {}
         self._sticky: dict[str, str] = {}
         self._rotor: dict[str, int] = {}
         self._catalog: list[CatalogModel] | None = None
@@ -461,22 +472,55 @@ class GatewayRelay:
         self._sticky[scope] = account_id
         self._cooldown.pop(account_id, None)
         self._broken.discard(account_id)
+        self._failure_streak.pop(account_id, None)
+        if self._on_success is not None:
+            try:
+                self._on_success(account_id)
+            except Exception:  # noqa: BLE001 - 持久层写失败不影响本次转发
+                logger.exception("清除账号池持久排除失败：%s", account_id)
 
     def report_failure(self, account_id: str, *, status: int = 0, reason: str = "") -> None:
         if reason == "credential":
-            # 凭据解不开（客户端 DPAPI 信封）是**结构性**问题，本次进程内不再尝试。
+            # 凭据解不开（客户端 DPAPI 信封）是**结构性**问题，本次进程内不再尝试；
+            # 同时落盘永久排除，直到用户重新导入凭据 —— 重启不该让死号复活。
             self._broken.add(account_id)
             self._cooldown.pop(account_id, None)
+            self._notify_failure(account_id, "credential", None)
             return
         if status in (401, 403):
             seconds = COOLDOWN_UNAUTHORIZED
+            category = "unauthorized"
         elif status == 429:
             seconds = COOLDOWN_RATE_LIMITED
+            category = "rate_limited"
         elif status >= 500 or status == 0:
             seconds = COOLDOWN_UPSTREAM_5XX if status else COOLDOWN_TRANSPORT
+            category = "upstream"
         else:
             seconds = COOLDOWN_TRANSPORT
+            category = "transport"
         self._cooldown[account_id] = self._clock() + seconds
+        # 单次 401/403 只冷却：偶发 WAF 拦截不是死号，不能升级成持久排除。
+        if category in ("rate_limited", "upstream"):
+            self._note_upstream_failure(account_id, category)
+
+    def _note_upstream_failure(self, account_id: str, category: str) -> None:
+        """连续 3 次同类 429 / 5xx → 持久排除 30 分钟（重启也生效）。"""
+        previous, count = self._failure_streak.get(account_id, (category, 0))
+        count = count + 1 if previous == category else 1
+        self._failure_streak[account_id] = (category, count)
+        if count < 3:
+            return
+        self._failure_streak.pop(account_id, None)
+        self._notify_failure(account_id, "upstream", 30 * 60)
+
+    def _notify_failure(self, account_id: str, reason: str, seconds: int | None) -> None:
+        if self._on_failure is None:
+            return
+        try:
+            self._on_failure(account_id, reason, seconds)
+        except Exception:  # noqa: BLE001 - 持久层写失败不影响本次转发
+            logger.exception("账号池持久排除失败：%s", account_id)
 
     # ----- 上游请求 -----
 

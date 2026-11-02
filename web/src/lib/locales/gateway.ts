@@ -43,6 +43,10 @@ export const gatewayZh = {
   "gateway.pool.setPreferred": "设为偏好",
   "gateway.pool.restore": "恢复",
   "gateway.pool.exclude": "排除",
+  "gateway.pool.excludeReasonManual": "人工排除，恢复前不会使用",
+  "gateway.pool.excludeReasonCredential": "凭据无法解密，重新导入后自动恢复",
+  "gateway.pool.excludeReasonUpstream": "上游连续限流或异常，暂时排除",
+  "gateway.pool.excludeUntil": "{reason}（还剩 {minutes} 分钟）",
   "gateway.pool.probeResultPrefix": "探测「{name}」· {model}：",
   "gateway.pool.probeOk": "成功，已解除它的冷却。",
   "gateway.pool.probeFailed": "失败（{status}）",
@@ -337,6 +341,13 @@ export const gatewayEn = {
   "gateway.pool.setPreferred": "Set preferred",
   "gateway.pool.restore": "Restore",
   "gateway.pool.exclude": "Exclude",
+  "gateway.pool.excludeReasonManual":
+    "Excluded manually — not used until you restore it",
+  "gateway.pool.excludeReasonCredential":
+    "Credential can't be decrypted — recovers after re-import",
+  "gateway.pool.excludeReasonUpstream":
+    "Upstream kept rate-limiting or failing — temporarily excluded",
+  "gateway.pool.excludeUntil": "{reason} ({minutes} min left)",
   "gateway.pool.probeResultPrefix": 'Probe "{name}" · {model}: ',
   "gateway.pool.probeOk": "Succeeded — its cooldown is cleared.",
   "gateway.pool.probeFailed": "Failed ({status})",
