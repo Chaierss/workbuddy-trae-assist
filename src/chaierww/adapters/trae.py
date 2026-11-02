@@ -45,7 +45,12 @@ from chaierww.adapters.base import (
     SwitchPlan,
     sanitize_child_env,
 )
-from chaierww.domain.trae_crypto import TraeCryptoError, tc_decrypt, tc_encrypt
+from chaierww.domain.trae_crypto import (
+    TraeCryptoError,
+    device_keypair_from_storage,
+    tc_decrypt,
+    tc_encrypt,
+)
 
 STORAGE_FILENAME = "storage.json"
 AUTH_PREFIX = "iCubeAuthInfo"
@@ -493,6 +498,78 @@ class TraeAdapter:
             payload=auth_blob,
             detail=detail,
         )
+
+    # ---------- 切号前回写最新凭据 ----------
+
+    def sync_oauth_credential(
+        self, expected_external_id: str, current: dict
+    ) -> dict | None:
+        """把客户端里的最新会话合并进 ``oauth-token`` 凭据。
+
+        客户端会自行续期并轮换 refreshToken，号池里那份过期后就与上游脱节；
+        只读 ``storage.json``（不写客户端），把 cloudide 会话与**设备密钥对**
+        一并收进凭据 —— 设备私钥是 Trae 续期通过 ``DeviceProof`` 校验的前提，
+        缺了它号池只能重新扫码。
+
+        返回合并后的新凭据；账号不匹配 / 读不到 / 无变化时返回 ``None``。
+        """
+        try:
+            data = self._read_storage()
+        except (OSError, AdapterError):
+            return None
+        info = _cloudide_payload(data)
+        if not info:
+            return None
+        uid = str(info.get("userId") or "").strip()
+        if not uid or uid != expected_external_id:
+            return None
+        token = str(info.get("token") or "").strip()
+        if not token:
+            return None
+
+        merged = dict(current)
+        merged["format"] = "oauth-token"
+        merged["accessToken"] = token
+        merged.pop("access_token", None)
+        refresh_token = str(info.get("refreshToken") or "").strip()
+        if refresh_token:
+            merged["refreshToken"] = refresh_token
+            merged.pop("refresh_token", None)
+        expires = _cloudide_expiry(data)
+        if expires:
+            merged["expiresAt"] = expires
+        host = str(info.get("host") or "").strip()
+        if host:
+            merged["host"] = host
+        merged["uid"] = uid
+
+        device_id = _device_id_from(data)
+        if device_id:
+            merged["deviceId"] = device_id
+        try:
+            keys = device_keypair_from_storage(data)
+        except TraeCryptoError:
+            keys = None
+        if keys is not None and (not device_id or keys.device_id == device_id):
+            merged["devicePrivateKey"] = keys.private_key_pem
+            merged["devicePublicKey"] = keys.public_key_pem
+            if keys.machine_id:
+                merged["deviceMachineId"] = keys.machine_id
+
+        changed = (
+            "accessToken",
+            "refreshToken",
+            "expiresAt",
+            "host",
+            "uid",
+            "deviceId",
+            "devicePrivateKey",
+            "devicePublicKey",
+            "deviceMachineId",
+        )
+        if all(merged.get(key) == current.get(key) for key in changed):
+            return None
+        return merged
 
     # ---------- 扫码登录辅助 ----------
 

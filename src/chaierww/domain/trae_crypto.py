@@ -24,8 +24,12 @@ import base64
 import hashlib
 import json
 import os
+import secrets
+import time
 from dataclasses import dataclass
 
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 # magic：hex 746305100000
@@ -171,6 +175,39 @@ class DeviceIdentity:
     public_key_pem: str
 
 
+@dataclass(frozen=True, slots=True)
+class DeviceKeyPair:
+    """Trae 设备身份 + 私钥（刷新令牌时做 ``DeviceProof`` 签名必需）。
+
+    2026-10 起 Trae 自动续期改走 ``ExchangeToken``，服务端会校验
+    ``DeviceProof`` 的签名，且令牌与签发时的设备绑定。因此只有拿到
+    **签发该 refreshToken 的同一把设备私钥** 才能续期成功。
+    """
+
+    device_id: str
+    machine_id: str
+    public_key_pem: str
+    private_key_pem: str
+
+
+def _find_dc_envelope(storage: dict) -> tuple[str, str]:
+    """在 ``iCubeAuthInfo*`` 字典里找 ``(device_id, 信封 base64)``。"""
+    for key, value in storage.items():
+        if str(key).startswith(ICUBE_DC_PREFIX):
+            device_id = str(key)[len(ICUBE_DC_PREFIX):]
+            if isinstance(value, str) and value:
+                return device_id, value
+    raise TraeCryptoError(
+        "storage.json 中没有设备身份（iCubeAuthInfo://icube-dc），"
+        "请先启动一次 Trae 客户端并登录"
+    )
+
+
+def _machine_id_of(storage: dict) -> str:
+    machine_id = storage.get(TELEMETRY_MACHINE_ID)
+    return machine_id if isinstance(machine_id, str) else ""
+
+
 def device_identity_from_storage(storage: dict) -> DeviceIdentity:
     """从 ``storage.json`` 解析出的对象里取设备身份。
 
@@ -178,32 +215,91 @@ def device_identity_from_storage(storage: dict) -> DeviceIdentity:
     - ``public_key_pem``：该键值 tc 解密后的 ``publicKeyPEM``；
     - ``machine_id``：同文件 ``telemetry.machineId``（取不到为空串）。
     """
-    device_id: str | None = None
-    b64: str | None = None
-    for key, value in storage.items():
-        if str(key).startswith(ICUBE_DC_PREFIX):
-            device_id = str(key)[len(ICUBE_DC_PREFIX):]
-            if isinstance(value, str):
-                b64 = value
-            break
-
-    if not device_id or not b64:
-        raise TraeCryptoError(
-            "storage.json 中没有设备身份（iCubeAuthInfo://icube-dc），"
-            "请先启动一次 Trae 客户端并登录"
-        )
-
+    device_id, b64 = _find_dc_envelope(storage)
     plain = json.loads(tc_decrypt(b64))
     public_key = (plain.get("publicKeyPEM") or "").strip()
     if not public_key:
         raise TraeCryptoError("设备凭证缺少公钥（信封形态可能已变化）")
 
-    machine_id = storage.get(TELEMETRY_MACHINE_ID)
-    if not isinstance(machine_id, str):
-        machine_id = ""
-
     return DeviceIdentity(
         device_id=device_id,
-        machine_id=machine_id,
+        machine_id=_machine_id_of(storage),
         public_key_pem=public_key,
     )
+
+
+def device_keypair_from_storage(storage: dict) -> DeviceKeyPair:
+    """从 ``storage.json`` 取设备身份（含私钥）。
+
+    设备信封与客户端 ``userStorage.saveDeviceKeyPair`` 写的是同一个 key，
+    值是 ``{privateKeyPEM, publicKeyPEM}``（2026-11 本机实测）。
+    """
+    device_id, b64 = _find_dc_envelope(storage)
+    try:
+        plain = json.loads(tc_decrypt(b64))
+    except json.JSONDecodeError as exc:
+        raise TraeCryptoError("设备凭证不是合法 JSON，客户端可能刚升级过") from exc
+    public_key = (plain.get("publicKeyPEM") or "").strip()
+    private_key = (plain.get("privateKeyPEM") or "").strip()
+    if not public_key or not private_key:
+        raise TraeCryptoError("设备凭证缺少密钥对（信封形态可能已变化）")
+    return DeviceKeyPair(
+        device_id=device_id,
+        machine_id=_machine_id_of(storage),
+        public_key_pem=public_key,
+        private_key_pem=private_key,
+    )
+
+
+def device_keypair_from_auth_blob(auth: dict) -> DeviceKeyPair | None:
+    """从 ``raw-file`` 凭据（只含 ``iCubeAuthInfo*``）里取设备密钥对。
+
+    客户端导入的整份登录态自带设备信封，因此这类账号刷新时能拿到与令牌
+    同源的私钥。解不出私钥返回 ``None``（老版本导出可能只有公钥）。
+    """
+    try:
+        device_id, b64 = _find_dc_envelope(auth)
+        plain = json.loads(tc_decrypt(b64))
+    except (TraeCryptoError, json.JSONDecodeError):
+        return None
+    public_key = (plain.get("publicKeyPEM") or "").strip()
+    private_key = (plain.get("privateKeyPEM") or "").strip()
+    if not public_key or not private_key:
+        return None
+    machine_id = auth.get(TELEMETRY_MACHINE_ID)
+    return DeviceKeyPair(
+        device_id=device_id,
+        machine_id=machine_id if isinstance(machine_id, str) else "",
+        public_key_pem=public_key,
+        private_key_pem=private_key,
+    )
+
+
+def sign_device_proof(
+    *,
+    method: str,
+    path: str,
+    client_id: str,
+    refresh_token: str,
+    private_key_pem: str,
+    timestamp: int | None = None,
+    nonce: str | None = None,
+) -> dict[str, str | int]:
+    """构造 ``DeviceProof``（逐字对齐 Trae 客户端 ``iLe``）。
+
+    待签串 = ``METHOD\\npath\\nclientID\\nrefreshToken\\ntimestamp\\nnonce``，
+    timestamp 是秒级 epoch，nonce 是 16 字节随机数的 hex；签名用设备私钥
+    做 ECDSA-SHA256（DER），再 base64。
+    """
+    stamp = int(time.time()) if timestamp is None else int(timestamp)
+    random_nonce = nonce or secrets.token_hex(16)
+    message = "\n".join(
+        [method, path, client_id, refresh_token, str(stamp), random_nonce]
+    )
+    key = serialization.load_pem_private_key(private_key_pem.encode("utf-8"), password=None)
+    signature = key.sign(message.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+    return {
+        "Signature": base64.b64encode(signature).decode("ascii"),
+        "Timestamp": stamp,
+        "Nonce": random_nonce,
+    }

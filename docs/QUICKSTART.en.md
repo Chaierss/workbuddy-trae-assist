@@ -59,6 +59,9 @@ Seeing an account in the pool means step 2 is done.
    any failed step rolls back to the pre-switch state.
 3. On success the client restarts into the target account. The first successful switch shows a
    one-time "what next" card: enable daily check-in, issue a gateway key, or dismiss it.
+   Prefer it to stay closed? Turn off **Relaunch the client after switching** under
+   **Settings → General → Switch experience**; the login state still changes, the client
+   just is not launched for you.
 
 **Changed your mind?** A backup was made before writing — restore it in
 **Settings → Backup**.
@@ -81,8 +84,13 @@ Seeing an account in the pool means step 2 is done.
 
 ## 5. What else is there
 
+- **Groups**: tag accounts ("primary", "backup", …), filter the pool by group, assign in bulk,
+  and pick a scheduled task's accounts by group with one click.
 - **Activities**: the official catalogue lists rules and rewards; automatable ones run in one
-  click, manual ones say exactly where they get stuck.
+  click, and manual ones say exactly how to finish them. Run **Re-check** afterwards to
+  refresh that account's state on the spot.
+- **Rewards**: the overview card totals today / last 7 days with a mini trend and the top 3
+  accounts — only rewards this tool performed and recorded, not manual claims.
 - **Usage**: requests and credits grouped by model and by day, so you can see which account is
   running low.
 - **Gateway**: expose account quota as OpenAI / Anthropic-compatible endpoints for other local

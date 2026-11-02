@@ -25,6 +25,7 @@
 | 验活 401/403 | ``relogin_required`` |
 | 网络 / 超时 / 429 / 5xx / WB 403 code=10085 | **保持原状态** |
 | 信封凭据（``raw-file``）且验活失败 | ``relogin_required``（附「需重新在客户端登录」）|
+| 凭据已过期且不可续期（无 refreshToken / 端点不支持） | ``relogin_required`` |
 
 「保持原状态」不是偷懒：断网不等于号坏了，把可用号标成需重登，会让用户在机场
 Wi-Fi 下把整个号池都点一遍「重新登录」。
@@ -58,9 +59,11 @@ from chaierww.domain.credential_refresh import (
     refresher_for,
 )
 from chaierww.domain.platform_api import (
+    ICUBE_CLOUDIDE_KEY,
     TIMEOUT_SECONDS,
     TRAE_ACCOUNT_BASE,
     CredentialError,
+    decode_raw_file,
     trae_credentials,
     trae_headers,
     workbuddy_credentials,
@@ -68,6 +71,7 @@ from chaierww.domain.platform_api import (
     workbuddy_origin,
 )
 from chaierww.domain.scopes import UnknownScope, get_scope
+from chaierww.domain.trae_crypto import TraeCryptoError, tc_decrypt
 
 logger = logging.getLogger("chaierww")
 
@@ -191,6 +195,30 @@ def _nested_value(payload: Any, keys: tuple[str, ...], *, depth: int = 3) -> Any
     return None
 
 
+def _cloudide_session(credential: dict[str, Any]) -> dict[str, Any] | None:
+    """从 `raw-file` 信封里解出 Trae cloudide 会话；不是 Trae 或解不开返回 None。"""
+    try:
+        data = decode_raw_file(credential)
+    except CredentialError:
+        return None
+    envelope = data.get(ICUBE_CLOUDIDE_KEY)
+    if not isinstance(envelope, str) or not envelope:
+        return None
+    try:
+        info = json.loads(tc_decrypt(envelope))
+    except (TraeCryptoError, json.JSONDecodeError):
+        return None
+    return info if isinstance(info, dict) else None
+
+
+def _raw_file_expiry(credential: dict[str, Any]) -> datetime | None:
+    """信封里的 `expiredAt`（毫秒 ISO）。解不开就当未知，绝不猜。"""
+    info = _cloudide_session(credential)
+    if info is None:
+        return None
+    return _as_datetime(info.get("expiredAt"))
+
+
 def token_expiry(kind: str, credential: dict[str, Any]) -> datetime | None:
     """凭据的过期时间；**不知道就返回 None**，绝不猜。
 
@@ -201,10 +229,12 @@ def token_expiry(kind: str, credential: dict[str, Any]) -> datetime | None:
     3. `issuedAt` + `expiresIn`（只有两个字段都在才算，避免把秒数当绝对时间）；
     4. 令牌本身是 JWT 时读 `exp`（`accessToken` / `access_token` / `jwt` / `token`）。
 
-    - `raw-file` 信封：本工具不解密 → None；
+    - `raw-file` 信封：能解出 Trae cloudide 会话时读 `expiredAt`，否则 None；
     - `session`：客户端托管，过期时间不在本工具手里 → None。
     """
-    if credential.get("format") == "raw-file" or kind == "session":
+    if credential.get("format") == "raw-file":
+        return _raw_file_expiry(credential)
+    if kind == "session":
         return None
     absolute_keys = (
         "expiresAt",
@@ -247,14 +277,26 @@ def token_expiry(kind: str, credential: dict[str, Any]) -> datetime | None:
 
 
 def refreshable(kind: str, credential: dict[str, Any]) -> bool:
-    """这个号能不能自动续期：扫码明文 + 有 refreshToken。
+    """这个号能不能自动续期。
+
+    - `oauth-token`（扫码明文）：凭据里有 refreshToken 即可 —— 新版扫码登录会把
+      设备私钥一并存进来，Trae 的设备校验才能通过；
+    - `raw-file`（客户端信封）：能解出 Trae cloudide 会话且带 refreshToken 即可，
+      设备私钥本来就在信封里。
 
     注意这里**不判断端点是否实测可用** —— 端点不存在时续期会返回 `unsupported`，
     界面据此显示「不支持自动续期」，不会让账号状态变坏。
     """
-    if credential.get("format") != "oauth-token":
-        return False
+    format_ = credential.get("format")
+    if format_ == "raw-file":
+        info = _cloudide_session(credential)
+        if info is None:
+            return False
+        value = info.get("refreshToken")
+        return isinstance(value, str) and bool(value.strip())
     if kind == "session":
+        return False
+    if format_ != "oauth-token":
         return False
     value = credential.get("refreshToken") or credential.get("refresh_token")
     return isinstance(value, str) and bool(value.strip())
@@ -390,15 +432,26 @@ class CredentialLifecycleService:
     ) -> SweepResult:
         platform = _platform_of(account.scope)
         expiry = token_expiry(kind, credential) or parse_expiry(stored)
+        now = self._now()
         if not refreshable(kind, credential):
             detail = (
-                "客户端导入的信封凭据不可解密，无法自动续期；到期后请重新在客户端登录"
-                if credential.get("format") == "raw-file"
-                else "凭据里没有 refreshToken，无法自动续期"
+                "凭据里没有 refreshToken，无法自动续期"
+                if credential.get("format") != "raw-file"
+                else "凭据信封无法解出 Trae 会话，无法自动续期；请从本机客户端重新导入"
             )
+            if expiry is not None and expiry <= now:
+                # 已过期又没有续期手段：这个号真的用不了了，如实降级，
+                # 不要再在号池里显示「可用」，否则签到/活动会一个个撞 401。
+                self._set_state(account.id, CredentialState.RELOGIN_REQUIRED)
+                self.invalidate(account.id)
+                return self._result(
+                    account,
+                    RESULT_RELOGIN_REQUIRED,
+                    f"凭据已过期且无法自动续期：{detail}",
+                    _iso(expiry),
+                )
             return self._result(account, RESULT_UNSUPPORTED, detail, _iso(expiry))
 
-        now = self._now()
         failures = self._probe_failures(account.id)
         if not force and failures >= AUTH_FAILURE_LIMIT:
             # 熔断：已经确认过 N 次认证失败，自动续期不可能自愈。
@@ -476,7 +529,17 @@ class CredentialLifecycleService:
             return self._result(account, RESULT_RELOGIN_REQUIRED, outcome.detail, _iso(expiry))
 
         if outcome.status == STATUS_UNSUPPORTED:
-            # 端点不存在 / 响应形状不认识：账号本身没坏，状态不动。
+            # 端点不存在 / 响应形状不认识：账号本身没坏，状态不动 ——
+            # 但如果凭据已经过期，「没坏」只是理论上还能用，实际已经用不了了。
+            if expiry is not None and expiry <= now:
+                self._set_state(account.id, CredentialState.RELOGIN_REQUIRED)
+                self.invalidate(account.id)
+                return self._result(
+                    account,
+                    RESULT_RELOGIN_REQUIRED,
+                    f"凭据已过期且续期未成功：{outcome.detail}",
+                    _iso(expiry),
+                )
             return self._result(account, RESULT_UNSUPPORTED, outcome.detail, _iso(expiry))
 
         # transient：保持原状态，如实报失败。

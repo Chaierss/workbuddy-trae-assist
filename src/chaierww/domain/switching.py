@@ -21,6 +21,7 @@ from chaierww.domain import webview_state
 from chaierww.domain.accounts.models import CredentialState
 from chaierww.domain.accounts.repository import AccountRepository
 from chaierww.domain.backup import BackupError, BackupService, Snapshot
+from chaierww.domain.credential_lifecycle import expiry_text
 from chaierww.domain.scopes import ScopeNotImplemented, require_implemented
 from chaierww.infra.db import now_iso, transaction
 
@@ -707,13 +708,14 @@ class SwitchEngine:
     ) -> None:
         """把客户端里的最新登录态收回号池（切号前的源账号）。
 
-        WorkBuddy 客户端会自己刷新 token，刷新后旧的 refresh token 即作废。号池若一直
-        用导入时那份，切回来写进去就是 401。只回写 raw-file 形态（整份登录态）的账号；
-        oauth-token 账号的续期走另一套链路，不在这里改。任何失败都不阻断切号。
+        WorkBuddy / Trae 客户端都会自己刷新 token，刷新后旧的 refreshToken 即作废。
+        号池若一直用导入时那份，切回来写进去就是 401 —— 所以两种凭据形态都要收回：
 
-        Trae 同样是 raw-file（``storage.json`` 里的 ``iCubeAuthInfo*`` 键），
-        因此这里不再按平台写死，改为「适配器提供 ``import_current`` 且凭据是
-        raw-file」这个能力判定。
+        - ``raw-file``：直接重导整份登录态；
+        - ``oauth-token``：适配器提供 ``sync_oauth_credential`` 时，用客户端里的
+          最新会话合并（含设备私钥），刷新号池里的那份。
+
+        任何失败都不阻断切号。
         """
         if not external_id:
             return
@@ -725,17 +727,31 @@ class SwitchEngine:
             if account is None or account.is_deleted:
                 return
             kind, current = self._repo.credential_record(account.id)
-            if current.get("format") != "raw-file":
+            if current.get("format") == "oauth-token":
+                syncer = getattr(adapter, "sync_oauth_credential", None)
+                if syncer is None:
+                    return
+                fresh = syncer(external_id, current)
+                if fresh is None or fresh == current:
+                    return
+                self._repo.replace_credential(
+                    account.id,
+                    credential=fresh,
+                    kind=kind,
+                    expires_at=expiry_text(kind, fresh),
+                )
+            elif current.get("format") == "raw-file":
+                imported = importer()
+                if imported.external_id != external_id:
+                    return
+                fresh = encode_payload(imported.payload)
+                if fresh == current:
+                    return
+                self._repo.replace_credential(
+                    account.id, credential=fresh, kind=kind, expires_at=None
+                )
+            else:
                 return
-            imported = importer()
-            if imported.external_id != external_id:
-                return
-            fresh = encode_payload(imported.payload)
-            if fresh == current:
-                return
-            self._repo.replace_credential(
-                account.id, credential=fresh, kind=kind, expires_at=None
-            )
         except Exception:  # noqa: BLE001 - 回写失败不影响切号
             return
         run.add("回写登录态", True, f"已把「{account.display_name}」的最新登录态收回号池")

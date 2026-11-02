@@ -68,8 +68,15 @@ VIEWPORT_W = 1440
 # 刻意**不截**的页面：网关的「日志」tab 会显示真实的 prompt 预览，
 # 那是用户的提问原文，再怎么正则也挡不全，所以不进公开仓库。
 SHOTS: list[dict[str, object]] = [
-    {"name": "overview", "path": "/overview", "height": 900},
-    {"name": "accounts", "path": "/accounts", "height": 1000},
+    {"name": "overview", "path": "/overview", "height": 1280},
+    # 号池默认是紧凑视图，公开截图用宽松视图：分组徽标、凭据到期、会话同步都在这一档，
+    # 和 README 里「账号、积分、凭据状态一屏看全」的说法对得上。
+    {
+        "name": "accounts",
+        "path": "/accounts",
+        "height": 1040,
+        "session": {"chaierww.pool-density": "comfortable"},
+    },
     {"name": "activity", "path": "/activity", "height": 900},
     # 活动页默认落在「官方活动」目录，逐账号任务要显式带 ?tab=accounts，
     # 两张一起放，README 才能把「目录里有什么」和「我的号做到哪」讲全。
@@ -77,12 +84,12 @@ SHOTS: list[dict[str, object]] = [
     {"name": "activity-runs", "path": "/activity?tab=runs", "height": 780},
     {"name": "usage", "path": "/usage", "height": 1000},
     {"name": "gateway-overview", "path": "/gateway?tab=overview", "height": 940},
-    {"name": "gateway-keys", "path": "/gateway?tab=keys", "height": 420},
+    {"name": "gateway-keys", "path": "/gateway?tab=keys", "height": 760},
     {"name": "gateway-models", "path": "/gateway?tab=models", "height": 860},
     {"name": "settings-schedule", "path": "/settings?tab=schedule", "height": 980},
     {"name": "settings-backup", "path": "/settings?tab=backup", "height": 830},
-    {"name": "settings-env", "path": "/settings?tab=env", "height": 900},
-    {"name": "settings-general", "path": "/settings?tab=general", "height": 900},
+    {"name": "settings-env", "path": "/settings?tab=env", "height": 1140},
+    {"name": "settings-general", "path": "/settings?tab=general", "height": 1360},
 ]
 
 # 脱敏脚本：在页面里跑，把敏感文本换成圆点、把首字母头像糊掉。
@@ -130,8 +137,9 @@ REDACT_JS = r"""
       (m, head) => head + "\u2022\u2022\u2022\u2022\u2022");
     // 邮箱
     text = text.replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, (m) => dots(m));
-    // 网关密钥：界面上本来就是掩码形态（sk-e5a52c••••e8c2），前缀也是真密钥的一部分，一并抹掉
-    text = text.replace(/\bsk-[A-Za-z0-9_-]{4,}/g, "sk-\u2022\u2022\u2022\u2022\u2022\u2022");
+    // 网关密钥：界面上本来就是掩码形态（sk-e5a52c••••e8c2），可见的前缀与尾部
+    // 都是真密钥的一部分，所以连同中间的圆点一起整段抹掉。
+    text = text.replace(/\bsk-[A-Za-z0-9_\u2022-]{4,}/g, "sk-\u2022\u2022\u2022\u2022\u2022\u2022");
     // IPv4：回环地址不脱敏（服务地址写 127.0.0.1 是设计的一部分，抹了就成乱码了），
     // 内网段 192.168.x / 10.x 反而要抹——那是真实的内网拓扑。
     text = text.replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, (m) =>
@@ -282,11 +290,15 @@ def main() -> int:
                     locale="zh-CN",
                     color_scheme="dark" if args.theme == "dark" else "light",
                 )
-                # 主题 / 语言都存 localStorage，必须在首屏脚本前落一次
-                page.add_init_script(
+                # 主题 / 语言都存 localStorage，必须在首屏脚本前落一次。
+                # 视图偏好（如号池卡片密度）存 sessionStorage，按需按张覆盖。
+                init = (
                     f"localStorage.setItem('chaierww.theme', '{args.theme}');"
                     "localStorage.setItem('chaierww.locale', 'zh');"
                 )
+                for key, value in dict(shot.get("session") or {}).items():
+                    init += f"sessionStorage.setItem('{key}', '{value}');"
+                page.add_init_script(init)
 
                 url = f"{args.base.rstrip('/')}{shot['path']}"
                 page.goto(url, wait_until="networkidle", timeout=45000)

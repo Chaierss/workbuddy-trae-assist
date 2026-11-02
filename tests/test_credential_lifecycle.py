@@ -28,6 +28,7 @@ from chaierww.domain.credential_refresh import (
     STATUS_REFRESHED,
     STATUS_RELOGIN_REQUIRED,
     STATUS_TRANSIENT,
+    STATUS_UNSUPPORTED,
     RefreshOutcome,
     _outcome_from_response,
 )
@@ -116,10 +117,43 @@ def test_workbuddy_expiry_accepts_seconds_millis_and_iso():
     assert iso is not None and iso.year == 2030
 
 
-def test_raw_file_envelope_has_no_expiry():
+def test_opaque_raw_file_envelope_has_no_expiry():
     raw = {"format": "raw-file", "encoding": "base64", "data": "eyJ9"}
     assert token_expiry("session", raw) is None
     assert expiry_text("session", raw) is None
+
+
+def _trae_raw(*, expired_at: str, refresh_token: str = "rt-old", device_id: str = "dev-1"):
+    """造一份 Trae 客户端信封（cloudide + 设备 key），用于过期/续期判定测试。"""
+    from chaierww.domain.trae_crypto import tc_encrypt
+
+    cloudide = {
+        "token": "jwt-old",
+        "refreshToken": refresh_token,
+        "expiredAt": expired_at,
+        "userId": "u-1",
+        "host": "https://api.trae.cn",
+    }
+    auth = {
+        f"iCubeAuthInfo://icube-dc:{device_id}": tc_encrypt(
+            json.dumps({"publicKeyPEM": "pub", "privateKeyPEM": "priv"})
+        ),
+        "iCubeAuthInfo://icube.cloudide": tc_encrypt(json.dumps(cloudide)),
+    }
+    return {
+        "format": "raw-file",
+        "encoding": "base64",
+        "data": base64.b64encode(json.dumps(auth).encode()).decode(),
+    }
+
+
+def test_trae_raw_file_expiry_and_refreshable():
+    raw = _trae_raw(expired_at="2030-01-01T00:00:00.000Z")
+    moment = token_expiry("session", raw)
+    assert moment is not None and moment.year == 2030
+    assert expiry_text("session", raw) == "2030-01-01T00:00:00+00:00"
+    # 信封能解出 refreshToken → 可自动续期（设备私钥也在信封里）。
+    assert refreshable("session", raw) is True
 
 
 def test_refreshable_requires_oauth_and_refresh_token():
@@ -332,6 +366,37 @@ def test_raw_file_account_is_unsupported_not_failed(repo):
     results = _service(repo).sweep([account], mode=MODE_FORCE)
     assert results[0].status == RESULT_UNSUPPORTED
     assert "信封" in results[0].detail
+
+
+def test_expired_account_without_refresh_token_marks_relogin(repo):
+    """已过期又没有 refreshToken：不能再显示可用，必须如实降级为需重登。"""
+    expired = (datetime.now(UTC) - timedelta(hours=2)).replace(microsecond=0).isoformat()
+    credential = {"format": "oauth-token", "uid": "u-1", "accessToken": "jwt"}
+    account = repo.upsert(
+        scope=SCOPE,
+        external_id="u-1",
+        display_name="过期号",
+        credential=credential,
+        credential_kind="oauth_token",
+        expires_at=expired,
+    ).account
+    results = _service(repo).sweep([account], mode=MODE_DUE)
+    assert results[0].status == RESULT_RELOGIN_REQUIRED
+    assert "已过期" in results[0].detail
+    assert repo.get(account.id).credential_state is CredentialState.RELOGIN_REQUIRED
+
+
+def test_expired_account_with_unsupported_endpoint_marks_relogin(repo, monkeypatch):
+    """续期端点不支持 + 已过期：账号实际已不可用，同样要降级。"""
+    expired = (datetime.now(UTC) - timedelta(hours=1)).replace(microsecond=0).isoformat()
+    account = _oauth_account(repo, expires_at=expired)
+    stub = _StubRefresher(RefreshOutcome(status=STATUS_UNSUPPORTED, detail="端点不存在"))
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    results = _service(repo).sweep([account], mode=MODE_DUE)
+    assert results[0].status == RESULT_RELOGIN_REQUIRED
+    assert repo.get(account.id).credential_state is CredentialState.RELOGIN_REQUIRED
 
 
 def test_check_mode_marks_usable_and_caches(repo, monkeypatch):

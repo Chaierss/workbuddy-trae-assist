@@ -38,9 +38,9 @@ from urllib.parse import urlparse
 import httpx
 
 from chaierww.domain.trae_crypto import (
-    DeviceIdentity,
+    DeviceKeyPair,
     TraeCryptoError,
-    device_identity_from_storage,
+    device_keypair_from_storage,
 )
 
 # ---- 端点与契约常量（对照旧项目 mod.rs / oauth.rs）----
@@ -167,7 +167,7 @@ class TraeOAuthSession:
     login_id: str
     trace_id: str
     pkce_verifier: str
-    identity: DeviceIdentity
+    identity: DeviceKeyPair
     expires_at: float
     port: int = CALLBACK_PORT
     done: bool = False
@@ -293,7 +293,7 @@ class TraeOAuth:
         设备身份取不到时直接失败（不做任何降级，见旧项目红线）。
         """
         try:
-            identity = device_identity_from_storage(storage)
+            identity = device_keypair_from_storage(storage)
         except TraeCryptoError as exc:
             raise TraeOAuthError(str(exc)) from exc
 
@@ -434,7 +434,7 @@ class TraeOAuth:
         params: dict[str, str],
         trace_id: str,
         pkce_verifier: str,
-        identity: DeviceIdentity,
+        identity: DeviceKeyPair,
     ) -> dict[str, Any]:
         """走完「回调解析 → CSRF 校验 → ExchangeToken → 落库视图」。"""
         # CSRF 校验：回调 loginTraceID 必须与发起的 trace_id 相等。
@@ -492,13 +492,18 @@ class TraeOAuth:
             "refreshToken": refresh_token,
             "host": host,
             "deviceId": identity.device_id,
+            # 设备私钥必须随凭据一起保存：Trae 2026-10 起的续期要校验 DeviceProof，
+            # 令牌与签发设备绑定；只存 deviceId 会在第一次过期后必然续期失败。
+            "devicePrivateKey": identity.private_key_pem,
+            "devicePublicKey": identity.public_key_pem,
+            "deviceMachineId": identity.machine_id,
         }
 
     def _exchange_auth_code(
         self,
         auth_code: str,
         code_verifier: str,
-        identity: DeviceIdentity,
+        identity: DeviceKeyPair,
         host: str,
     ) -> tuple[str, str | None]:
         """用 AuthCode 换 token：主端点（DeviceInfo）+ 旧端点兜底。"""

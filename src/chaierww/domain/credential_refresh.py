@@ -8,8 +8,9 @@
 1. 端点来自阶段 0 的探针（`scripts/_probe_refresh.py`），**没有实测通过之前**不假设
    它一定存在：候选端点全返回 404 / 405，或者 200 但响应里没有令牌，一律归类成
    `unsupported`，由界面如实写「当前版本未验证到可用的续期端点」。
-2. 只有 `oauth-token`（扫码明文）能续期；客户端导入的 `raw-file` 信封里 refreshToken
-   不可解密，调用方根本不该把这类账号送进来。
+2. 两种凭据形态都能续期：`oauth-token`（扫码明文，凭据内带设备私钥）与 `raw-file`
+   （客户端信封，设备私钥在信封里）。Trae 2026-10 起续期要校验 `DeviceProof`，
+   **没有设备私钥就无法续期**，只能重新登录；这一点不掩饰、不重试。
 3. 日志只写状态与账号 id，**任何分支都不打印 token**。
 
 ## 结果状态
@@ -23,7 +24,11 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import os
+import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -31,14 +36,26 @@ from typing import Any
 import httpx
 
 from chaierww.domain.platform_api import (
+    ICUBE_CLOUDIDE_KEY,
     TIMEOUT_SECONDS,
-    TRAE_ACCOUNT_BASE,
+    TRAE_APP_VERSION,
     CredentialError,
+    decode_raw_file,
     trae_credentials,
     workbuddy_credentials,
     workbuddy_headers,
     workbuddy_origin,
 )
+from chaierww.domain.trae_crypto import (
+    DeviceKeyPair,
+    TraeCryptoError,
+    device_keypair_from_auth_blob,
+    device_keypair_from_storage,
+    sign_device_proof,
+    tc_decrypt,
+    tc_encrypt,
+)
+from chaierww.domain.trae_oauth import CLIENT_ID, EXCHANGE_TOKEN_PATH
 
 logger = logging.getLogger("chaierww")
 
@@ -52,7 +69,20 @@ WB_WAF_CODE = 10085
 
 #: 候选刷新端点。顺序即优先级；全部 404 / 405 视为「上游没有这个协议」。
 WB_REFRESH_PATHS = ("/v2/plugin/auth/token/refresh", "/v2/plugin/auth/refresh")
-TRAE_REFRESH_PATH = "/trae/api/v3/oauth/RefreshToken"
+TRAE_REFRESH_PATH = EXCHANGE_TOKEN_PATH
+
+#: Trae 明确判定 refreshToken 失效（或设备不匹配）的错误码，来自客户端
+#: ``request.js`` 的 ``RefreshTokenInvalid`` 集合；命中即只能重新登录。
+TRAE_INVALID_REFRESH_CODES = {
+    "20324",
+    "20101",
+    "20315",
+    "20125",
+    "20126",
+    "20401",
+    "20403",
+}
+
 
 #: 响应里可能承载新令牌的键（按优先级；大小写与下划线两种写法都见得到）。
 _ACCESS_KEYS = ("accessToken", "access_token", "AccessToken", "token", "Token", "jwt", "JWT")
@@ -328,40 +358,320 @@ class WorkBuddyRefresher(_Refresher):
 
 
 class TraeRefresher(_Refresher):
+    """Trae 续期：2026-10 起改走 ``ExchangeToken`` + ``DeviceProof``。
+
+    官方客户端（v0.1.45）的真实协议：
+
+    ``POST {host}/trae/api/v3/oauth/ExchangeToken``，头只带
+    ``Content-Type`` 与 ``x-cloudide-token``（旧 accessToken）；体为
+    ``{ClientID, ClientSecret:"", RefreshToken, DeviceInfo, DeviceProof, IDEVersion}``。
+    ``DeviceProof`` 用**签发该 refreshToken 的设备私钥**对
+    ``"POST\\n/trae/api/v3/oauth/ExchangeToken\\n{ClientID}\\n{refreshToken}\\n{ts}\\n{nonce}"``
+    做 ECDSA-SHA256 签名。
+
+    旧端点 ``/trae/api/v3/oauth/RefreshToken`` 已失效（2026-11 实测 404/200 无令牌）。
+    令牌与设备绑定：缺原设备私钥时服务端回 ``20403 Token device not match``，
+    这种情况只能重新登录，不能靠换设备重试绕过。
+    """
+
     platform = "trae"
     paths = (TRAE_REFRESH_PATH,)
 
-    def _base(self, credential: dict[str, Any]) -> str:
-        _jwt, _device_id, host = trae_credentials(credential)
-        return host or TRAE_ACCOUNT_BASE
+    def refresh(self, credential: dict[str, Any]) -> RefreshOutcome:
+        try:
+            access, refresh_token, host = self._tokens(credential)
+            device = self._device(credential)
+        except CredentialError as exc:
+            return RefreshOutcome(status=STATUS_UNSUPPORTED, detail=str(exc))
 
-    def _headers(self, credential: dict[str, Any]) -> dict[str, str]:
-        _jwt, device_id, _host = trae_credentials(credential)
-        return {
-            "accept": "*/*",
-            "content-type": "application/json",
-            "x-device-id": device_id,
-            "user-agent": "VSCode 1.107.1 (TRAE CN)",
-        }
+        if not refresh_token:
+            return RefreshOutcome(
+                status=STATUS_UNSUPPORTED, detail="凭据里没有 refreshToken"
+            )
+        if device is None:
+            return RefreshOutcome(
+                status=STATUS_RELOGIN_REQUIRED,
+                detail=(
+                    "凭据缺少设备私钥（旧版导出/其它机器导入的账号），"
+                    "无法通过 Trae 的设备校验；请重新扫码登录或从本机客户端重新导入"
+                ),
+            )
 
-    def _bodies(self, credential: dict[str, Any]) -> tuple[dict[str, Any], ...]:
-        from chaierww.domain.trae_oauth import CLIENT_ID, PLATFORM_CODE
-
-        token = str(credential.get("refreshToken") or credential.get("refresh_token") or "")
-        _jwt, device_id, _host = trae_credentials(credential)
-        return (
-            {
-                "ClientID": CLIENT_ID,
-                "RefreshToken": token,
-                "DeviceInfo": {
-                    "DeviceID": device_id,
-                    "PlatformCode": PLATFORM_CODE,
-                    "DeviceType": "PC",
-                },
-            },
-            {"ClientID": CLIENT_ID, "RefreshToken": token, "PlatformCode": PLATFORM_CODE},
-            {"refresh_token": token, "grant_type": "refresh_token"},
+        proof = sign_device_proof(
+            method="POST",
+            path=TRAE_REFRESH_PATH,
+            client_id=CLIENT_ID,
+            refresh_token=refresh_token,
+            private_key_pem=device.private_key_pem,
         )
+        body = {
+            "ClientID": CLIENT_ID,
+            "ClientSecret": "",
+            "RefreshToken": refresh_token,
+            "DeviceInfo": {
+                "DeviceID": device.device_id,
+                "MachineID": device.machine_id,
+                "PlatformCode": "IDE_PC",
+                "DeviceType": "PC",
+                "DeviceName": self._device_name(),
+                "DeviceModel": "",
+                "ClientVersion": TRAE_APP_VERSION,
+                "DevicePublicKey": device.public_key_pem,
+                "DeviceBrand": "",
+                "DeviceCPU": "",
+                "OSInfo": self._os_info(),
+                "OSVersion": "",
+            },
+            "DeviceProof": proof,
+            "IDEVersion": TRAE_APP_VERSION,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "x-cloudide-token": access,
+        }
+        url = f"{host.rstrip('/')}{TRAE_REFRESH_PATH}"
+
+        try:
+            with httpx.Client(timeout=TIMEOUT_SECONDS, trust_env=False) as client:
+                resp = client.post(url, headers=headers, json=body)
+        except httpx.HTTPError as exc:
+            return RefreshOutcome(
+                status=STATUS_TRANSIENT,
+                detail=f"续期请求失败：{type(exc).__name__}",
+            )
+        return self._interpret(resp, credential, endpoint=url)
+
+    # ----- 凭据拆解 -----
+
+    def _tokens(self, credential: dict[str, Any]) -> tuple[str, str, str]:
+        """返回 ``(access_token, refresh_token, host)``。"""
+        jwt, _device_id, host = trae_credentials(credential)
+        if credential.get("format") == "oauth-token":
+            refresh = credential.get("refreshToken") or credential.get("refresh_token")
+            return _bare_jwt(jwt), str(refresh or "").strip(), host
+
+        data = decode_raw_file(credential)
+        info = _cloudide_info(data)
+        refresh = info.get("refreshToken")
+        return (
+            _bare_jwt(str(info.get("token") or jwt)),
+            str(refresh or "").strip(),
+            host,
+        )
+
+    def _device(self, credential: dict[str, Any]) -> DeviceKeyPair | None:
+        if credential.get("format") == "raw-file":
+            try:
+                return device_keypair_from_auth_blob(decode_raw_file(credential))
+            except CredentialError:
+                return None
+
+        device_id = str(credential.get("deviceId") or "").strip()
+        public_key = str(credential.get("devicePublicKey") or "").strip()
+        private_key = str(credential.get("devicePrivateKey") or "").strip()
+        machine_id = str(credential.get("deviceMachineId") or "").strip()
+        if device_id and public_key and private_key:
+            return DeviceKeyPair(device_id, machine_id, public_key, private_key)
+
+        # 老凭据只有 deviceId（或什么都没有）：本机客户端若是同一台设备，
+        # 用它的密钥对还能续期；否则服务端会回 20403，调用方据此提示重登。
+        local = _local_device_keypair()
+        if local is None:
+            return None
+        if device_id and local.device_id != device_id:
+            return None
+        return local
+
+    @staticmethod
+    def _os_info() -> str:
+        if os.name == "nt":
+            return "windows"
+        return "linux" if os.name == "posix" else ""
+
+    @staticmethod
+    def _device_name() -> str:
+        try:
+            return socket.gethostname() or "chaierww"
+        except OSError:
+            return "chaierww"
+
+    # ----- 响应翻译 -----
+
+    def _interpret(
+        self,
+        resp: httpx.Response,
+        credential: dict[str, Any],
+        *,
+        endpoint: str,
+    ) -> RefreshOutcome:
+        payload = _payload_of(resp)
+        status = resp.status_code
+        code = ""
+        message = ""
+        if isinstance(payload, dict):
+            error = payload.get("ResponseMetadata")
+            if isinstance(error, dict):
+                detail = error.get("Error")
+                if isinstance(detail, dict):
+                    code = str(detail.get("Code") or "").strip()
+                    message = str(detail.get("Message") or "").strip()
+
+        if code and code in TRAE_INVALID_REFRESH_CODES:
+            return RefreshOutcome(
+                status=STATUS_RELOGIN_REQUIRED,
+                detail=message or f"刷新被拒绝（code={code}），请重新登录",
+            )
+        if status in (404, 405, 501):
+            return RefreshOutcome(
+                status=STATUS_UNSUPPORTED, detail=f"{endpoint} 不存在（HTTP {status}）"
+            )
+        if status == 429 or status >= 500:
+            return RefreshOutcome(
+                status=STATUS_TRANSIENT,
+                detail=message or f"上游暂不可用（HTTP {status}）",
+                retry_after=_retry_after(resp),
+            )
+        if status in (400, 401, 403):
+            return RefreshOutcome(
+                status=STATUS_RELOGIN_REQUIRED,
+                detail=message or f"刷新被拒绝（HTTP {status}），请重新登录",
+            )
+        if status != 200:
+            return RefreshOutcome(
+                status=STATUS_TRANSIENT,
+                detail=message or f"未预期的响应（HTTP {status}）",
+            )
+
+        result = payload.get("Result") if isinstance(payload, dict) else None
+        if not isinstance(result, dict):
+            return RefreshOutcome(
+                status=STATUS_UNSUPPORTED, detail=f"{endpoint} 响应里没有 Result"
+            )
+        token = str(result.get("Token") or "").strip()
+        if not token:
+            return RefreshOutcome(
+                status=STATUS_UNSUPPORTED,
+                detail=f"{endpoint} 返回 200 但响应里没有新 Token",
+            )
+
+        new_refresh = str(result.get("RefreshToken") or "").strip()
+        expires_at = _trae_expiry(result.get("TokenExpireAt"), result.get("TokenExpireDuration"))
+        refresh_expires = _iso_from_epoch(result.get("RefreshExpireAt"))
+
+        if credential.get("format") == "raw-file":
+            merged = _merge_raw_file(
+                credential, token, new_refresh, expires_at, refresh_expires
+            )
+        else:
+            merged = _merge(
+                credential, token, new_refresh or None, expires_at
+            )
+        return RefreshOutcome(
+            status=STATUS_REFRESHED,
+            credential=merged,
+            expires_at=expires_at,
+            detail=f"已通过 {endpoint} 续期",
+        )
+
+
+def _bare_jwt(token: str) -> str:
+    """去掉 ``Cloud-IDE-JWT `` 前缀：``x-cloudide-token`` 头里客户端放的是裸 JWT。"""
+    value = token.strip()
+    prefix = "Cloud-IDE-JWT "
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+
+def _cloudide_info(data: dict[str, Any]) -> dict[str, Any]:
+    """解密 ``raw-file`` 里的 cloudide 信封。"""
+    envelope = data.get(ICUBE_CLOUDIDE_KEY)
+    if not isinstance(envelope, str) or not envelope:
+        raise CredentialError("登录态里没有 Trae 会话（iCubeAuthInfo://icube.cloudide）")
+    try:
+        info = json.loads(tc_decrypt(envelope))
+    except (TraeCryptoError, json.JSONDecodeError) as exc:
+        raise CredentialError(str(exc)) from exc
+    if not isinstance(info, dict):
+        raise CredentialError("Trae 会话结构异常")
+    return info
+
+
+def _trae_expiry(expire_at: Any, duration: Any) -> str | None:
+    """按客户端 ``ZNe`` 语义算 accessToken 到期时间。
+
+    ``TokenExpireAt`` 已过去且给了 ``TokenExpireDuration`` 时，用「现在 + 时长」；
+    时长按毫秒理解（客户端直接把它加到毫秒时间戳上）。
+    """
+    if expire_at in (None, ""):
+        return None
+    stamp = _epoch_seconds(expire_at)
+    if stamp is None:
+        return None
+    if stamp < datetime.now(UTC).timestamp():
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            return None
+        # 客户端把 duration 当毫秒直接加在时间戳上，这里按数值换算成秒。
+        raw = float(duration)
+        seconds = raw / 1000.0 if raw >= 1000 else raw
+        stamp = datetime.now(UTC).timestamp() + seconds
+    return _iso_from_epoch(stamp)
+
+
+def _epoch_seconds(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    stamp = float(value)
+    if stamp > 10_000_000_000:
+        stamp /= 1000.0
+    return stamp
+
+
+def _iso_ms(value: str) -> str:
+    """ISO 时间 → 客户端信封里的毫秒 UTC 形态（``...123Z``）。"""
+    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _merge_raw_file(
+    credential: dict[str, Any],
+    token: str,
+    refresh: str,
+    expires_at: str | None,
+    refresh_expires: str | None,
+) -> dict[str, Any]:
+    """续期后的 token 写回客户端信封，凭据形态仍是 ``raw-file``。
+
+    保持 raw-file 形态，切换链路（``apply_switch``）才能继续原样写回客户端。
+    """
+    data = decode_raw_file(credential)
+    info = _cloudide_info(data)
+    info["token"] = token
+    if refresh:
+        info["refreshToken"] = refresh
+    if expires_at:
+        info["expiredAt"] = _iso_ms(expires_at)
+    if refresh_expires:
+        info["refreshExpiredAt"] = _iso_ms(refresh_expires)
+    data[ICUBE_CLOUDIDE_KEY] = tc_encrypt(json.dumps(info, ensure_ascii=False))
+
+    merged = dict(credential)
+    merged["format"] = "raw-file"
+    merged["encoding"] = "base64"
+    merged["data"] = base64.b64encode(
+        json.dumps(data, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+    return merged
+
+
+def _local_device_keypair() -> DeviceKeyPair | None:
+    """读本机 ``storage.json`` 的设备密钥对（仅老凭据兜底，失败返回 None）。"""
+    try:
+        from chaierww.adapters.trae import default_paths
+
+        storage = json.loads(default_paths().storage_file.read_text(encoding="utf-8"))
+        return device_keypair_from_storage(storage)
+    except (OSError, ValueError, TraeCryptoError, ImportError):
+        return None
+
 
 
 def refresher_for(platform: str) -> _Refresher | None:
