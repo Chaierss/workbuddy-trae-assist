@@ -16,6 +16,11 @@ SCOPE = "workbuddy-cn"
 def client(tmp_path):
     app = create_app(Settings(home=tmp_path))
     with TestClient(app) as test_client:
+        # 启动即停：后台 tick 的第一轮 run_due 与用例建号之间存在竞态（线程何时被调度
+        # 不由测试控制）。CI 上它会在建号之后才跑，真去访问上游，把过期号从「可使用」
+        # 改成「需重新登录」，只读的概览用例因此随机多出一条 credential。
+        # 本模块测的是接口行为，不需要调度器真跑。
+        test_client.app.state.scheduler.stop()
         yield test_client
 
 
