@@ -2290,17 +2290,22 @@ def test_inflight_gate_counts_and_never_goes_negative(client):
 
 
 def test_report_failure_honors_retry_after_with_cap(client):
-    """429 的 `Retry-After` 取「基础冷却」与上游值的较大者，并封顶 30 分钟。"""
+    """429 的 `Retry-After` 取「基础冷却」与上游值的较大者，并封顶 30 分钟。
+
+    上限留 1 毫秒余量：截止时间存的是 `monotonic() + seconds`，再减回当前
+    `monotonic()`，浮点加法/减法的舍入会让结果略微超过 seconds（CI 上见过
+    60.00000000000006）。这不是冷却变长，只是表示误差。
+    """
     relay = client.app.state.gateway_relay
     relay.report_failure("slow", status=429, retry_after=120)
     assert 119 <= relay.cooldown("slow") <= 121
 
     relay.report_failure("capped", status=429, retry_after=9999)
-    assert 1799 <= relay.cooldown("capped") <= 1800
+    assert 1799 <= relay.cooldown("capped") <= 1800.001
 
     # 上游没给 `Retry-After` 时沿用 429 的基础冷却 60 秒。
     relay.report_failure("plain", status=429)
-    assert 59 <= relay.cooldown("plain") <= 60
+    assert 59 <= relay.cooldown("plain") <= 60.001
 
 
 def test_legacy_gateway_config_uses_new_defaults(tmp_path):
