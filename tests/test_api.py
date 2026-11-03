@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1101,7 +1102,16 @@ def _seed_id(client: TestClient, state=None) -> str:
 
 
 def _stub_overview(client, monkeypatch, *, detected, credits, clients) -> None:
-    """三类数据源全部打桩：这一屏绝不能真去访问上游。"""
+    """三类数据源全部打桩：这一屏绝不能真去访问上游。
+
+    同时停掉后台调度并清空历史：概览会把「计划任务失败」也列为待处理，
+    后台 tick 在本机 / CI 的触发时机不同，会给出随机条目。
+    """
+    scheduler = client.app.state.scheduler
+    scheduler.stop()
+    with scheduler._lock:
+        for key, task in list(scheduler._tasks.items()):
+            scheduler._tasks[key] = replace(task, history=())
     monkeypatch.setattr(
         client.app.state.activities, "detect", lambda accounts, force=False: list(detected)
     )
