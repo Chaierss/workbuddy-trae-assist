@@ -10,7 +10,14 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "_probe_scope.py"
+if not SCRIPT_PATH.exists():
+    # 探针脚本按 .gitignore 约定不入库（scripts/_*.py 只在本机用）。
+    # CI 上没有它，跳过而不是让整条流水线红；本机跑全量时仍会执行下面的断言。
+    pytest.skip("本地探针脚本未入库，跳过 C0 探针单测", allow_module_level=True)
+
 _SPEC = importlib.util.spec_from_file_location("_probe_scope", SCRIPT_PATH)
 assert _SPEC and _SPEC.loader
 probe_scope = importlib.util.module_from_spec(_SPEC)
