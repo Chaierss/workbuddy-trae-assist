@@ -31,9 +31,11 @@ from chaierww.domain.credential_refresh import (
     STATUS_TRANSIENT,
     STATUS_UNSUPPORTED,
     RefreshOutcome,
+    TraeRefresher,
     _outcome_from_response,
 )
 from chaierww.domain.scheduler import _default_tasks
+from chaierww.domain.trae_crypto import DeviceKeyPair
 from chaierww.infra.db import open_database
 from chaierww.infra.secrets import InMemoryBox
 
@@ -215,6 +217,40 @@ def test_200_keeps_old_refresh_token_when_response_omits_it():
     assert outcome.expires_at is not None
 
 
+def test_trae_repair_device_keys_merges_only_matching_device(monkeypatch):
+    """缺私钥的老扫码凭据按 deviceId 匹配本机后补齐，其余情况一概不动。"""
+    local = DeviceKeyPair("dev-1", "m-1", "pub-pem", "priv-pem")
+    monkeypatch.setattr(
+        "chaierww.domain.credential_refresh._local_device_keypair", lambda: local
+    )
+    base = {
+        "format": "oauth-token",
+        "deviceId": "dev-1",
+        "refreshToken": "r-1",
+        "accessToken": "a-1",
+    }
+    repaired = TraeRefresher().repair_device_keys(base)
+    assert repaired is not None
+    assert repaired["devicePrivateKey"] == "priv-pem"
+    assert repaired["devicePublicKey"] == "pub-pem"
+    assert repaired["deviceMachineId"] == "m-1"
+    assert "devicePrivateKey" not in base
+    assert TraeRefresher().repair_device_keys({**base, "deviceId": "dev-2"}) is None
+    # 旧导出包常常 deviceId 为空：按本机兜底补齐，并把本机 deviceId 落库。
+    missing_id = {key: value for key, value in base.items() if key != "deviceId"}
+    adopted = TraeRefresher().repair_device_keys(missing_id)
+    assert adopted is not None
+    assert adopted["deviceId"] == "dev-1"
+    assert adopted["devicePrivateKey"] == "priv-pem"
+    assert (
+        TraeRefresher().repair_device_keys(
+            {**base, "devicePrivateKey": "p", "devicePublicKey": "q"}
+        )
+        is None
+    )
+    assert TraeRefresher().repair_device_keys({**base, "refreshToken": ""}) is None
+
+
 # ---------- 仓储 ----------
 
 
@@ -344,6 +380,40 @@ def test_force_mode_refreshes_even_without_expiry(repo, monkeypatch):
     results = service.sweep([account], mode=MODE_FORCE)
     assert results[0].status == RESULT_REFRESHED
     assert stub.calls == 1
+
+
+class _RepairingRefresher(_StubRefresher):
+    """模拟 Trae 续期器：续期前先做设备密钥补齐。"""
+
+    def __init__(self, outcome: RefreshOutcome, keys: dict[str, str]) -> None:
+        super().__init__(outcome)
+        self.keys = keys
+        self.seen: list[dict] = []
+
+    def repair_device_keys(self, credential):
+        return {**credential, **self.keys}
+
+    def refresh(self, credential):
+        self.seen.append(credential)
+        return super().refresh(credential)
+
+
+def test_refresh_repairs_device_keys_before_asking_upstream(repo, monkeypatch):
+    """补齐结果要落库，而且这次续期就用补齐后的凭据（不能只在内存里兜底）。"""
+    account = _oauth_account(repo, scope=TRAE_SCOPE, external_id="t-1")
+    stub = _RepairingRefresher(
+        RefreshOutcome(status=STATUS_TRANSIENT, detail="网络超时"),
+        {"devicePrivateKey": "priv", "devicePublicKey": "pub"},
+    )
+    monkeypatch.setattr(
+        "chaierww.domain.credential_lifecycle.refresher_for", lambda platform: stub
+    )
+    results = _service(repo).sweep([account], mode=MODE_FORCE)
+    assert results[0].status == RESULT_FAILED
+    _kind, credential = repo.credential_record(account.id)
+    assert credential["devicePrivateKey"] == "priv"
+    assert credential["devicePublicKey"] == "pub"
+    assert stub.seen[0]["devicePrivateKey"] == "priv"
 
 
 def test_auth_rejection_marks_relogin(repo, monkeypatch):

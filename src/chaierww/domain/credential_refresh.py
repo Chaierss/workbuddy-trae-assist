@@ -490,6 +490,38 @@ class TraeRefresher(_Refresher):
             return None
         return local
 
+    def repair_device_keys(self, credential: dict[str, Any]) -> dict[str, Any] | None:
+        """给缺设备密钥的 Trae 扫码凭据补上本机密钥对，补不了返回 None。
+
+        有 ``deviceId`` 时必须与本机一致才补：把别的设备签发的令牌硬绑到本机
+        不会通过 DeviceProof，只会把错误的密钥写进库里。没有 ``deviceId``
+        （旧导出包常见）时与续期时的兜底一致，按本机设备补齐并把 id 落库，
+        这样每次续期不再只靠内存兜底，诊断里也能看出设备归属。
+        """
+        if credential.get("format") != "oauth-token":
+            return None
+        refresh = str(
+            credential.get("refreshToken") or credential.get("refresh_token") or ""
+        ).strip()
+        if not refresh:
+            return None
+        if credential.get("devicePrivateKey") and credential.get("devicePublicKey"):
+            return None
+        device_id = str(credential.get("deviceId") or "").strip()
+        local = _local_device_keypair()
+        if local is None:
+            return None
+        if device_id and local.device_id != device_id:
+            return None
+        repaired = dict(credential)
+        if not device_id:
+            repaired["deviceId"] = local.device_id
+        repaired["devicePrivateKey"] = local.private_key_pem
+        repaired["devicePublicKey"] = local.public_key_pem
+        if local.machine_id:
+            repaired["deviceMachineId"] = local.machine_id
+        return repaired
+
     @staticmethod
     def _os_info() -> str:
         if os.name == "nt":

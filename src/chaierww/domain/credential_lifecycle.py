@@ -724,6 +724,29 @@ class CredentialLifecycleService:
         if refresher is None:
             return self._result(account, RESULT_UNSUPPORTED, "该平台不支持自动续期", _iso(expiry))
 
+        # 老扫码凭据只有 deviceId、没有设备私钥：续期前先用本机密钥补齐并落库，
+        # 否则每次续期都只能靠内存兜底，换进程/换版本后照样 20403。
+        repair = getattr(refresher, "repair_device_keys", None)
+        if repair is not None:
+            try:
+                repaired = repair(credential)
+            except Exception:  # noqa: BLE001 - 补齐是尽力而为，不能拖垮巡检
+                repaired = None
+                logger.warning("补齐账号 %s 的设备密钥失败", account.id, exc_info=True)
+            if repaired:
+                try:
+                    self._repo.replace_credential(
+                        account.id,
+                        credential=repaired,
+                        kind=kind,
+                        expires_at=expiry_text(kind, repaired),
+                    )
+                except AccountNotFound:
+                    return self._result(account, RESULT_FAILED, "账号已被删除", _iso(expiry))
+                self.invalidate(account.id)
+                credential = repaired
+                logger.info("已用本机设备密钥补齐账号 %s 的续期材料", account.id)
+
         outcome = refresher.refresh(credential)
         # transient 也要给出「何时再试」：上游给了 Retry-After 就照它，
         # 否则退回 1 小时，避免下一次巡检立刻再撞同一个错误。
