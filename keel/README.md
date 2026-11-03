@@ -7,11 +7,13 @@
 
 | 文件 | 是什么 | 谁消费 |
 |---|---|---|
-| `console.config.json` | 扫描范围（源码目录、组件目录、wiki 目录、排除项）+ 模板版本号 | 体检脚本 |
+| `console.config.json` | 扫描范围（源码目录、组件目录、wiki 目录、排除项）+ 模板版本号；`apiSourceDirs` 额外纳入接口文档探测 | 体检脚本 |
+| `structure.json` | 顶层目录职责登记表；目录对不对由 `DIR-01/02` 对账 | 体检脚本 |
+| `project.json` | 项目目标、范围外、里程碑与出口条件 | 体检脚本；评审与发版 |
 | `rules.json` | 项目规则 + 页面形态术语（`title`/`summary`/`detail` 存 i18n key） | 设置 → 规则；导出给 AI |
 | `components.json` | 前端组件注册表（准入名单，不是说明书） | 设置 → 组件；体检脚本；`virtual:keel-report` |
 | `wiki.json` | 门禁清单：`docs/` 下每篇 `.md` 登记一行（校验存在、非空、无漏登记） | 体检脚本 |
-| `console-check.mjs` | 四件套完整性体检（`CFG` / `VER` / `RULE` / `COMP` / `WIKI`） | CI / 本地提交前 |
+| `console-check.mjs` | 四件套完整性体检（`CFG` / `VER` / `DIR` / `PRJ` / `RULE` / `COMP` / `WIKI`） | CI / 本地提交前 |
 | `preflight-scan.mjs` | 上线前静态漏洞扫描（17 条规则 + `.preflightignore`） | CI / 发布门禁 |
 
 接口文档**不在这里**：真相源是后端路由与类型，运行期由 FastAPI 生成 `/api/openapi.json`，
@@ -50,8 +52,8 @@ node keel/preflight-scan.mjs --include-dist  # 连构建产物一起扫，查前
 
 | 输出 | 含义 |
 |---|---|
-| `ok 模板版本 2.1.0（最新）` | 对齐了 |
-| `warn 模板版本 2.0.0，当前技能 2.1.0` | 有更新，按技能里的 `references/upgrading.md` 逐段迁移 |
+| `ok 模板版本 2.2.0（最新）` | 对齐了 |
+| `warn 模板版本 2.1.0，当前技能 2.2.0` | 有更新，按技能里的 `references/upgrading.md` 逐段迁移 |
 | `warn 未声明模板版本` | 老文件缺字段，补 `"keelVersion"` |
 
 它是 **warn 不是 error**：升级提醒不该让 CI 变红，红的东西会被整体忽略。

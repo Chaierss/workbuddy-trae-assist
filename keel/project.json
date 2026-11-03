@@ -1,0 +1,23 @@
+{
+  "$comment": "项目章程：只放会在评审和发版时被反复引用的事实。目标写结果不写动作，范围外写清楚不做什么，里程碑必须有出口条件——没有出口条件的里程碑等于许愿。",
+  "version": 1,
+  "name": "chaierww",
+  "oneLiner": "把 WorkBuddy / Trae 的多账号切换、签到与用量看板做成本地 Web + 桌面应用，凭据不出本机",
+  "stage": "shipping",
+  "goals": [
+    "账号切换、凭据续期与备份都在本机完成，不把明文凭据交给任何第三方",
+    "平台新增能力一版一次交付：后端、前端、桌面、CHANGELOG 同步落地",
+    "设置页四件套（规则 / 组件 / 接口文档 / Wiki）只读仓库源文件，改文件刷新即生效"
+  ],
+  "outOfScope": [
+    "不做 SaaS 多租户与云端托管账号",
+    "不代存账号密码，也不绕过平台的扫码 / 设备绑定",
+    "不支持 macOS 桌面端（后端缺 Keychain 实现）",
+    "不代签第三方协议、不伪造平台票据"
+  ],
+  "milestones": [
+    { "id": "M-01", "title": "四件套可用", "exit": "node keel/console-check.mjs --strict 退出码 0", "status": "doing" },
+    { "id": "M-02", "title": "上线门禁固化", "exit": "node keel/preflight-scan.mjs --strict 退出码 0，且首次安装 / 重装 / 卸载 / 静默卸载四项人工走查通过", "status": "todo" },
+    { "id": "M-03", "title": "1.2.0 平台覆盖", "exit": "1.2.0 Release 发布，平台覆盖能力在安装包内可用且 CHANGELOG 有对应段落", "status": "todo" }
+  ]
+}

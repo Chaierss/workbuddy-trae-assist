@@ -34,5 +34,8 @@
   { "key": "campaign-progress", "name": "CampaignProgress", "path": "web/src/components/activity/CampaignProgress.vue", "category": "business", "summaryKey": "settings.components.summary.campaignProgress", "status": "stable", "demo": null },
   { "key": "official-activities-panel", "name": "OfficialActivitiesPanel", "path": "web/src/components/activity/OfficialActivitiesPanel.vue", "category": "business", "summaryKey": "settings.components.summary.officialActivitiesPanel", "status": "stable", "demo": null },
 
-  { "key": "onboarding-checklist", "name": "OnboardingChecklist", "path": "web/src/components/onboarding/OnboardingChecklist.vue", "category": "business", "summaryKey": "settings.components.summary.onboardingChecklist", "status": "stable", "demo": null }
+  { "key": "onboarding-checklist", "name": "OnboardingChecklist", "path": "web/src/components/onboarding/OnboardingChecklist.vue", "category": "business", "summaryKey": "settings.components.summary.onboardingChecklist", "status": "stable", "demo": null },
+
+  { "key": "credential-diagnose-dialog", "name": "CredentialDiagnoseDialog", "path": "web/src/components/CredentialDiagnoseDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.credentialDiagnoseDialog", "status": "stable", "demo": null },
+  { "key": "credential-history-dialog", "name": "CredentialHistoryDialog", "path": "web/src/components/CredentialHistoryDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.credentialHistoryDialog", "status": "stable", "demo": null }
 ]

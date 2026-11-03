@@ -252,6 +252,8 @@ export const settingsZh = {
   "settings.components.summary.campaignProgress": "活动进度条，展示已完成 / 总量与当前阶段",
   "settings.components.summary.officialActivitiesPanel": "官方活动列表面板，按状态聚合多个活动",
   "settings.components.summary.onboardingChecklist": "首次使用清单，按顺序引导完成必要配置",
+  "settings.components.summary.credentialDiagnoseDialog": "凭据一键诊断弹窗，六步给出只读结论（可读 / 可续 / 设备 / 到期 / 退避 / 验活）",
+  "settings.components.summary.credentialHistoryDialog": "凭据巡检历史时间线，只展示时间、结论与上游原文，不含 token",
 
   "gateway.tab.overview.label": "概览",
   "gateway.tab.overview.hint": "运行状态、用量看板与健康度",
@@ -607,6 +609,8 @@ export const settingsEn = {
     "Campaign progress bar showing completed vs total and current stage",
   "settings.components.summary.officialActivitiesPanel": "Official campaign list grouped by status",
   "settings.components.summary.onboardingChecklist": "First-run checklist guiding setup in order",
+  "settings.components.summary.credentialDiagnoseDialog": "Read-only credential diagnosis dialog: six checks covering readable / renewable / device / expiry / backoff / probe",
+  "settings.components.summary.credentialHistoryDialog": "Credential sweep history timeline showing time, verdict and upstream message only — never tokens",
 
   "gateway.tab.overview.label": "Overview",
   "gateway.tab.overview.hint": "Run status, usage board and health",
