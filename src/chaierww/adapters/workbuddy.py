@@ -481,6 +481,9 @@ class WorkBuddyAdapter:
                 return True
         return False
 
+    def matches_process(self, name: str, exe: str) -> bool:
+        return _is_client_process(name.lower(), exe.lower())
+
     def detect(self) -> Detection:
         app = self.app_path()
         state_file = self._paths.state_file

@@ -85,6 +85,10 @@ app.on('child-process-gone', (_event, details) => {
 
 // 后端是否由本进程拉起（用于退出时决定要不要一并回收）。
 let backendProcess = null;
+/** 自动重启预算：10 分钟内最多 3 次，避免后端持续崩溃时无限拉起。 */
+const RESTART_WINDOW_MS = 10 * 60 * 1000;
+const RESTART_LIMIT = 3;
+let restartAt = [];
 let mainWindow = null;
 let webLoginWindow = null;
 let tray = null;
@@ -233,18 +237,50 @@ function consumeStartupError() {
 }
 
 backendProcess.on('exit', (code) => {
-    if (!quitting && code !== 0) {
-      // 后端意外退出（非正常关闭），提示用户。
-      const detail = consumeStartupError();
-      dialog.showErrorBox(
-        'chaierww',
-        detail
-          ? `后端服务启动/运行失败（退出码 ${code}）：\n\n${detail}`
-          : `后端服务已意外退出（退出码 ${code}）。请检查日志后重启应用。`
-      );
-    }
     backendProcess = null;
+    if (quitting || code === 0) return;
+    void handleBackendCrash(code);
   });
+}
+
+/**
+ * 后端意外退出：先解释原因，再给一次「立即重启」的机会。
+ * 10 分钟内超过 3 次就不再自动拉起——那多半是环境问题，反复重启只会刷屏。
+ */
+async function handleBackendCrash(code) {
+  const detail = consumeStartupError();
+  const now = Date.now();
+  restartAt = restartAt.filter((at) => now - at <= RESTART_WINDOW_MS);
+  const canRestart = restartAt.length < RESTART_LIMIT;
+
+  const options = {
+    type: 'error',
+    title: 'chaierww',
+    message: `后端服务意外退出（退出码 ${code}）`,
+    detail:
+      detail ||
+      (canRestart
+        ? '可以立即重启后端。若再次失败会继续累计，10 分钟内最多 3 次。'
+        : '10 分钟内已重启 3 次，为避免死循环不再自动重启。请查看日志后重启应用。'),
+    buttons: canRestart ? ['立即重启', '退出'] : ['退出'],
+    defaultId: 0,
+    cancelId: canRestart ? 1 : 0,
+    noLink: true,
+  };
+  const { response } = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+
+  if (canRestart && response === 0) {
+    restartAt.push(Date.now());
+    startBackend();
+    if ((await waitForBackend()) && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(APP_URL);
+    }
+    return;
+  }
+  quitting = true;
+  app.quit();
 }
 
 async function waitForBackend(timeoutMs = 15000) {

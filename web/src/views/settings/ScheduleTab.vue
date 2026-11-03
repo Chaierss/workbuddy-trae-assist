@@ -18,6 +18,7 @@ import SelectMenu from "../../components/SelectMenu.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
 import AccountScopePicker, { type ScopeAccount } from "./AccountScopePicker.vue";
 import { localeTag, t, type MessageKey } from "../../lib/i18n";
+import { refreshOnboardingSignals } from "../../lib/onboarding";
 import { api, type ActivityCatalogEntry, type RotationPolicy, type RotationState, type ScheduleSpec } from "../../api";
 
 /**
@@ -265,6 +266,7 @@ async function update(
   try {
     const result = await api.updateSchedule(task.key, patch);
     replaceTask(result.task);
+    refreshOnboardingSignals();
   } catch (cause) {
     flash.value = {
       key: task.key,

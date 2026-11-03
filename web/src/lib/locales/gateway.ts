@@ -370,6 +370,7 @@ export const gatewayZh = {
     "接近上限 = 今日用量 ≥80% 或 7 天日均超过限额；已到上限 = 今日用量达到限额，之后会返回 429。",
 
   "api.requestFailed": "请求失败（{status}）",
+  "api.networkError": "连不上本地后端，可能正在重启；请稍后重试。",
   "api.never": "从未",
   "api.justNow": "刚刚",
   "api.minutesAgo": "{count} 分钟前",
@@ -756,6 +757,7 @@ export const gatewayEn = {
     "Near limit = 80%+ of today's quota or a 7-day average above the limit; limit reached = today's usage hit the cap, so further calls get a 429.",
 
   "api.requestFailed": "Request failed ({status})",
+  "api.networkError": "Cannot reach the local backend — it may be restarting. Try again shortly.",
   "api.never": "Never",
   "api.justNow": "Just now",
   "api.minutesAgo": "{count} minutes ago",

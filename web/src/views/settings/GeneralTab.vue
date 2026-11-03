@@ -18,6 +18,7 @@ import UpdateSection from "./UpdateSection.vue";
 import { api, type LoginStateDiagnostics, type Preferences } from "../../api";
 import { isDesktop } from "../../lib/desktop";
 import { LOCALES, locale, setLocale, t, type MessageKey } from "../../lib/i18n";
+import { restartOnboarding } from "../../lib/onboarding";
 import { setTheme, theme, type ThemeMode } from "../../stores/app";
 
 /**
@@ -75,6 +76,21 @@ const themeItems: ThemeItem[] = [
   { key: "dark", titleKey: "theme.dark", descKey: "theme.dark.desc", icon: Moon },
   { key: "system", titleKey: "theme.system", descKey: "theme.system.desc", icon: Monitor },
 ];
+
+/* ---------- 新手引导：重新显示 ---------- */
+
+const restarting = ref(false);
+const restarted = ref(false);
+
+async function restartGuide(): Promise<void> {
+  restarting.value = true;
+  try {
+    await restartOnboarding();
+    restarted.value = true;
+  } finally {
+    restarting.value = false;
+  }
+}
 
 /* ---------- 网页版登录态诊断（只读） ---------- */
 
@@ -135,6 +151,22 @@ async function toggle(key: PrefKey): Promise<void> {
   <div class="space-y-4">
     <!-- 桌面端才有更新能力；浏览器里打开时整块不渲染 -->
     <UpdateSection v-if="isDesktop" />
+
+    <SectionCard :title="t('onboarding.restart.title')" :subtitle="t('onboarding.restart.desc')">
+      <div class="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          class="rounded-control border border-line px-3 py-1.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+          :disabled="restarting"
+          @click="restartGuide"
+        >
+          {{ t("onboarding.restart.cta") }}
+        </button>
+        <span v-if="restarted" class="text-caption text-muted">
+          {{ t("onboarding.restart.done") }}
+        </span>
+      </div>
+    </SectionCard>
 
     <SectionCard :title="t('theme.title')" :subtitle="t('theme.subtitle')">
       <div class="grid grid-cols-3 gap-2.5">

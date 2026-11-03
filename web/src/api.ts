@@ -1,5 +1,6 @@
 import { t } from "./lib/i18n";
 import type { OpenApiSpec } from "./lib/openapi";
+import { reportRequestResult } from "./lib/healthWatch";
 
 export interface ScopeInfo {
   key: string;
@@ -644,6 +645,12 @@ export interface Detection {
   slots: ClientSlot[];
 }
 
+export interface LocalPorts {
+  available: boolean;
+  ports: { port: number; address: string }[];
+  reason: string;
+}
+
 export interface ClientDetection {
   scope: string;
   platform: string;
@@ -657,6 +664,7 @@ export interface ClientDetection {
   currentAccountId: string | null;
   downloadUrl: string | null;
   slots: ClientSlot[];
+  localPorts: LocalPorts;
 }
 
 /** 一键启动客户端的结果：已运行 / 未安装都不算失败，`message` 给人看。 */
@@ -894,6 +902,11 @@ export interface Preferences {
   relaunchAfterSwitch: boolean;
 }
 
+/** 改偏好的入参：响应字段都可选；`resetOnboarding` 只进不出（清空引导进度）。 */
+export interface PreferencesPatch extends Partial<Preferences> {
+  resetOnboarding?: boolean;
+}
+
 /** 本地漏斗摘要（近 N 天）。 */
 export interface MetricsFunnel {
   enabled: boolean;
@@ -1046,13 +1059,15 @@ export interface ClientSettingsWriteResult {
 export interface ActionableItem {
   /**
    * 服务端取值：credential | credential_expired | credential_expiring |
-   * checkin | credits_expiring | client_offline；页面本地也补几项引导态。
+   * checkin | credits_expiring | client_offline | schedule:<taskKey>；页面本地也补几项引导态。
    */
   kind: string;
   severity: "high" | "warn" | "info";
   title: string;
   detail: string;
   accountId: string | null;
+  /** 计划任务类条目额外带任务键（`kind` 已是 `schedule:<taskKey>`，这里方便按键查任务）。 */
+  taskKey?: string;
   action:
     | { type: "navigate"; to: string }
     | { type: "run"; endpoint: string; accountIds: string[]; mode?: string; scope?: string };
@@ -1456,15 +1471,26 @@ export interface LogQuery {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Chaierww-Client": "web",
-      ...(init.headers as Record<string, string> | undefined),
-    },
-  });
+  const requestId = newRequestId();
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      credentials: "same-origin",
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Chaierww-Client": "web",
+        "X-Request-Id": requestId,
+        ...(init.headers as Record<string, string> | undefined),
+      },
+    });
+  } catch {
+    // fetch 抛错 = 连不上后端（HTTP 4xx/5xx 仍会正常返回）。
+    reportRequestResult(false);
+    throw new Error(t("api.networkError"));
+  }
+  // 能拿到响应就说明后端活着，哪怕业务上返回 4xx/5xx。
+  reportRequestResult(true);
   const text = await response.text();
   let payload: unknown = null;
   try {
@@ -1477,6 +1503,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new Error(detail || t("api.requestFailed", { status: response.status }));
   }
   return payload as T;
+}
+
+/** 每个请求带一个 id：后端日志与前端错误上报能对上同一次失败。 */
+function newRequestId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
 }
 
 export const api = {
@@ -1528,7 +1563,7 @@ export const api = {
 
   preferences: () => request<Preferences>("/api/preferences"),
 
-  savePreferences: (patch: Partial<Preferences>) =>
+  savePreferences: (patch: PreferencesPatch) =>
     request<Preferences>("/api/preferences", {
       method: "PUT",
       body: JSON.stringify(patch),

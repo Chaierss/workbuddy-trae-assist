@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import platform
@@ -18,6 +19,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI
 
@@ -32,6 +34,34 @@ from chaierww.logging_setup import redact_text
 
 LOG_TAIL_BYTES = 128 * 1024
 MAX_LOG_FILES = 10
+#: 磁盘剩余低于 200 MB 就告警：SQLite 写入与备份都需要余量，撑满会直接损坏库。
+DISK_WARN_BYTES = 200 * 1024 * 1024
+
+
+def _writable(path: Path) -> bool:
+    """真写一个探针文件再删掉。只问「能不能写」，不创建长期文件。"""
+    probe = path / f".write-probe-{uuid4().hex[:8]}"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        with contextlib.suppress(OSError):
+            probe.unlink()
+        return False
+
+
+def _human_bytes(value: int | None) -> str:
+    """磁盘余量给「12.4 GB」这种可读值；拿不到就留空，不编数字。"""
+    if value is None:
+        return ""
+    size = float(value)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return ""
 
 
 def _display_path(path: Path) -> str:
@@ -120,6 +150,7 @@ def _snapshot_brief(snapshot: Any) -> dict[str, Any]:
 def _runtime_stats(app: FastAPI) -> dict[str, Any]:
     gateway = app.state.gateway_runtime
     settings = app.state.settings
+    scheduler = getattr(app.state, "scheduler", None)
     try:
         usage = shutil.disk_usage(settings.home)
         free = usage.free
@@ -128,8 +159,58 @@ def _runtime_stats(app: FastAPI) -> dict[str, Any]:
     return {
         "gatewayRunning": bool(gateway.running),
         "gatewayError": gateway.error,
+        "schedulerRunning": bool(scheduler and scheduler.running),
         "diskFreeBytes": free,
     }
+
+
+def _checks(
+    settings: Any,
+    database: dict[str, Any],
+    config: dict[str, Any],
+    runtime: dict[str, Any],
+    startup_error: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """固定 8 项、固定顺序。标签由前端 i18n 负责，这里只给 id / level / value。"""
+    quick = str(database.get("quickCheck") or "")
+    corrupt = len(config.get("corruptFiles") or [])
+    free = runtime.get("diskFreeBytes")
+    return [
+        {"id": "database", "level": "ok" if quick == "ok" else "error", "value": quick},
+        {"id": "config", "level": "warn" if corrupt else "ok", "value": str(corrupt)},
+        {
+            "id": "data_dir",
+            "level": "ok" if _writable(settings.home) else "error",
+            "value": "",
+        },
+        {
+            "id": "logs_dir",
+            "level": "ok" if _writable(settings.logs_dir) else "error",
+            "value": "",
+        },
+        {
+            "id": "disk",
+            "level": (
+                "warn" if free is not None and free < DISK_WARN_BYTES else "ok"
+            ),
+            "value": _human_bytes(free),
+        },
+        {
+            "id": "scheduler",
+            "level": "ok" if runtime.get("schedulerRunning") else "warn",
+            "value": "",
+        },
+        {
+            "id": "gateway",
+            "level": "error" if runtime.get("gatewayError") else "ok",
+            "value": str(runtime.get("gatewayError") or ""),
+        },
+        {
+            "id": "startup",
+            "level": "warn" if startup_error else "ok",
+            "value": str((startup_error or {}).get("type") or ""),
+        },
+    ]
 
 
 def _schedule_summary(app: FastAPI) -> list[dict[str, Any]]:
@@ -159,6 +240,19 @@ def _preferences_summary(app: FastAPI) -> dict[str, Any]:
 def build_health(app: FastAPI) -> dict[str, Any]:
     settings = app.state.settings
     started_at = getattr(app.state, "started_at", time.monotonic())
+    database = _db_stats(app)
+    config = {
+        "preferences": _file_state(settings.home / PREFERENCES_FILENAME),
+        "schedules": _file_state(settings.home / SCHEDULES_FILENAME),
+        "gateway": _file_state(settings.home / "gateway.json"),
+        "gatewayKeys": _file_state(settings.home / "gateway-keys.json"),
+        "gatewayPool": _file_state(settings.home / "gateway-pool.json"),
+        "corruptFiles": [
+            _display_path(item) for item in scan_corrupt_files(settings.home)
+        ],
+    }
+    runtime = _runtime_stats(app)
+    startup_error = read_startup_error(settings.home)
     return {
         "generatedAt": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "app": {
@@ -170,23 +264,14 @@ def build_health(app: FastAPI) -> dict[str, Any]:
             "uptimeSeconds": int(time.monotonic() - started_at),
             "activityCatalogVersion": OFFICIAL_CATALOG_VERSION,
         },
-        "database": _db_stats(app),
-        "config": {
-            "preferences": _file_state(settings.home / PREFERENCES_FILENAME),
-            "schedules": _file_state(settings.home / SCHEDULES_FILENAME),
-            "gateway": _file_state(settings.home / "gateway.json"),
-            "gatewayKeys": _file_state(settings.home / "gateway-keys.json"),
-            "gatewayPool": _file_state(settings.home / "gateway-pool.json"),
-            "corruptFiles": [
-                _display_path(item)
-                for item in scan_corrupt_files(settings.home)
-            ],
-        },
+        "database": database,
+        "config": config,
         "backups": _backup_stats(app),
-        "runtime": _runtime_stats(app),
+        "runtime": runtime,
         "schedules": _schedule_summary(app),
         "preferences": _preferences_summary(app),
-        "startupError": read_startup_error(settings.home),
+        "startupError": startup_error,
+        "checks": _checks(settings, database, config, runtime, startup_error),
     }
 
 

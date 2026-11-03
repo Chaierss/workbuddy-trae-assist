@@ -22,6 +22,8 @@ import { api } from "../api";
 import { desktop } from "../lib/desktop";
 import { setMetricsEnabled, track } from "../lib/metrics";
 import { ensureOnboarding } from "../lib/onboarding";
+import { backendOffline, resetHealthWatch } from "../lib/healthWatch";
+import { t } from "../lib/i18n";
 
 /**
  * 唯一的壳层，承载三种布局形态：
@@ -235,6 +237,12 @@ async function initTelemetry(): Promise<void> {
   void ensureOnboarding();
 }
 
+/** 断线横幅上的「重新连接」：先清计数再整页刷新，避免旧请求把状态又拉回离线。 */
+function retryBackend(): void {
+  resetHealthWatch();
+  window.location.reload();
+}
+
 /** 客户端检测结果变化时上报一次「装了 / 登了 / 在跑」。只有状态词，没有路径。 */
 watch(
   clientDetections,
@@ -259,6 +267,20 @@ watch(
 
 <template>
   <div class="app-canvas relative h-screen overflow-hidden" :style="navRailVars">
+    <div
+      v-if="backendOffline"
+      role="status"
+      class="absolute inset-x-0 top-0 z-50 flex flex-wrap items-center justify-center gap-3 bg-warn-soft px-4 py-2 text-body-sm text-warn shadow-card"
+    >
+      <span>{{ t("app.offline") }}</span>
+      <button
+        type="button"
+        class="rounded-control border border-warn/30 px-2.5 py-1 text-caption font-medium text-warn transition-colors hover:bg-surface"
+        @click="retryBackend"
+      >
+        {{ t("app.offlineRetry") }}
+      </button>
+    </div>
     <SidebarRail v-if="layoutMode === 'normal'" v-model:collapsed="navCollapsed" />
     <component :is="focusRail" v-else-if="layoutMode === 'focus' && focusRail" />
 

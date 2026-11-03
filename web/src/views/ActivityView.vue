@@ -42,6 +42,7 @@ import { safeActivityUrl } from "../lib/activity";
 import { normalizeActivityReport } from "../lib/runReport";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { t, type MessageKey } from "../lib/i18n";
+import { refreshOnboardingSignals } from "../lib/onboarding";
 import {
   api,
   type AccountActivities,
@@ -657,6 +658,7 @@ async function runTargets(targets: string[], keys?: string[]): Promise<void> {
     }
     // 勾选已经兑现，清掉避免下次误跑同一批。
     selectedAccountIds.value = new Set();
+    refreshOnboardingSignals();
     await load(true);
   } catch (cause) {
     showToast((cause as Error).message);

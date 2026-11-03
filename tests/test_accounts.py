@@ -13,7 +13,7 @@ from chaierww.domain.accounts.service import (
     AccountInUseError,
     AccountService,
 )
-from chaierww.domain.scopes import ScopeNotImplemented, UnknownScope, get_scope
+from chaierww.domain.scopes import UnknownScope, get_scope
 from chaierww.infra.db import open_database
 from chaierww.infra.secrets import InMemoryBox
 from chaierww.logging_setup import redact
@@ -57,8 +57,8 @@ def test_empty_scope_is_rejected():
         get_scope(None)
 
 
-def test_unimplemented_scope_cannot_be_written(repo):
-    with pytest.raises(ScopeNotImplemented):
+def test_unknown_scope_cannot_be_written(repo):
+    with pytest.raises(UnknownScope):
         _import_into(repo, "qoder-cn")
 
 

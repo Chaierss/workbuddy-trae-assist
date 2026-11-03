@@ -47,11 +47,11 @@ def test_health_reports_secret_backend(client):
     assert body["version"]
 
 
-def test_scopes_marks_only_implemented_ones(client):
+def test_scopes_contains_only_two_cn_scopes(client):
     scopes = client.get("/api/scopes").json()["scopes"]
-    assert len(scopes) == 6
-    implemented = {s["key"] for s in scopes if s["implemented"]}
-    assert implemented == {"workbuddy-cn", "trae-cn"}
+    assert len(scopes) == 2
+    assert {s["key"] for s in scopes} == {"workbuddy-cn", "trae-cn"}
+    assert all(s["implemented"] for s in scopes)
 
 
 def test_list_returns_empty_for_new_scope(client):
@@ -69,11 +69,6 @@ def test_missing_scope_is_rejected(client):
     # 参数缺失交给框架做请求校验（422）；语义错误的取值由领域层判（400）。
     response = client.get("/api/accounts")
     assert response.status_code == 422
-
-
-def test_unimplemented_scope_is_501(client):
-    response = client.get("/api/accounts", params={"scope": "qoder-cn"})
-    assert response.status_code == 501
 
 
 def test_created_account_is_visible(client):
@@ -217,9 +212,9 @@ def test_sync_status_lists_accounts(client):
     assert row["conflicts"] == 0
 
 
-def test_sync_status_requires_implemented_scope(client):
+def test_sync_status_rejects_unknown_scope(client):
     response = client.get("/api/sync/status", params={"scope": "qoder-cn"})
-    assert response.status_code == 501
+    assert response.status_code == 400
 
 
 def test_sync_capture_then_dry_run_apply(client, monkeypatch):
@@ -421,9 +416,9 @@ def test_launch_client_starts_when_installed_and_stopped(client, monkeypatch):
     assert calls == ["launch"]
 
 
-def test_launch_client_rejects_unimplemented_scope(client):
+def test_launch_client_rejects_unknown_scope(client):
     response = client.post("/api/clients/launch", params={"scope": "qoder-cn"})
-    assert response.status_code == 501
+    assert response.status_code == 400
 
 
 def test_import_json_auto_detects_workbuddy(client):
@@ -585,6 +580,27 @@ def test_preferences_onboarding_state(client):
         "/api/preferences", json={"firstSwitchAt": "2020-01-01T00:00:00+08:00"}
     ).json()
     assert manual["firstSwitchAt"] is None
+
+
+def test_reset_onboarding_clears_state(client):
+    client.put(
+        "/api/preferences",
+        json={
+            "onboardingVersion": 3,
+            "onboardingCompleted": ["install", "signin"],
+            "onboardingDismissedAt": "2026-10-26T09:00:00+08:00",
+        },
+    )
+
+    reset = client.put("/api/preferences", json={"resetOnboarding": True}).json()
+    assert reset["onboardingDismissedAt"] is None
+    assert reset["onboardingCompleted"] == []
+    # 同时传旧值也不会把进度带回来：重置优先。
+    again = client.put(
+        "/api/preferences",
+        json={"resetOnboarding": True, "onboardingCompleted": ["install"]},
+    ).json()
+    assert again["onboardingCompleted"] == []
 
 
 def test_preferences_onboarding_version_rejects_invalid(client):
@@ -1183,6 +1199,37 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
 
     # 高优先级排最前。
     assert body["items"][0]["kind"] == "credential"
+
+
+def test_overview_actionables_reports_schedule_failure(client, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    account_id = _seed_id(client)
+    _stub_overview(client, monkeypatch, detected=[], credits={}, clients=[])
+
+    scheduler = client.app.state.scheduler
+    scheduler.stop()  # 停掉后台 tick，避免真实执行在断言前追加一条成功记录
+    base = datetime.now(UTC) - timedelta(minutes=10)
+    scheduler._mark("checkin", at=base, result="失败 2", meta={"failed": 2})
+    scheduler._mark(
+        "checkin", at=base + timedelta(minutes=5), result="失败 1", meta={"failed": 1}
+    )
+
+    body = client.get("/api/overview/actionables").json()
+    by_kind = {item["kind"]: item for item in body["items"]}
+    assert "schedule:checkin" in by_kind
+    item = by_kind["schedule:checkin"]
+    # 连续两次 failed > 0：不是偶发，按高优先级报。
+    assert item["severity"] == "high"
+    assert item["taskKey"] == "checkin"
+    assert item["accountId"] is None
+    assert item["action"] == {"type": "navigate", "to": "/settings?tab=schedule"}
+    assert account_id  # 账号存在也不影响任务级待办
+
+    # 停用后的任务不再进清单：用户已主动关掉，就不该反复提醒。
+    scheduler.set_enabled("checkin", False)
+    body = client.get("/api/overview/actionables").json()
+    assert not any(entry["kind"] == "schedule:checkin" for entry in body["items"])
 
 
 def test_overview_actionables_unverified_checks_login(client, monkeypatch):

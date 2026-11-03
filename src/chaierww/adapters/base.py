@@ -158,6 +158,10 @@ class PlatformAdapter(Protocol):
 
     def is_running(self) -> bool: ...
 
+    def matches_process(self, name: str, exe: str) -> bool:
+        """判断某个进程（名称 / 可执行路径）是否属于本客户端，供本地端口枚举使用。"""
+        ...
+
     def launch(self) -> bool: ...
 
     def terminate(self) -> bool:

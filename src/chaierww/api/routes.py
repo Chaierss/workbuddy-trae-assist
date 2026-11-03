@@ -40,6 +40,7 @@ from chaierww.domain.backup import (
     Snapshot,
     SnapshotNotFound,
 )
+from chaierww.domain.client_ports import local_listening_ports
 from chaierww.domain.client_settings import ClientSettingsError
 from chaierww.domain.credential_lifecycle import (
     AUTH_FAILURE_LIMIT,
@@ -342,6 +343,8 @@ class PreferencesRequest(BaseModel):
     onboardingCompleted: list[str] | None = None
     #: 传值表示「用户跳过/收起引导」；传 null 不会清空（跳过是一次性动作）。
     onboardingDismissedAt: str | None = None
+    #: 重新显示引导：清空跳过时间与已完成进度（设置页的「重新显示」用）。
+    resetOnboarding: bool | None = None
     #: 本地体验数据开关。
     localMetricsEnabled: bool | None = None
     #: 切换后是否自动重启客户端。省略 = 不修改。
@@ -434,6 +437,8 @@ def list_scopes() -> dict[str, Any]:
 @router.get("/detect", summary="检测客户端安装、运行与登录状态", tags=["基础"])
 def detect(request: Request, scope: str) -> dict[str, Any]:
     try:
+        # 先认作用域名：未知 = 400；已知但未实现 = 501。两者不能混成一个错误。
+        get_scope(scope)
         adapter = request.app.state.adapters.get(scope)
         if adapter is None:
             raise ScopeNotImplemented(f"作用域 {scope} 尚未实现")
@@ -466,6 +471,7 @@ def _slot_items(adapter: Any) -> list[dict[str, Any]]:
 def launch_client(request: Request, scope: str) -> dict[str, Any]:
     """一键启动客户端；先检测，已运行 / 未安装都不重复拉起。"""
     try:
+        get_scope(scope)
         adapter = request.app.state.adapters.get(scope)
         if adapter is None:
             raise ScopeNotImplemented(f"作用域 {scope} 尚未实现")
@@ -540,6 +546,11 @@ def _detection_items(request: Request) -> list[dict[str, Any]]:
                 "currentAccountId": current,
                 "downloadUrl": DOWNLOAD_LINKS.get(scope.platform),
                 "slots": _slot_items(adapter),
+                "localPorts": (
+                    local_listening_ports(adapter.matches_process)
+                    if running
+                    else {"available": True, "ports": [], "reason": "客户端未运行"}
+                ),
             }
         )
 
@@ -689,6 +700,7 @@ def list_merged(request: Request, q: str | None = None) -> dict[str, Any]:
 def import_account(request: Request, body: ImportRequest) -> dict[str, Any]:
     try:
         scope = _import_scope(request, body.scope)
+        get_scope(scope)
         adapter = request.app.state.adapters.get(scope)
         if adapter is None:
             raise ScopeNotImplemented(f"作用域 {scope} 尚未实现")
@@ -2177,6 +2189,7 @@ def get_preferences(request: Request) -> dict[str, Any]:
 @router.put("/preferences", summary="修改常规设置", tags=["设置"])
 def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any]:
     current = request.app.state.preferences.load()
+    reset = bool(body.resetOnboarding)
 
     def pick(value: bool | None, fallback: bool) -> bool:
         return fallback if value is None else value
@@ -2202,12 +2215,18 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
             else clean_version(body.onboardingVersion)
         ),
         onboarding_completed=(
-            current.onboarding_completed
-            if body.onboardingCompleted is None
-            else clean_onboarding_steps(body.onboardingCompleted)
+            []
+            if reset
+            else (
+                current.onboarding_completed
+                if body.onboardingCompleted is None
+                else clean_onboarding_steps(body.onboardingCompleted)
+            )
         ),
         onboarding_dismissed_at=(
-            current.onboarding_dismissed_at or body.onboardingDismissedAt
+            None
+            if reset
+            else (current.onboarding_dismissed_at or body.onboardingDismissedAt)
         ),
         first_switch_at=current.first_switch_at,
         relaunch_after_switch=pick(
@@ -2436,6 +2455,50 @@ def _scope_label(scope_key: str) -> str:
         return scope_key
 
 
+#: 计划任务失败时在概览里用的标题。``credential_refresh`` 不列入：凭据问题已由
+#: credential / credential_expiring 覆盖，避免一题两报；``session_sync`` 不列入：
+#: 它的结论是「不支持 / 跳过」，没有逐号失败计数。
+_SCHEDULE_TITLES = {
+    "keepalive": "保活探测失败",
+    "checkin": "自动签到失败",
+    "activity_run": "活动执行失败",
+    "travel_depart": "派猫猫旅行失败",
+    "travel_claim": "领取猫猫旅行奖励失败",
+}
+
+
+def _schedule_items(request: Request) -> list[dict[str, Any]]:
+    """把「最近一次执行失败」的计划任务变成待处理项。只看已启用 + 最近一次。"""
+    scheduler = request.app.state.scheduler
+    items: list[dict[str, Any]] = []
+    for task in scheduler.list():
+        title = _SCHEDULE_TITLES.get(task.key)
+        if title is None or not task.enabled or not task.history:
+            continue
+        last = task.history[-1]
+        failed = int((last.get("meta") or {}).get("failed") or 0)
+        if failed <= 0:
+            continue
+        streak = 0
+        for entry in reversed(task.history):
+            if int((entry.get("meta") or {}).get("failed") or 0) <= 0:
+                break
+            streak += 1
+        items.append(
+            {
+                # 一任务一组：多个任务失败时不会被合并成一条只剩首个标题。
+                "kind": f"schedule:{task.key}",
+                "severity": "high" if streak >= 2 else "warn",
+                "title": title,
+                "detail": f"最近一次 {last.get('at', '-')}：{last.get('result', '')}",
+                "accountId": None,
+                "taskKey": task.key,
+                "action": {"type": "navigate", "to": "/settings?tab=schedule"},
+            }
+        )
+    return items
+
+
 @router.get("/overview/actionables", summary="概览待处理清单（只读聚合）", tags=["基础"])
 def overview_actionables(request: Request) -> dict[str, Any]:
     """把「今天该处理的号」聚合成一张只读清单，五类数据源并发取后合成。
@@ -2642,6 +2705,9 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 },
             }
         )
+
+    # 6) 计划任务最近一次执行有失败（按任务而非账号报）
+    items.extend(_schedule_items(request))
 
     items.sort(key=lambda entry: _SEVERITY_ORDER.get(entry["severity"], 3))
 

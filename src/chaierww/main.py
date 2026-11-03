@@ -211,22 +211,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             found = [item for item in found if item.id in wanted]
         return found
 
+    def _report_meta(report: dict[str, Any]) -> dict[str, int]:
+        """把活动执行报告压成概览能判定的数字（只报数字等于没报）。"""
+        summary = report.get("summary", {}) or {}
+        return {
+            "ok": int(summary.get("ok", 0)),
+            "skipped": int(summary.get("skipped", 0)),
+            "failed": int(summary.get("failed", 0)),
+            "retried": int(summary.get("retried", 0)),
+        }
+
     def run_scheduled(
         key: str, account_ids: tuple[str, ...], activity_keys: tuple[str, ...]
-    ) -> str:
+    ) -> str | tuple[str, dict[str, Any]]:
         """计划任务的执行体：调度器只问「什么时候跑」，这里回答「跑什么」。
 
         ``activity_keys`` 是任务里配置的活动白名单；空 = 全部活动。
+        返回值可以是纯文本，也可以是 ``(文本, 结构化结论)`` —— 后者进入
+        ``history[].meta``，供概览判断「这次到底失败了几个号」。
         """
         targets = scheduled_accounts(account_ids)
         if not targets:
-            return "号池里没有可用账号，本轮跳过"
+            return "号池里没有可用账号，本轮跳过", {"ok": 0, "skipped": 0, "failed": 0}
         keys = set(activity_keys) or None
         if key == "session_sync":
             # 只读采集：客户端运行中也安全，因此无需等待退出。只采「当前登录的那个号」，
             # 其余账号没有客户端数据可读，采了也是空跑。
             if not preferences.load().session_sync_enabled:
-                return "会话同步已在设置中关闭，本轮跳过"
+                return "会话同步已在设置中关闭，本轮跳过", {
+                    "ok": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                }
             lines: list[str] = []
             for scope_key in ("workbuddy-cn", "trae-cn"):
                 if scope_key not in adapters:
@@ -243,7 +259,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 lines.append(
                     f"{scope_key}：{report.state}，镜像 {report.counts.get('captured', 0)} 条"
                 )
-            return "；".join(lines) or "没有可同步的账号"
+            return "；".join(lines) or "没有可同步的账号", {
+                "ok": 1,
+                "skipped": 0,
+                "failed": 0,
+            }
         if key == "credential_refresh":
             # 巡检前先对账客户端当前登录的号，再按提前窗口续期；大部分轮次是空跑。
             results = lifecycle.sweep(targets, mode=MODE_DUE)
@@ -252,7 +272,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # 保活 = 逐账号发一次已鉴权探测（顺带刷新活动缓存），确认登录态仍有效。
             detected = activities.detect(targets, force=True)
             healthy = sum(1 for item in detected if item.detectable)
-            return f"保活探测 {len(targets)} 个账号，{healthy} 个正常"
+            return (
+                f"保活探测 {len(targets)} 个账号，{healthy} 个正常",
+                {"ok": healthy, "skipped": 0, "failed": len(targets) - healthy},
+            )
         if key == "checkin":
             # 签到是纯读 + 一次幂等写；失败只重试「网络异常 / 5xx / 9074」的号，
             # 401/403 与业务拒绝不会重试。「全部活动」有更多写动作，保持不重试。
@@ -264,7 +287,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # 同一天能各成功一次 —— 以前挤在一个函数里，一次执行只能做其中一件。
             wanted = "workbuddy.travel"
             if keys is not None and wanted not in keys:
-                return "本任务未勾选「派猫猫旅行」，本轮跳过"
+                return "本任务未勾选「派猫猫旅行」，本轮跳过", {
+                    "ok": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                }
             report = activities.run_travel_stage(
                 targets, stage="depart" if key == "travel_depart" else "claim"
             )
@@ -290,7 +317,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for message, count in list(reasons.items())[:2]
             )
             line += f"（{brief}）"
-        return line
+        return line, _report_meta(report)
 
     # 客户端「刚退出」这个边沿没有定时点：调度器每 30 秒心跳一次，这里对比
     # 上轮/本轮运行状态，捕捉「运行中 → 未运行」的瞬间补一次只读采集。

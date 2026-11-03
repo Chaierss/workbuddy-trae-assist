@@ -13,11 +13,12 @@
     "不做 SaaS 多租户与云端托管账号",
     "不代存账号密码，也不绕过平台的扫码 / 设备绑定",
     "不支持 macOS 桌面端（后端缺 Keychain 实现）",
-    "不代签第三方协议、不伪造平台票据"
+    "不代签第三方协议、不伪造平台票据",
+    "号池只覆盖 WorkBuddy 国内版与 Trae 国内版；其它平台 / 地区作用域不提供入口，也不做兼容垫片"
   ],
   "milestones": [
     { "id": "M-01", "title": "四件套可用", "exit": "node keel/console-check.mjs --strict 退出码 0", "status": "doing" },
     { "id": "M-02", "title": "上线门禁固化", "exit": "node keel/preflight-scan.mjs --strict 退出码 0，且首次安装 / 重装 / 卸载 / 静默卸载四项人工走查通过", "status": "todo" },
-    { "id": "M-03", "title": "1.2.0 平台覆盖", "exit": "1.2.0 Release 发布，平台覆盖能力在安装包内可用且 CHANGELOG 有对应段落", "status": "todo" }
+    { "id": "M-03", "title": "1.2.0 稳定性与可观测性", "exit": "1.2.0 Release 发布；作用域只剩 workbuddy-cn / trae-cn，/api/scopes 返回 2 项，未知作用域一律 400", "status": "todo" }
   ]
 }

@@ -3,14 +3,14 @@ import { ref } from "vue";
 import { RouterLink } from "vue-router";
 import { Check, ChevronDown, Sparkles, X } from "lucide-vue-next";
 import {
-  completeStep,
   completedCount,
   dismissOnboarding,
+  ensureOnboardingSignals,
   items,
   onboardingVisible,
   progressLabel,
+  signalsFailed,
   ONBOARDING_STEPS,
-  type OnboardingStep,
 } from "../../lib/onboarding";
 import { scopedPath } from "../../stores/app";
 import { t } from "../../lib/i18n";
@@ -29,8 +29,8 @@ function to(raw: string): string {
   return scopedPath(raw);
 }
 
-async function markDone(step: OnboardingStep): Promise<void> {
-  await completeStep(step);
+async function retrySignals(): Promise<void> {
+  await ensureOnboardingSignals(true);
 }
 </script>
 
@@ -49,6 +49,7 @@ async function markDone(step: OnboardingStep): Promise<void> {
           {{ t("onboarding.title") }}
         </h2>
         <p class="truncate text-caption text-muted">{{ progressLabel }}</p>
+        <p class="mt-0.5 truncate text-caption text-muted">{{ t("onboarding.intro") }}</p>
       </div>
 
       <!-- 进度条：四段，完成一段填一段；比一个百分比数字更容易一眼看懂。 -->
@@ -127,16 +128,12 @@ async function markDone(step: OnboardingStep): Promise<void> {
               {{ item.cta }}
             </RouterLink>
             <button
-              v-if="item.step === 'retention' || item.step === 'daily_run'"
+              v-if="signalsFailed && (item.step === 'retention' || item.step === 'daily_run')"
               type="button"
               class="inline-flex items-center rounded-control px-2.5 py-1.5 text-caption text-brand transition-colors hover:bg-brand-soft"
-              @click="markDone(item.step)"
+              @click="retrySignals"
             >
-              {{
-                item.step === "retention"
-                  ? t("onboarding.retention.markDone")
-                  : t("onboarding.dailyRun.markDone")
-              }}
+              {{ t("onboarding.signalsRetry") }}
             </button>
           </template>
         </div>

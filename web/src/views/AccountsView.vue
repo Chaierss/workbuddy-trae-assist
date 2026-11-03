@@ -1115,6 +1115,25 @@ const installUrl = computed(
     "",
 );
 
+/** 客户端本地端口：只在客户端运行时显示；只读枚举，不代表能用。 */
+const localPortsNote = computed(() => {
+  const lines = clientDetections.value
+    .filter((item) => item.running)
+    .map((item) => {
+      const info = item.localPorts;
+      if (!info || info.available === false) {
+        return `${item.label}：${info?.reason || t("accounts.localPorts.unavailable")}`;
+      }
+      if (!info.ports.length) {
+        return `${item.label}：${t("accounts.localPorts.none")}`;
+      }
+      return `${item.label}：${t("accounts.localPorts.found", {
+        ports: info.ports.map((entry) => entry.port).join(", "),
+      })}`;
+    });
+  return lines.join("；");
+});
+
 /** 空态里的「清除筛选」：把搜索与健康筛选一起还原，而不是只清其中一个。 */
 function resetFilters(): void {
   keyword.value = "";
@@ -1613,6 +1632,10 @@ const confirmText = computed(() => {
         </button>
       </template>
     </PageHeader>
+
+    <p v-if="localPortsNote" class="mt-2 text-caption text-muted">
+      {{ localPortsNote }}
+    </p>
 
     <!-- 登录失效：活动/签到遇 401 已回写到账号状态，续期救不回来，只能重新扫码 -->
     <div

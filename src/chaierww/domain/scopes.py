@@ -24,13 +24,12 @@ class Scope:
     implemented: bool
 
 
+#: 作用域必须满足两条才可加入：① 产品线有**独立**登录态目录；② 只读探针验证通过。
+#: 共用同一登录态目录的产品线不能拆成两个作用域 —— 切换会互相覆盖（见
+#: `.trae/documents/platform-probe-2026-11-02.md`）。
 _SCOPES: tuple[Scope, ...] = (
     Scope("workbuddy-cn", "workbuddy", "cn", "WorkBuddy 国内版", True),
-    Scope("workbuddy-global", "workbuddy", "global", "WorkBuddy 国际版", False),
     Scope("trae-cn", "trae", "cn", "Trae 国内版", True),
-    Scope("trae-global", "trae", "global", "Trae 国际版", False),
-    Scope("qoder-cn", "qoder", "cn", "Qoder 国内版", False),
-    Scope("qoder-global", "qoder", "global", "Qoder 国际版", False),
 )
 
 _BY_KEY = {scope.key: scope for scope in _SCOPES}

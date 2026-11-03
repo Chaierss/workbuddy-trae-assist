@@ -98,6 +98,39 @@ const diagRows = computed(() => {
   ];
 });
 
+const CHECK_LABELS: Record<string, MessageKey> = {
+  database: "env.check.database",
+  config: "env.check.config",
+  data_dir: "env.check.data_dir",
+  logs_dir: "env.check.logs_dir",
+  disk: "env.check.disk",
+  scheduler: "env.check.scheduler",
+  gateway: "env.check.gateway",
+  startup: "env.check.startup",
+};
+
+const CHECK_LEVELS: Record<string, MessageKey> = {
+  ok: "env.check.ok",
+  warn: "env.check.warn",
+  error: "env.check.error",
+};
+
+function checkTone(level: string): "brand" | "warn" | "danger" {
+  return level === "error" ? "danger" : level === "warn" ? "warn" : "brand";
+}
+
+const checkRows = computed(() => {
+  const checks = diag.value?.checks;
+  if (!Array.isArray(checks)) return [];
+  return checks.map((item: any) => ({
+    id: String(item.id ?? ""),
+    label: t(CHECK_LABELS[item.id] ?? "env.check.unknown"),
+    level: String(item.level ?? ""),
+    levelLabel: t(CHECK_LEVELS[item.level] ?? "env.check.warn"),
+    value: String(item.value ?? ""),
+  }));
+});
+
 async function loadDiagnostics(): Promise<void> {
   diagLoading.value = true;
   diagError.value = "";
@@ -290,6 +323,27 @@ function durationText(seconds: number | null): string {
           </li>
         </ul>
         <p v-else class="text-body-sm text-muted">{{ t("common.unknown") }}</p>
+
+        <div v-if="checkRows.length" class="space-y-2 border-t border-line-soft pt-3">
+          <p class="text-caption text-muted">{{ t("env.checksTitle") }}</p>
+          <ul class="divide-y divide-line-soft">
+            <li
+              v-for="item in checkRows"
+              :key="item.id"
+              class="flex items-center justify-between gap-3 py-2 text-body-sm first:pt-0 last:pb-0"
+            >
+              <span class="text-muted">{{ item.label }}</span>
+              <span class="flex min-w-0 items-center gap-2">
+                <span v-if="item.value" class="max-w-[160px] truncate font-mono text-caption text-muted">
+                  {{ item.value }}
+                </span>
+                <StatusPill :tone="checkTone(item.level)" dot>
+                  {{ item.levelLabel }}
+                </StatusPill>
+              </span>
+            </li>
+          </ul>
+        </div>
 
         <p v-if="diagError" class="text-body-sm text-danger">{{ diagError }}</p>
 

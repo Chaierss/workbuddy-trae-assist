@@ -12,6 +12,7 @@ import {
   type GatewayStatus,
 } from "../../api";
 import { t } from "../../lib/i18n";
+import { refreshOnboardingSignals } from "../../lib/onboarding";
 
 /**
  * 网关模块的共享状态：容器建一份，6 个子 tab 各取所需。
@@ -278,6 +279,7 @@ export function createGatewayStore(): GatewayStore {
       state.newModels = [];
       state.newLimits = { dailyTokenLimit: 0, dailyRequestLimit: 0, rpmLimit: 0 };
       state.keys = (await api.gatewayKeys()).keys;
+      refreshOnboardingSignals();
     } catch (cause) {
       state.error = (cause as Error).message;
     } finally {
