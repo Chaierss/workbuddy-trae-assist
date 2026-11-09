@@ -114,7 +114,7 @@ def tc_decrypt(b64: str) -> str:
     key, iv = _derive_keys(random, _aes_pepper())
 
     decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
-    padded = decryptor.update(cipher) + decryptor.finalize()
+    padded = b"".join((decryptor.update(cipher), decryptor.finalize()))
 
     # 去 PKCS7 padding
     pad_len = padded[-1]
@@ -157,7 +157,7 @@ def tc_encrypt(plain: str) -> str:
     random = os.urandom(RANDOM_LEN)
     key, iv = _derive_keys(random, _aes_pepper())
     encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
-    cipher = encryptor.update(padded) + encryptor.finalize()
+    cipher = b"".join((encryptor.update(padded), encryptor.finalize()))
 
     raw = TC_HEADER + random + cipher
     return base64.b64encode(raw).decode("ascii")

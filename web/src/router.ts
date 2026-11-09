@@ -1,38 +1,45 @@
 import { createRouter, createWebHistory } from "vue-router";
-import OverviewView from "./views/OverviewView.vue";
-import AccountsView from "./views/AccountsView.vue";
-import ActivityView from "./views/ActivityView.vue";
-import UsageView from "./views/UsageView.vue";
-import SettingsView from "./views/SettingsView.vue";
-import GatewayView from "./views/gateway/GatewayView.vue";
 
+/**
+ * 顶层路由按需加载（1.3.0）：首屏只下载壳层与当前页，其余视图进各自分块。
+ * 子页（设置 / 网关各 tab）仍由父视图静态 import，避免一次性改动过多。
+ */
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", redirect: "/overview" },
-    { path: "/overview", name: "overview", component: OverviewView },
+    {
+      path: "/overview",
+      name: "overview",
+      component: () => import("./views/OverviewView.vue"),
+    },
     /**
      * `alias` 给出「作用域写进 URL」的规范地址 `/s/<scope>/…`：
      * 同一条路由记录、同一个 name，进别名时 `route.params.scope` 有值。
      * 不带前缀的短地址继续可用（回退路径），所以侧栏链接与旧书签都不会失效。
      */
-    { path: "/accounts", name: "accounts", component: AccountsView, alias: "/s/:scope/accounts" },
+    {
+      path: "/accounts",
+      name: "accounts",
+      component: () => import("./views/AccountsView.vue"),
+      alias: "/s/:scope/accounts",
+    },
     {
       path: "/activity",
       name: "activity",
-      component: ActivityView,
+      component: () => import("./views/ActivityView.vue"),
       alias: "/s/:scope/activity",
     },
     {
       path: "/usage",
       name: "usage",
-      component: UsageView,
+      component: () => import("./views/UsageView.vue"),
       alias: "/s/:scope/usage",
     },
     {
       path: "/gateway",
       name: "gateway",
-      component: GatewayView,
+      component: () => import("./views/gateway/GatewayView.vue"),
       alias: "/s/:scope/gateway",
       /**
        * 网关与设置同构：子页 ≥ 2，进入专注模式（模块左栏替换全局侧栏）。
@@ -51,7 +58,7 @@ export const router = createRouter({
     {
       path: "/settings",
       name: "settings",
-      component: SettingsView,
+      component: () => import("./views/SettingsView.vue"),
       meta: { focus: "settings" },
     },
     { path: "/:pathMatch(.*)*", redirect: "/overview" },

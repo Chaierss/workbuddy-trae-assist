@@ -1500,7 +1500,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     const detail = (payload as { detail?: string } | null)?.detail;
-    throw new Error(detail || t("api.requestFailed", { status: response.status }));
+    throw new Error(
+      `${detail || t("api.requestFailed", { status: response.status })}${t("api.requestId", { id: requestId })}`,
+    );
   }
   return payload as T;
 }
@@ -1525,12 +1527,22 @@ export const api = {
 
   /** 下载诊断包（zip）。 */
   diagnosticsBundle: async (): Promise<Blob> => {
+    const requestId = newRequestId();
     const response = await fetch("/api/diagnostics/bundle", {
       credentials: "same-origin",
-      headers: { "X-Chaierww-Client": "web" },
+      headers: { "X-Chaierww-Client": "web", "X-Request-Id": requestId },
     });
     if (!response.ok) {
-      throw new Error(t("api.requestFailed", { status: response.status }));
+      const text = await response.text();
+      let detail = "";
+      try {
+        detail = (JSON.parse(text) as { detail?: string }).detail ?? "";
+      } catch {
+        detail = text;
+      }
+      throw new Error(
+        `${detail || t("api.requestFailed", { status: response.status })}${t("api.requestId", { id: requestId })}`,
+      );
     }
     return response.blob();
   },

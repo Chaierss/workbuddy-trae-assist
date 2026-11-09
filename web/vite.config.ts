@@ -105,5 +105,17 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        /**
+         * 第三方库单独成块（1.3.0）：路由懒加载后，Vue 运行时与 markdown-it
+         * 仍是多页共用的，抽出来避免被复制进每个路由分块。
+         */
+        manualChunks: {
+          "vendor-vue": ["vue", "vue-router"],
+          "vendor-markdown": ["markdown-it"],
+        },
+      },
+    },
   },
 });

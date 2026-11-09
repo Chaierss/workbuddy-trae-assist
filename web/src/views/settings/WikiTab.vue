@@ -5,6 +5,7 @@ import { FileText, Loader2, RefreshCw } from "lucide-vue-next";
 import { api, formatBytes, formatTime, type DocContent, type DocEntry } from "../../api";
 import { t } from "../../lib/i18n";
 import { md, isExternalHref, resolveDocHref } from "../../lib/markdown";
+import { sanitizeHtml } from "../../lib/sanitizeHtml";
 
 /**
  * Wiki = 仓库 docs/ 下的 Markdown，目录与正文都从后端接口读。
@@ -22,7 +23,9 @@ const contentError = ref<string | null>(null);
 
 const selected = computed(() => (typeof route.query.path === "string" ? route.query.path : ""));
 
-const rendered = computed(() => (content.value ? md.render(content.value.content) : ""));
+const rendered = computed(() =>
+  content.value ? sanitizeHtml(md.render(content.value.content)) : "",
+);
 
 const meta = computed(() => files.value.find((item) => item.path === selected.value) ?? null);
 
@@ -182,7 +185,16 @@ onMounted(async () => {
       <div v-if="contentLoading" class="flex items-center gap-2 px-6 py-10 text-body text-muted">
         <Loader2 :size="14" class="animate-spin" /> {{ t("common.loading") }}
       </div>
-      <p v-else-if="contentError" class="px-6 py-10 text-body text-danger">{{ contentError }}</p>
+      <div v-else-if="contentError" class="px-6 py-10">
+        <p class="text-body text-danger">{{ contentError }}</p>
+        <button
+          type="button"
+          class="mt-2 inline-flex items-center gap-1.5 rounded-control px-2.5 py-1 text-body-sm text-brand-dark transition-colors hover:bg-brand-soft"
+          @click="loadDoc(selected)"
+        >
+          <RefreshCw :size="12" /> {{ t("common.retry") }}
+        </button>
+      </div>
       <div v-else-if="rendered" class="doc-prose px-6 py-5" @click="onArticleClick" v-html="rendered" />
       <p v-else class="px-6 py-10 text-body text-muted">{{ t("settings.wiki.pickDoc") }}</p>
     </article>

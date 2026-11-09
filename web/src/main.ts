@@ -12,7 +12,7 @@ app.use(router);
 function renderFatal(title: string, detail: string): void {
   const root = document.querySelector("#app");
   if (!root) return;
-  root.innerHTML = "";
+  root.replaceChildren();
   const box = document.createElement("div");
   box.style.cssText =
     "max-width:560px;margin:16vh auto;padding:24px;font:14px/1.7 system-ui," +
@@ -73,11 +73,13 @@ async function bootstrap(): Promise<void> {
 
   try {
     await Promise.all([loadScopes(), loadHealth()]);
-    await refreshAll();
   } catch (error) {
     console.error("初始化失败", error);
   }
+
+  // 壳层先上屏；账号 / 备份 / 活动 / 积分在后台补齐，不再挡住首帧。
   app.mount("#app");
+  void refreshAll().catch((error) => console.error("初始化失败", error));
 }
 
 void bootstrap();

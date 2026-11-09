@@ -39,11 +39,13 @@ node keel/console-check.mjs --json    # 给 CI 或页面消费
 node keel/preflight-scan.mjs          # 漏洞扫描报告
 node keel/preflight-scan.mjs --strict # 发布前：error 必须为零
 node keel/preflight-scan.mjs --include-dist  # 连构建产物一起扫，查前端泄露密钥
+
+node scripts/check_web_budget.mjs     # 前端包体预算：入口 / 单块 / JS 总量 / CSS
 ```
 
 `.preflightignore` 的每一条豁免都必须写明原因；没有原因的豁免等于关掉检测。
 
-**发布顺序**：四件套体检 → 漏洞扫描 → 依赖审计 → 人工五项（越权 IDOR / 权限只在前端 / 逻辑绕过 / 上传 / SSRF）→ 产物扫描。顺序不可颠倒。
+**发布顺序**：四件套体检 → 漏洞扫描 → 依赖审计 → 人工五项（越权 IDOR / 权限只在前端 / 逻辑绕过 / 上传 / SSRF）→ 产物扫描（`preflight-scan --strict --include-dist`，需先构建前端）。顺序不可颠倒。
 
 ## 升级技能后怎么迁移
 

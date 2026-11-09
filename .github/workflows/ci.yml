@@ -78,6 +78,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: node scripts/check_web_budget.mjs
+        working-directory: .
+      - run: node keel/preflight-scan.mjs --strict --include-dist
+        working-directory: .
       - run: npm test
 
   keel:
