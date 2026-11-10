@@ -224,7 +224,7 @@ def test_usage_service_envelope_undetectable():
     service = UsageService(_FakeRepo(credential))
     result = service.query_many([_FakeAccount()])
     assert result[0].detectable is False
-    assert "信封" in (result[0].error or "")
+    assert "accessToken" in (result[0].error or "")
     service.close()
 
 

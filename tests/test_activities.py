@@ -134,7 +134,7 @@ def _wb_credential(token: str = "tok") -> dict[str, Any]:
 
 
 def _envelope_credential() -> dict[str, Any]:
-    """客户端导入的凭据：auth.accessToken 不存在（DPAPI 信封）。"""
+    """客户端导入的凭据：auth 段没有可用 accessToken（空/损坏信封）。"""
     blob = json.dumps({"auth": {"domain": "www.workbuddy.cn"}, "account": {"uid": "u"}})
     return {
         "format": "raw-file",
@@ -390,7 +390,7 @@ def test_detect_marks_envelope_account_undetectable(monkeypatch):
     # 凭据解不开就不该发请求，也不该说「没有活动」
     assert result[0].detectable is False
     assert result[0].items == ()
-    assert "加密信封" in (result[0].error or "")
+    assert "accessToken" in (result[0].error or "")
     service.close()
 
 

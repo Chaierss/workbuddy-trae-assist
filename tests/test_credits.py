@@ -208,7 +208,7 @@ def test_trae_oauth_token_without_device_id_derives_one():
 
 
 def test_workbuddy_raw_file_with_envelope_raises():
-    """加密信封必须诚实报「不可查询」，不能显示 0。"""
+    """损坏/空信封必须诚实报「不可查询」，不能显示 0。"""
     payload = json.dumps({"auth": {"accessToken": {"$wbEncrypted": 1, "envelope": "xx"}}}).encode()
     credential = {
         "format": "raw-file",
@@ -217,7 +217,7 @@ def test_workbuddy_raw_file_with_envelope_raises():
     }
     with pytest.raises(CreditUnavailable) as exc:
         workbuddy_credentials(credential)
-    assert "加密信封" in str(exc.value)
+    assert "accessToken" in str(exc.value)
 
 
 def test_workbuddy_raw_file_with_plaintext_token():

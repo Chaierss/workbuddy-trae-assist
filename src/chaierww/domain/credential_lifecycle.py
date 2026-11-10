@@ -229,8 +229,46 @@ def _cloudide_session(credential: dict[str, Any]) -> dict[str, Any] | None:
     return info if isinstance(info, dict) else None
 
 
+def _workbuddy_auth(credential: dict[str, Any]) -> dict[str, Any] | None:
+    """从 WorkBuddy ``raw-file`` 信封解出 auth 段（含明文 token）；非 WB 或解不开返回 None。"""
+    try:
+        data = decode_raw_file(credential)
+    except CredentialError:
+        return None
+    auth = data.get("auth")
+    if not isinstance(auth, dict):
+        return None
+    from chaierww.domain.wb_crypto import WbCryptoError, decrypt_workbuddy_auth
+
+    raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    try:
+        decrypted = decrypt_workbuddy_auth(raw)
+    except WbCryptoError:
+        return None
+    return decrypted
+
+
+def _raw_file_issued(credential: dict[str, Any]) -> datetime | None:
+    """信封里的签发时间。WorkBuddy 解 auth.accessToken，Trae 解 cloudide 会话。"""
+    wb_auth = _workbuddy_auth(credential)
+    if wb_auth is not None:
+        token = wb_auth.get("accessToken")
+        return _jwt_issued(token.strip()) if isinstance(token, str) and token.strip() else None
+    info = _cloudide_session(credential)
+    if info is None:
+        return None
+    issued = _as_datetime(info.get("issuedAt") or info.get("iat"))
+    if issued is not None:
+        return issued
+    token = info.get("token")
+    return _jwt_issued(token.strip()) if isinstance(token, str) and token.strip() else None
+
+
 def _raw_file_expiry(credential: dict[str, Any]) -> datetime | None:
-    """信封里的 `expiredAt`（毫秒 ISO）。解不开就当未知，绝不猜。"""
+    """信封里的过期时间。Trae 读 cloudide ``expiredAt``；WorkBuddy 解密 auth 读 ``expiresAt``。"""
+    wb_auth = _workbuddy_auth(credential)
+    if wb_auth is not None:
+        return _as_datetime(wb_auth.get("expiresAt"))
     info = _cloudide_session(credential)
     if info is None:
         return None
@@ -337,15 +375,8 @@ def token_lifetime(kind: str, credential: dict[str, Any]) -> timedelta | None:
                 issued = _jwt_issued(value.strip())
                 if issued is not None:
                     break
-    if issued is None:
-        # Trae 信封里的 cloudide 会话也带 token；解不出来就不猜。
-        info = _cloudide_session(credential) if credential.get("format") == "raw-file" else None
-        if info is not None:
-            issued = _as_datetime(info.get("issuedAt") or info.get("iat"))
-            if issued is None:
-                token = info.get("token")
-                if isinstance(token, str) and token.strip():
-                    issued = _jwt_issued(token.strip())
+    if issued is None and credential.get("format") == "raw-file":
+        issued = _raw_file_issued(credential)
     if issued is None:
         return None
     lifetime = expiry - issued
@@ -365,6 +396,10 @@ def refreshable(kind: str, credential: dict[str, Any]) -> bool:
     """
     format_ = credential.get("format")
     if format_ == "raw-file":
+        wb_auth = _workbuddy_auth(credential)
+        if wb_auth is not None:
+            value = wb_auth.get("refreshToken")
+            return isinstance(value, str) and bool(value.strip())
         info = _cloudide_session(credential)
         if info is None:
             return False

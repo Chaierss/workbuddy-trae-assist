@@ -171,7 +171,11 @@ def trae_credentials(credential: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def workbuddy_credentials(credential: dict[str, Any]) -> tuple[str, str, str]:
-    """返回 ``(access_token, uid, domain)``。"""
+    """返回 ``(access_token, uid, domain)``。
+
+    ``raw-file`` 凭据会尝试用本机 WorkBuddy 的 protector key 解密 ``$wbEncrypted``
+    信封，拿到明文 accessToken；解不开（跨机器 / 客户端重装）才抛错。
+    """
     if credential.get("format") == "oauth-token":
         token = str(credential.get("accessToken") or "").strip()
         if not token:
@@ -182,22 +186,31 @@ def workbuddy_credentials(credential: dict[str, Any]) -> tuple[str, str, str]:
             str(credential.get("domain") or ""),
         )
 
+    from chaierww.domain.wb_crypto import WbCryptoError, decrypt_workbuddy_auth
+
     data = decode_raw_file(credential)
     auth = data.get("auth")
     if not isinstance(auth, dict):
         raise CredentialError("登录态里没有 auth 段")
     token = auth.get("accessToken")
-    if not isinstance(token, str) or not token.strip():
-        # 加密信封：本工具不解密 WorkBuddy 的 DPAPI 信封。
-        raise CredentialError(
-            "该账号凭据是客户端加密信封，查不了积分与活动；用「扫码登录」添加的账号可查"
+    if isinstance(token, str) and token.strip():
+        # 旧版明文 token
+        account = data.get("account") if isinstance(data.get("account"), dict) else {}
+        return (
+            token.strip(),
+            str(account.get("uid") or ""),
+            str(auth.get("domain") or ""),
         )
-    account = data.get("account") if isinstance(data.get("account"), dict) else {}
-    return (
-        token.strip(),
-        str(account.get("uid") or ""),
-        str(auth.get("domain") or ""),
-    )
+    # 加密信封：用本机 protector key 解密
+    raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    try:
+        decrypted = decrypt_workbuddy_auth(raw)
+    except WbCryptoError as exc:
+        raise CredentialError(str(exc)) from exc
+    access = decrypted.get("accessToken") or ""
+    if not access.strip():
+        raise CredentialError("解密后 accessToken 为空，请重新在客户端登录该账号")
+    return (access.strip(), decrypted.get("uid", ""), decrypted.get("domain", ""))
 
 
 def workbuddy_origin(domain: str) -> str:

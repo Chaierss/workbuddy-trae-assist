@@ -727,8 +727,9 @@ def import_account(request: Request, body: ImportRequest) -> dict[str, Any]:
 def _detail_expiry(detail: dict[str, str]) -> str | None:
     """适配器从登录态里读出的凭据过期时间（UTC ISO）。
 
-    只有适配器**确实解出来了**才带值：WorkBuddy 是 DPAPI 信封、本工具不解密，
-    那里就不带，库里的 `expires_at` 保持为空 —— 界面据此不显示到期行，而不是编一个。
+    只有适配器**确实解出来了**才带值：WorkBuddy 的 `$wbEncrypted` 信封要借本机客户端
+    protector key 才解得开，Trae 要解 tc 信封；两种都解不出时库里 `expires_at` 保持为空
+    —— 界面据此不显示到期行，而不是编一个。
     """
     value = detail.get("expiresAt") if detail else None
     return value.strip() if isinstance(value, str) and value.strip() else None

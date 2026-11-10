@@ -375,8 +375,46 @@ def parse_identity(raw: bytes) -> tuple[str, str, dict[str, str]]:
 
     display_name = f"用户 {uin}" if uin else f"账号 {external_id[:8]}"
 
-    detail = {"uin": uin, "accountType": str(account.get("type") or "")}
+    detail: dict[str, str] = {"uin": uin, "accountType": str(account.get("type") or "")}
     return external_id, display_name, detail
+
+
+def enrich_detail(raw: bytes, detail: dict[str, str]) -> dict[str, str]:
+    """导入时补充 detail：尽力解密信封拿过期时间。
+
+    与 :func:`parse_identity` 分开：detect 也调 parse_identity，但检测阶段不该为了
+    拿过期时间去起 WorkBuddy 子进程。只有导入时才做这一步。
+    """
+    expires = _try_decrypt_expiry(raw)
+    if expires:
+        detail["expiresAt"] = expires
+    return detail
+
+
+def _try_decrypt_expiry(raw: bytes) -> str | None:
+    """尽力从信封里解出 accessToken 过期时间（UTC ISO）；任何失败都返回 None。"""
+    try:
+        from chaierww.domain.wb_crypto import WbCryptoError, decrypt_workbuddy_auth
+
+        auth = decrypt_workbuddy_auth(raw)
+    except (WbCryptoError, Exception):  # noqa: BLE001 - 解密是尽力而为
+        return None
+    expires = auth.get("expiresAt")
+    if expires is None:
+        return None
+    if isinstance(expires, (int, float)):
+        from datetime import UTC, datetime
+
+        stamp = float(expires)
+        if stamp > 10_000_000_000:
+            stamp /= 1000.0
+        try:
+            return datetime.fromtimestamp(stamp, tz=UTC).replace(microsecond=0).isoformat()
+        except (OSError, ValueError, OverflowError):
+            return None
+    if isinstance(expires, str) and expires.strip():
+        return expires.strip()
+    return None
 
 
 def _uid_of(raw: bytes) -> str | None:
@@ -587,6 +625,7 @@ class WorkBuddyAdapter:
             ) from exc
 
         external_id, display_name, detail = parse_identity(raw)
+        enrich_detail(raw, detail)
         return ImportedAccount(
             external_id=external_id,
             display_name=display_name,
@@ -600,6 +639,7 @@ class WorkBuddyAdapter:
         能解析出账号标识就收下，整份原文作为凭据保存。
         """
         external_id, display_name, detail = parse_identity(raw)
+        enrich_detail(raw, detail)
         return ImportedAccount(
             external_id=external_id,
             display_name=display_name,

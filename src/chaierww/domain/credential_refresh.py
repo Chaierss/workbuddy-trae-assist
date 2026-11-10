@@ -68,7 +68,8 @@ STATUS_TRANSIENT = "transient"
 WB_WAF_CODE = 10085
 
 #: 候选刷新端点。顺序即优先级；全部 404 / 405 视为「上游没有这个协议」。
-WB_REFRESH_PATHS = ("/v2/plugin/auth/token/refresh", "/v2/plugin/auth/refresh")
+#: 客户端实测（common2.js）：refreshToken 放 ``X-Refresh-Token`` 头，body 为空 ``{}``。
+WB_REFRESH_PATHS = ("/v2/plugin/auth/token/refresh", "/v2/auth/token/refresh")
 TRAE_REFRESH_PATH = EXCHANGE_TOKEN_PATH
 
 #: Trae 明确判定 refreshToken 失效（或设备不匹配）的错误码，来自客户端
@@ -352,16 +353,72 @@ class WorkBuddyRefresher(_Refresher):
         return workbuddy_origin(domain)
 
     def _headers(self, credential: dict[str, Any]) -> dict[str, str]:
+        """WorkBuddy 刷新：refreshToken 放 ``X-Refresh-Token`` 头（客户端实测）。"""
         token, uid, domain = workbuddy_credentials(credential)
+        refresh = str(credential.get("refreshToken") or credential.get("refresh_token") or "")
         headers = workbuddy_headers(token, uid, domain)
         headers["Content-Type"] = "application/json"
+        headers["X-Refresh-Token"] = refresh
+        headers["X-Auth-Refresh-Source"] = "plugin"
         return headers
 
     def _bodies(self, credential: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+        """客户端刷新 body 为空 ``{}``；同时保留旧写法作为兜底候选。"""
         token = str(credential.get("refreshToken") or credential.get("refresh_token") or "")
         return (
+            {},
             {"refreshToken": token},
-            {"refresh_token": token, "grant_type": "refresh_token"},
+        )
+
+    def refresh(self, credential: dict[str, Any]) -> RefreshOutcome:
+        """WorkBuddy 续期：``raw-file`` 信封先解密成 ``oauth-token`` 形态再走通用流程，
+        成功后把新 token 重新加密写回信封，保持 ``raw-file`` 形态（切号链路依赖它）。
+        """
+        is_raw = credential.get("format") == "raw-file"
+        if is_raw:
+            try:
+                from chaierww.domain.wb_crypto import WbCryptoError, decrypt_workbuddy_credential
+
+                working = decrypt_workbuddy_credential(credential)
+            except WbCryptoError as exc:
+                return RefreshOutcome(
+                    status=STATUS_UNSUPPORTED,
+                    detail=f"客户端信封无法解密：{exc}",
+                )
+        else:
+            working = credential
+
+        outcome = super().refresh(working)
+        if outcome.status != STATUS_REFRESHED or outcome.credential is None or not is_raw:
+            return outcome
+
+        # 刷新成功：把新 token 回写 raw-file 信封。
+        new_cred = outcome.credential
+        access = str(new_cred.get("accessToken") or "").strip()
+        refresh = str(new_cred.get("refreshToken") or "").strip() or None
+        expires_ms = _epoch_ms(new_cred.get("expiresAt"))
+        try:
+            from chaierww.domain.wb_crypto import reencrypt_workbuddy_auth
+
+            raw = base64.b64decode(credential["data"].encode("ascii"), validate=True)
+            new_raw = reencrypt_workbuddy_auth(
+                raw,
+                access_token=access or None,
+                refresh_token=refresh,
+                expires_at=expires_ms,
+            )
+        except Exception as exc:  # noqa: BLE001 - 回写失败不吞掉已成功的续期结论
+            logger.warning("WorkBuddy 续期成功但回写信封失败：%s", type(exc).__name__)
+            return outcome
+        merged = dict(credential)
+        merged["format"] = "raw-file"
+        merged["encoding"] = "base64"
+        merged["data"] = base64.b64encode(new_raw).decode("ascii")
+        return RefreshOutcome(
+            status=outcome.status,
+            credential=merged,
+            expires_at=outcome.expires_at,
+            detail=outcome.detail,
         )
 
 
@@ -667,6 +724,22 @@ def _epoch_seconds(value: Any) -> float | None:
     if stamp > 10_000_000_000:
         stamp /= 1000.0
     return stamp
+
+
+def _epoch_ms(value: Any) -> int | None:
+    """把 ISO 字符串或 epoch 秒/毫秒统一成毫秒时间戳；认不出来返回 None。"""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        stamp = float(value)
+        return int(stamp) if stamp > 10_000_000_000 else int(stamp * 1000)
+    if isinstance(value, str) and value.strip():
+        try:
+            moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return int(moment.timestamp() * 1000)
+    return None
 
 
 def _iso_ms(value: str) -> str:
