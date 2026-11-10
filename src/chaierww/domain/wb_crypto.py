@@ -287,12 +287,14 @@ def decrypt_workbuddy_auth(raw: bytes, app_path: Path | None = None) -> dict[str
         raise WbCryptoError("登录态里没有 auth 段")
 
     account = data.get("account") if isinstance(data.get("account"), dict) else {}
-    key = get_protector_key(app_path)
 
     result: dict[str, Any] = {
         "uid": str(account.get("uid") or ""),
         "domain": str(auth.get("domain") or ""),
     }
+    # 只在真的遇到信封时才去取 key：旧版明文登录态不需要客户端在场，
+    # 也没必要为了一份纯明文文件起一次 WorkBuddy 子进程。
+    key: bytes | None = None
     for field in ("accessToken", "refreshToken"):
         env = _envelope_body(auth.get(field))
         if env is None:
@@ -300,6 +302,8 @@ def decrypt_workbuddy_auth(raw: bytes, app_path: Path | None = None) -> dict[str
             raw_val = auth.get(field)
             result[field] = str(raw_val) if isinstance(raw_val, str) else ""
             continue
+        if key is None:
+            key = get_protector_key(app_path)
         try:
             plaintext = _decrypt_envelope(env, key, framing="field")
             result[field] = plaintext.decode("utf-8", "replace").strip()

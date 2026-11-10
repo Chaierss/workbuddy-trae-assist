@@ -101,7 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     box = default_box()
     repository = AccountRepository(conn, box)
     accounts = AccountService(repository)
-    backups = BackupService(conn, resolved.backups_dir)
+    backups = BackupService(conn, resolved.backups_dir, lock=repository.lock)
     adapters = build_adapters()
     sync_repository = SyncRepository(conn, repository.lock)
     sync_engine = SyncEngine(repository, sync_repository, resolved.home, adapters)

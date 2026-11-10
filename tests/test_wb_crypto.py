@@ -94,6 +94,20 @@ def test_decrypt_auth_accepts_plaintext_legacy_file():
     assert auth["uid"] == "u-legacy"
 
 
+def test_plaintext_file_does_not_need_client(monkeypatch):
+    """纯明文登录态不该去碰客户端：没有 WorkBuddy 的机器也要能读旧文件。"""
+    raw = json.dumps(
+        {"account": {"uid": "u-legacy"}, "auth": {"accessToken": "plain-acc"}}
+    ).encode("utf-8")
+
+    def boom(app_path=None):
+        raise AssertionError("明文登录态不应调用 get_protector_key")
+
+    monkeypatch.setattr(wb_crypto, "get_protector_key", boom)
+
+    assert decrypt_workbuddy_auth(raw)["accessToken"] == "plain-acc"
+
+
 def test_decrypt_auth_rejects_foreign_envelope():
     """换机器 / 客户端重装后密钥变了，必须明确报错而不是给出空 token。"""
     other = hashlib.sha256(b"another-machine").digest()

@@ -94,10 +94,14 @@ def _snapshot_id() -> str:
 
 
 class BackupService:
-    def __init__(self, conn: sqlite3.Connection, backups_dir: Path) -> None:
+    def __init__(
+        self, conn: sqlite3.Connection, backups_dir: Path, *, lock: threading.RLock | None = None
+    ) -> None:
         self._conn = conn
         self._root = backups_dir
-        self._lock = threading.RLock()
+        # 与仓储共用同一把锁：自动备份跑在后台线程里，它和请求线程是同一个连接，
+        # 各拿各的锁会在 `BEGIN` 上撞车（cannot start a transaction within a transaction）。
+        self._lock = lock if lock is not None else threading.RLock()
 
     def _scope_dir(self, scope: str) -> Path:
         return self._root / scope
