@@ -30,3 +30,14 @@ jobs:
 
       - name: Check secrets and runtime data
         run: python scripts/check_secrets.py
+
+      # 锁文件的 tarball 地址必须是官方 registry。本机装依赖时若走过国内镜像，
+      # `npm ci` 会把镜像地址写进 resolved，境外 runner 拉这些地址直接 504：
+      # 表现是「本地装得好好的，只有 CI 的桌面端装依赖必挂」（v1.4.0 / v1.4.1 踩过）。
+      - name: Lockfiles point at the official registry
+        run: |
+          if grep -rnE 'registry\.(npmmirror|npm\.taobao)\.com|mirrors\.(cloud\.tencent|huaweicloud)\.com' \
+            --include=package-lock.json .; then
+            echo "::error::package-lock.json 里混入了非官方 registry 地址，境外 runner 会 504"
+            exit 1
+          fi

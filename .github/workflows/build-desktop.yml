@@ -75,8 +75,16 @@ jobs:
       # ---------- 前端产物 ----------
       - name: Build web
         working-directory: web
+        shell: bash
         run: |
-          npm ci
+          # registry / CDN 偶发超时（504、ECONNRESET）。一次性失败不该把发版按死，
+          # 换一次连接通常就好；三次都失败才是真问题。
+          for attempt in 1 2 3; do
+            if npm ci; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "web npm ci 失败（第 ${attempt}/3 次），30 秒后重试"
+            sleep 30
+          done
           npm run build
 
       # ---------- 图标 ----------
@@ -92,7 +100,15 @@ jobs:
       # ---------- Electron 壳 ----------
       - name: Install desktop deps
         working-directory: desktop
-        run: npm ci
+        shell: bash
+        run: |
+          # 同上：electron 体积大，下载更容易被中间层掐断，重试三次再认输。
+          for attempt in 1 2 3; do
+            if npm ci; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "desktop npm ci 失败（第 ${attempt}/3 次），30 秒后重试"
+            sleep 30
+          done
 
       - name: Build installer
         working-directory: desktop

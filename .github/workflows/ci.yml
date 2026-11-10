@@ -111,12 +111,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm ci
+      - name: Install web deps
         working-directory: web
+        shell: bash
+        run: |
+          # registry 偶发 504 / ECONNRESET，重试三次再判红。
+          for attempt in 1 2 3; do
+            if npm ci; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "web npm ci 失败（第 ${attempt}/3 次），30 秒后重试"
+            sleep 30
+          done
       - run: npm audit --omit=dev --audit-level=high
         working-directory: web
-      - run: npm ci
+      - name: Install desktop deps
         working-directory: desktop
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npm ci; then break; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            echo "desktop npm ci 失败（第 ${attempt}/3 次），30 秒后重试"
+            sleep 30
+          done
       # electron 等打包依赖都在 devDependencies，最终会被打进安装包，不能 omit=dev。
       - run: npm audit --audit-level=high
         working-directory: desktop
