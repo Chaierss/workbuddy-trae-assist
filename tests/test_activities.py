@@ -576,6 +576,37 @@ def test_trae_claim_device_taken_is_reported_as_failure(monkeypatch):
     service.close()
 
 
+def test_trae_checkin_uses_per_account_device_id(monkeypatch):
+    """签到必须按账号派生设备号。
+
+    多个号从同一个客户端导入时凭据里带着同一个 deviceId，上游「每设备每天一签」
+    会把它们挤成只有一个能签（9095）。所以签到请求不能用凭据里的那个号。
+    """
+    seen: list[str] = []
+
+    def fake(client, method, url, headers, body=None):  # noqa: ANN001, ARG001
+        seen.append(headers["x-device-id"])
+        if url.endswith(mod.TRAE_CHECKIN_STATUS_PATH):
+            return 200, {"code": 0, "checked_in": False, "enable": True, "credits": 100}, ""
+        if url.endswith(mod.TRAE_CHECKIN_CLAIM_PATH):
+            return 200, {"code": 0, "message": "success"}, ""
+        raise AssertionError(f"未预期的请求：{url}")
+
+    monkeypatch.setattr(mod, "_call", fake)
+    credential = {
+        "format": "oauth-token",
+        "accessToken": "jwt",
+        "deviceId": "shared-device",
+        "host": "",
+    }
+    service = ActivitiesService(_FakeRepo(credential))
+    item = service.run([_FakeAccount(scope="trae-cn")])["results"][0]
+    assert item["status"] == RESULT_OK
+    assert seen and all(device != "shared-device" for device in seen)
+    assert len(set(seen)) == 1
+    service.close()
+
+
 def test_run_invalidates_cache(monkeypatch):
     _fake_calls(monkeypatch, status=(200, {"code": 0, "data": _wb_checkin(done=True)}, ""))
     service = ActivitiesService(_FakeRepo(_wb_credential()), ttl=600)

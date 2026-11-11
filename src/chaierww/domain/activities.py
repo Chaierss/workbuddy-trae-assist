@@ -68,6 +68,7 @@ from chaierww.domain.platform_api import (
     TRAE_ACCOUNT_BASE,
     WORKBUDDY_WEB_ORIGIN,
     CredentialError,
+    derive_device_id,
     trae_credentials,
     trae_headers,
     workbuddy_credentials,
@@ -1295,12 +1296,17 @@ class ActivitiesService:
 
     def _detect_trae(self, account: Account, credential: dict[str, Any]) -> AccountActivities:
         try:
-            jwt, device_id, host = trae_credentials(credential)
+            jwt, _device_id, host = trae_credentials(credential)
         except CredentialError as exc:
             return self._blank(account, "trae", str(exc))
 
         base = (host or TRAE_ACCOUNT_BASE).rstrip("/")
-        headers = trae_headers(jwt, device_id)
+        # 签到按账号派生设备号，不用凭据里带的那一个：多个 Trae 号从同一个客户端
+        # 导入时会带着同一个 deviceId，而上游是「每台设备每天只能签一个号」，
+        # 结果每天只有排在最前面的号能领到，其余全部 9095。按账号派生之后
+        # 每个号各有各的设备身份，互不挤占。只影响签到这两个请求，
+        # 查积分等其它接口仍用凭据里的真实设备号。
+        headers = trae_headers(jwt, derive_device_id(account.id))
         status_code, body, error = _call(
             self._client, "POST", f"{base}{TRAE_CHECKIN_STATUS_PATH}", headers, {}
         )
@@ -1757,12 +1763,17 @@ class ActivitiesService:
         if keys is not None and key not in keys:
             return []
         try:
-            jwt, device_id, host = trae_credentials(credential)
+            jwt, _device_id, host = trae_credentials(credential)
         except CredentialError as exc:
             return [self._result(account, key, title, RESULT_SKIPPED, str(exc))]
 
         base = (host or TRAE_ACCOUNT_BASE).rstrip("/")
-        headers = trae_headers(jwt, device_id)
+        # 签到按账号派生设备号，不用凭据里带的那一个：多个 Trae 号从同一个客户端
+        # 导入时会带着同一个 deviceId，而上游是「每台设备每天只能签一个号」，
+        # 结果每天只有排在最前面的号能领到，其余全部 9095。按账号派生之后
+        # 每个号各有各的设备身份，互不挤占。只影响签到这两个请求，
+        # 查积分等其它接口仍用凭据里的真实设备号。
+        headers = trae_headers(jwt, derive_device_id(account.id))
 
         status_code, body, error = _call(
             self._client, "POST", f"{base}{TRAE_CHECKIN_STATUS_PATH}", headers, {}
