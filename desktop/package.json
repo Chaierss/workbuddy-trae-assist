@@ -28,6 +28,10 @@
   "dependencies": {
     "electron-updater": "^6.8.9"
   },
+  "//overrides": "CVE-2026-118764：electron-builder 依赖树里的 minimatch 7.x–10.x 有 globparts 放大导致的 DoS，仅在构建期使用；用 overrides 统一抬到 11.0.1（仍未修复的 3.x/5.x 不在受影响区间）。",
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+  },
   "build": {
     "appId": "com.chaierss.chaierww",
     "productName": "chaierww",
