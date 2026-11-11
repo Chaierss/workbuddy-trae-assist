@@ -964,3 +964,56 @@ def test_relogin_account_is_skipped_before_hitting_upstream(monkeypatch):
     assert "重新扫码登录" in body["results"][0]["message"]
     assert urls == []
     service.close()
+
+
+# ---------- 结果分级：把「跳过」拆成四种真实含义 ----------
+
+
+def test_classify_skip_distinguishes_done_from_unknown():
+    assert mod.classify_skip("今天已签到") == mod.REASON_DONE
+    assert mod.classify_skip("今日已领取") == mod.REASON_DONE
+    assert mod.classify_skip("没有可自动执行的成长任务") == mod.REASON_UPSTREAM
+    assert mod.classify_skip("不在 23:00–08:00 窗口") == mod.REASON_UPSTREAM
+    assert mod.classify_skip("登录已失效，请重新登录") == mod.REASON_PREREQ
+    assert mod.classify_skip("没有补签卡") == mod.REASON_PREREQ
+    assert mod.classify_skip("热力图读取失败，本轮不做判断") == mod.REASON_DETECT
+    # 没匹配上就诚实落 other，绝不把未知说成做完。
+    assert mod.classify_skip("某种从未见过的跳过文案") == mod.REASON_OTHER
+    assert mod.classify_skip("") == mod.REASON_OTHER
+
+
+def test_summary_splits_skip_reasons_and_counts_retryable():
+    def _row(status: str, message: str, *, retryable: bool = False):
+        return mod.RunResult(
+            account_id="a",
+            display_name="账号甲",
+            platform="workbuddy",
+            key="workbuddy.daily_checkin",
+            title="每日签到",
+            status=status,
+            message=message,
+            retryable=retryable,
+            reason=mod.classify_skip(message) if status == RESULT_SKIPPED else "",
+        )
+
+    summary = mod._summarize_results(
+        [
+            _row(RESULT_OK, "签到成功"),
+            _row(RESULT_SKIPPED, "今天已签到"),
+            _row(RESULT_SKIPPED, "没有可自动执行的成长任务"),
+            _row(RESULT_SKIPPED, "登录已失效"),
+            _row(RESULT_SKIPPED, "接口读不到状态"),
+            _row(RESULT_FAILED, "上游 502", retryable=True),
+        ]
+    )
+
+    assert summary["total"] == 6
+    assert summary["ok"] == 1
+    assert summary["failed"] == 1
+    assert summary["retryable"] == 1
+    assert summary["skipped"] == 4
+    assert summary["skip.done"] == 1
+    assert summary["skip.upstream"] == 1
+    assert summary["skip.prereq"] == 1
+    assert summary["skip.detect"] == 1
+    assert summary["skip.other"] == 0

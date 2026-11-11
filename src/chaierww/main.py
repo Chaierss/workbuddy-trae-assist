@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -47,6 +48,15 @@ from chaierww.domain.gateway_relay import GatewayRelay
 from chaierww.domain.metrics import MetricsStore
 from chaierww.domain.oauth import build_oauth
 from chaierww.domain.preferences import PreferencesStore
+from chaierww.domain.quota_guard import (
+    DEFAULT_SCOPE,
+    EMPTY_MINUTES,
+    QuotaAccount,
+    QuotaRunner,
+    QuotaService,
+    QuotaSnapshot,
+    QuotaStore,
+)
 from chaierww.domain.restore import apply_pending_restore
 from chaierww.domain.rotation import Candidate as RotationCandidate
 from chaierww.domain.rotation import (
@@ -219,6 +229,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "skipped": int(summary.get("skipped", 0)),
             "failed": int(summary.get("failed", 0)),
             "retried": int(summary.get("retried", 0)),
+            # 只有「可重试的失败」才值得当日补跑；业务拒绝补跑还是拒绝。
+            "retryable": int(summary.get("retryable", 0)),
+            # 今天真正做完的项数（跳过里的 done），概览用它判断有没有成效。
+            "done": int(summary.get("skip.done", 0)),
         }
 
     def run_scheduled(
@@ -305,6 +319,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         retried = summary.get("retried", 0)
         if retried:
             line += f"，重试 {retried} 个账号（其中 {summary.get('retryOk', 0)} 项转为成功）"
+        done = int(summary.get("skip.done", 0))
+        if done:
+            line += f"，已完成 {done} 项"
         # 只报数字等于没报 —— 把失败原因按出现次数归并进来，日志才能自己解释自己。
         reasons: dict[str, int] = {}
         for item in report.get("results", []):
@@ -419,6 +436,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     rotation_runner = RotationRunner(rotation)
 
+    # 号池额度闭环：余额见底就出池，默认号耗尽时自动换到还有额度的号。
+    # 与轮换共用「取快照 → 切换」两套回调，避免同一件事有两套判定。
+    quota_store = QuotaStore(resolved.home)
+
+    def quota_snapshot() -> QuotaSnapshot:
+        implemented = [item.key for item in all_scopes() if item.implemented]
+        pool = accounts.list_merged(implemented)
+        try:
+            infos = credits.query_many(pool) if pool else {}
+        except Exception:  # noqa: BLE001 - 查不到余额按未知处理，不猜
+            logger.exception("额度评估：查询余额失败，本轮按未知处理")
+            infos = {}
+        excluded = gateway.excluded_accounts()
+        current_uid = engine.current_uid(DEFAULT_SCOPE)
+        current_account_id = (
+            next((item.id for item in pool if item.external_id == current_uid), None)
+            if current_uid
+            else None
+        )
+        rows: list[QuotaAccount] = []
+        for account in pool:
+            info = infos.get(account.id)
+            rows.append(
+                QuotaAccount(
+                    account_id=account.id,
+                    display_name=account.display_name,
+                    scope=account.scope,
+                    credits=info.credits if info is not None and info.available else None,
+                    available=bool(info is not None and info.available),
+                    switchable=(
+                        account.scope == DEFAULT_SCOPE
+                        and account.credential_state is not CredentialState.RELOGIN_REQUIRED
+                    ),
+                    excluded=account.id in excluded,
+                    current=account.id == current_account_id,
+                )
+            )
+        adapter = adapters.get(DEFAULT_SCOPE)
+        running = True  # 探测失败按「运行中」处理：宁可这一轮不切，也不误切。
+        if adapter is not None:
+            try:
+                running = bool(adapter.is_running())
+            except Exception:  # noqa: BLE001 - 探测失败不拖垮评估
+                logger.warning("额度评估：客户端运行状态探测失败，按「运行中」处理")
+        return QuotaSnapshot(accounts=tuple(rows), client_running=running)
+
+    quota = QuotaService(
+        quota_store,
+        snapshot=quota_snapshot,
+        exclude=lambda account_id: gateway.exclude(
+            account_id, reason="quota", minutes=EMPTY_MINUTES
+        ),
+        switch=rotation_switch,
+    )
+    quota_runner = QuotaRunner(quota)
+
     # 回收站「彻底删除」：删账号行之后，顺手清掉散在别处的引用
     # （网页版快照 / 网关账号池 / 轮换台账）。
     purger = AccountPurger(
@@ -471,6 +544,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheduler.start()
         # 轮换线程始终运行：未启用时每轮只读一次策略就返回，这样设置里一开就生效。
         rotation_runner.start()
+        # 额度评估线程同样始终运行：每 10 分钟查一轮余额（缓存 TTL 内复用），
+        # 只做判定与出池，不写平台数据。
+        quota_runner.start()
+
+        def startup_credential_sweep() -> None:
+            """启动即巡检一次凭据，补上「应用没运行时错过续期窗口」的缺口。
+
+            走 ``run_now`` 而不是另写一套：结果会进 ``credential_refresh`` 的
+            执行日志，用户在计划任务页能看到「启动时跑过」。
+            """
+            # 先让网关/调度器站稳，别和服务启动抢上游；应用若在 3 秒内退出，
+            # 这里直接放弃 —— 绝不能在数据库关闭之后还去访问它。
+            if startup_stop.wait(3.0):
+                return
+            # 调度器已停（例如测试里显式停掉、或应用正在退出）就不再巡检：
+            # 否则巡检会绕过「后台任务不可用」的前提，在关库途中访问上游与数据库。
+            if not scheduler.running:
+                return
+            try:
+                outcome = scheduler.run_now("credential_refresh")
+                logger.info("启动凭据巡检：%s", outcome.get("result"))
+            except Exception:  # noqa: BLE001 - 启动巡检失败只记日志
+                logger.exception("启动凭据巡检失败")
+
+        startup_stop = threading.Event()
+        startup_thread = threading.Thread(
+            target=startup_credential_sweep,
+            name="chaierww-startup-credential",
+            daemon=True,
+        )
+        startup_thread.start()
         # 目录自动刷新线程同样始终运行：间隔为 0 时它只空转，不抓任何东西。
         catalog_refresher.start()
         # 自动备份线程始终运行：开关关着时每轮只读一次偏好就返回。
@@ -479,8 +583,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            startup_stop.set()
+            startup_thread.join(timeout=2.0)
             auto_backup.stop()
             catalog_refresher.stop()
+            quota_runner.stop()
             rotation_runner.stop()
             scheduler.stop()
             gateway_runtime.stop()
@@ -524,6 +631,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sync = sync_engine
     app.state.sync_repository = sync_repository
     app.state.rotation = rotation
+    app.state.quota = quota
     app.state.purger = purger
     # 用量页走 UsageService（读云端明细），对话正文从本机 workbuddy.db / projects/*.jsonl 关联。
     usage = UsageService(repository)

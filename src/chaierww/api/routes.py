@@ -23,9 +23,11 @@ from chaierww.domain.activities import (
     OFFICIAL_CATALOG_UPDATED_AT,
     OFFICIAL_CATALOG_VERSION,
     OFFICIAL_DISCLAIMER,
+    SKIP_REASONS,
     ActivityBusyError,
     available_catalog,
     available_keys,
+    classify_skip,
     drop_ended,
     summarize,
     summarize_campaigns,
@@ -57,6 +59,7 @@ from chaierww.domain.preferences import (
     clean_onboarding_steps,
     clean_version,
 )
+from chaierww.domain.quota_guard import LOW_THRESHOLD
 from chaierww.domain.restore import (
     RestoreError,
     cancel_pending,
@@ -1377,6 +1380,92 @@ def list_activity_runs(request: Request, days: int = 7, limit: int = 500) -> dic
 
 
 @router.get(
+    "/activities/today",
+    summary="今日活动成效（把跳过拆成做完 / 上游暂无 / 缺前置 / 检测失败）",
+    tags=["活动"],
+)
+def activity_today(request: Request) -> dict[str, Any]:
+    """回答「今天到底做成了什么」，而不是只回一个「跳过 22」。
+
+    只读本地流水，不发任何上游请求。跳过的原因用与执行时同一套
+    ``classify_skip`` 归并，保证概览与活动页口径一致。
+    """
+    today = datetime.now(UTC).astimezone().date()
+    day = today.isoformat()
+    try:
+        rows = request.app.state.repository.activity_runs(day, limit=2000)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    names = {
+        account.id: account.display_name for account in _activities_accounts(request, None)
+    }
+    titles = {str(entry["key"]): str(entry["title"]) for entry in ACTIVITY_CATALOG}
+    reasons = {reason: 0 for reason in SKIP_REASONS}
+    by_account: dict[str, dict[str, Any]] = {}
+    by_key: dict[str, dict[str, Any]] = {}
+    total = {"ok": 0, "skipped": 0, "failed": 0}
+    reward = 0.0
+    for row in rows:
+        status = str(row.get("status") or "")
+        account_id = str(row.get("accountId") or "")
+        activity_key = str(row.get("key") or "")
+        item_reward = float(row.get("reward") or 0)
+        reward += max(0.0, item_reward)
+        if status in total:
+            total[status] += 1
+        account = by_account.setdefault(
+            account_id,
+            {
+                "accountId": account_id,
+                "displayName": names.get(account_id, account_id),
+                "ok": 0,
+                "skipped": 0,
+                "failed": 0,
+                "done": 0,
+                "reward": 0.0,
+            },
+        )
+        keyed = by_key.setdefault(
+            activity_key,
+            {
+                "key": activity_key,
+                "title": titles.get(activity_key, activity_key),
+                "ok": 0,
+                "skipped": 0,
+                "failed": 0,
+                "done": 0,
+            },
+        )
+        if status in ("ok", "skipped", "failed"):
+            account[status] += 1
+            keyed[status] += 1
+        account["reward"] += max(0.0, item_reward)
+        if status == "skipped":
+            reason = classify_skip(str(row.get("message") or ""))
+            reasons[reason] += 1
+            if reason == "done":
+                account["done"] += 1
+                keyed["done"] += 1
+
+    return {
+        "day": day,
+        "total": len(rows),
+        **total,
+        "reward": round(reward, 2),
+        "reasons": reasons,
+        "accounts": sorted(
+            by_account.values(),
+            key=lambda item: (-int(item["ok"]), str(item["displayName"])),
+        ),
+        "byKey": sorted(
+            by_key.values(),
+            key=lambda item: (-int(item["ok"]), str(item["title"])),
+        ),
+    }
+
+
+@router.get(
     "/activities/history",
     summary="按天聚合的活动执行趋势（默认最近 30 天）",
     tags=["活动"],
@@ -2380,6 +2469,24 @@ def run_rotation_now(request: Request, dryRun: bool = False) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/quota", summary="号池额度闭环状态（低额度/耗尽/最近一次动作）", tags=["号池"])
+def read_quota(request: Request) -> dict[str, Any]:
+    """只读台账：最近一轮评估看到了什么、做了什么、为什么这么做。"""
+    return request.app.state.quota.state()
+
+
+@router.post(
+    "/quota/evaluate",
+    summary="立即评估一轮额度（可选只推演，不出池、不换号）",
+    tags=["号池"],
+)
+def evaluate_quota(request: Request, dryRun: bool = False) -> dict[str, Any]:
+    try:
+        return request.app.state.quota.evaluate(dry_run=dryRun)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 # ---------- 客户端设置托管（设置 → 客户端设置） ----------
 
 
@@ -2642,6 +2749,50 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 }
             )
 
+    # 2.5) 凭据续期连续失败：还没到过期时间，但一直续不上。
+    # 状态类问题上面已报过，这里只补充「状态看着正常、巡检却在连败」的号。
+    probes = request.app.state.repository.probe_records([item.id for item in accounts])
+    for account in accounts:
+        if account.credential_state.value in _ATTENTION_STATES:
+            continue
+        record = probes.get(account.id) or {}
+        failures = int(record.get("failures") or 0)
+        if failures <= 0:
+            continue
+        retry_at = record.get("nextRetryAt")
+        retry_hint = f"下次自动重试 {retry_at}" if retry_at else "下次巡检会继续重试"
+        detail = (
+            f"{account.display_name}（{_scope_label(account.scope)}）："
+            f"已连续 {failures} 次续期失败"
+        )
+        if record.get("detail"):
+            detail += f"（{record['detail']}）"
+        detail += f"，{retry_hint}"
+        can_refresh = refreshable_map.get(account.id, False)
+        items.append(
+            {
+                "kind": "credential_stalled",
+                # 连续 3 次才升级成 high：偶发网络抖动不该把概览刷成红色。
+                "severity": "high" if failures >= 3 else "warn",
+                "title": "凭据续期连续失败",
+                "detail": detail,
+                "accountId": account.id,
+                "action": (
+                    {
+                        "type": "run",
+                        "endpoint": "/credentials/refresh",
+                        "mode": "force",
+                        "accountIds": [account.id],
+                    }
+                    if can_refresh
+                    else {
+                        "type": "navigate",
+                        "to": f"/accounts?risk=credential&account={account.id}",
+                    }
+                ),
+            }
+        )
+
     # 3) 今日未签到（同类里也可能有其它可自动完成的活动）
     for account in detected:
         if not account.detectable:
@@ -2684,6 +2835,47 @@ def overview_actionables(request: Request) -> dict[str, Any]:
                 },
             }
         )
+
+    # 4.5) 额度闭环：耗尽要立刻看见，低额度提前预警。
+    # 这里只读 `credit_map`（概览本来就查了），不发额外请求。
+    for account in accounts:
+        info = credit_map.get(account.id)
+        if info is None or not info.available or info.credits is None:
+            continue
+        if info.credits <= 0:
+            items.append(
+                {
+                    "kind": "quota_empty",
+                    "severity": "high",
+                    "title": "额度已耗尽",
+                    "detail": (
+                        f"{account.display_name}：剩余 0 积分，已移出网关候选；"
+                        "签到/充值恢复额度后会自动回到号池"
+                    ),
+                    "accountId": account.id,
+                    "action": {
+                        "type": "navigate",
+                        "to": f"/accounts?risk=low&account={account.id}",
+                    },
+                }
+            )
+        elif info.credits < LOW_THRESHOLD:
+            items.append(
+                {
+                    "kind": "quota_low",
+                    "severity": "warn",
+                    "title": "额度偏低",
+                    "detail": (
+                        f"{account.display_name}：剩余 {info.credits:g} 积分，"
+                        f"低于预警线 {LOW_THRESHOLD:g}，建议优先用它或补充额度"
+                    ),
+                    "accountId": account.id,
+                    "action": {
+                        "type": "navigate",
+                        "to": f"/accounts?risk=low&account={account.id}",
+                    },
+                }
+            )
 
     # 5) 客户端未运行（按客户端而非账号报，避免一台没开就刷出几十条）
     for client in clients:

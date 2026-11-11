@@ -147,6 +147,13 @@ export const activityZh = {
   "activity.officialRunsAttempt": "第 {attempt} 次尝试",
   "activity.officialRunsAllAccounts": "全部账号",
   "activity.officialRunsOpenAccount": "在号池查看该账号",
+  "activity.today.done": "已完成",
+  "activity.today.ok": "本次成功",
+  "activity.today.upstream": "上游暂无",
+  "activity.today.prereq": "缺前置",
+  "activity.today.detect": "检测失败",
+  "activity.today.summary":
+    "今日共 {total} 项，失败 {failed} 项，预计收益 {reward}",
 
   "schedule.title": "计划任务",
   "schedule.subtitle": "分钟粒度、一天多个时点、随机抖动；关掉的应用期间错过的只补跑一次",
@@ -187,6 +194,7 @@ export const activityZh = {
   "schedule.activityScopeSummary": "本任务只跑：{list}",
   "schedule.runNow": "立即执行",
   "schedule.nextRun": "下次执行：{value}",
+  "schedule.retryAt": "失败补跑：{value}（30 分钟后，最多 2 次）",
   "schedule.logTitle": "执行日志（最近 {count} 次）",
   "schedule.logEmpty": "还没有执行记录",
   "schedule.logBadgeRefreshed": "已续期 {count}",
@@ -424,6 +432,13 @@ export const activityEn = {
   "activity.officialRunsAttempt": "Attempt {attempt}",
   "activity.officialRunsAllAccounts": "All accounts",
   "activity.officialRunsOpenAccount": "Open this account in the pool",
+  "activity.today.done": "Completed",
+  "activity.today.ok": "Succeeded",
+  "activity.today.upstream": "Nothing to do",
+  "activity.today.prereq": "Needs setup",
+  "activity.today.detect": "Check failed",
+  "activity.today.summary":
+    "{total} items today, {failed} failed, about {reward} credits earned",
 
   "schedule.title": "Scheduled tasks",
   "schedule.subtitle":
@@ -467,6 +482,7 @@ export const activityEn = {
   "schedule.activityScopeSummary": "This task only runs: {list}",
   "schedule.runNow": "Run now",
   "schedule.nextRun": "Next run: {value}",
+  "schedule.retryAt": "Retry at {value} (30 min later, up to 2 times)",
   "schedule.logTitle": "Run log (last {count})",
   "schedule.logEmpty": "No runs yet",
   "schedule.logBadgeRefreshed": "Refreshed {count}",

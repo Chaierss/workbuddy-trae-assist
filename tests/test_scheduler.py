@@ -365,3 +365,101 @@ def test_tick_hook_fires_even_when_no_task_is_due(tmp_path):
         assert fired.wait(2.0), "tick_hook 未被调用"
     finally:
         scheduler.stop()
+
+
+class _Flaky:
+    """前 N 次回可重试失败，之后成功；记录每次调用。"""
+
+    def __init__(self, failures: int = 2) -> None:
+        self.failures = failures
+        self.calls: list[datetime] = []
+
+    def __call__(self, key, account_ids, activity_keys):
+        self.calls.append(datetime.now())
+        if len(self.calls) <= self.failures:
+            return "上游 502", {"ok": 0, "skipped": 0, "failed": 1, "retryable": 1}
+        return "成功", {"ok": 1, "skipped": 0, "failed": 0, "retryable": 0}
+
+
+def _only(scheduler: Scheduler, key: str, times: list[str]) -> None:
+    """只留一个任务在跑，避免默认开启的任务干扰调用计数。"""
+    for other in ("keepalive", "checkin", "activity_run", "credential_refresh", "session_sync"):
+        scheduler.update(other, enabled=other == key)
+    scheduler.update(key, enabled=True, times=times, jitter_minutes=0)
+
+
+def test_retryable_failure_schedules_retry_and_persists(tmp_path):
+    recorder = _Flaky(failures=2)
+    scheduler = _build(tmp_path, recorder, now=_at(9, 20))
+    _only(scheduler, "activity_run", ["09:20"])
+
+    scheduler.run_due(_at(9, 20))
+    assert len(recorder.calls) == 1
+    spec = scheduler.get("activity_run")
+    assert spec.retry is not None
+    assert spec.retry["attempt"] == 1
+    assert spec.retry["day"] == "2026-10-20"
+    assert spec.retry["at"] == "2026-10-20T09:50:00+08:00"
+
+    # 落盘后重启也要记得补跑计划。
+    reloaded = _build(tmp_path, recorder, now=_at(9, 30))
+    assert reloaded.get("activity_run").retry is not None
+
+    # 不到点不跑。
+    reloaded.run_due(_at(9, 30))
+    assert len(recorder.calls) == 1
+
+    # 到点补跑第二次（仍失败）→ 排第 2 次。
+    reloaded.run_due(_at(9, 50))
+    assert len(recorder.calls) == 2
+    assert reloaded.get("activity_run").retry["attempt"] == 2
+
+    # 第 2 次补跑成功 → 不再排补跑。
+    reloaded.run_due(_at(10, 20))
+    assert len(recorder.calls) == 3
+    assert reloaded.get("activity_run").retry is None
+    assert reloaded.get("activity_run").history[-1]["result"].startswith("补跑第 2 次：")
+
+
+def test_retry_stops_after_two_attempts(tmp_path):
+    recorder = _Flaky(failures=10)
+    scheduler = _build(tmp_path, recorder, now=_at(9, 20))
+    _only(scheduler, "activity_run", ["09:20"])
+
+    scheduler.run_due(_at(9, 20))
+    scheduler.run_due(_at(9, 50))
+    scheduler.run_due(_at(10, 20))
+    assert len(recorder.calls) == 3  # 首轮 + 2 次补跑
+    assert scheduler.get("activity_run").retry is None
+
+
+def test_business_failure_does_not_schedule_retry(tmp_path):
+    class _Rejected:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __call__(self, key, account_ids, activity_keys):
+            self.calls += 1
+            return "401 未授权", {"ok": 0, "skipped": 0, "failed": 1, "retryable": 0}
+
+    recorder = _Rejected()
+    scheduler = _build(tmp_path, recorder, now=_at(9, 20))
+    _only(scheduler, "activity_run", ["09:20"])
+
+    scheduler.run_due(_at(9, 20))
+    assert recorder.calls == 1
+    assert scheduler.get("activity_run").retry is None
+
+
+def test_stale_retry_from_previous_day_is_dropped(tmp_path):
+    recorder = _Flaky(failures=10)
+    scheduler = _build(tmp_path, recorder, now=_at(9, 20))
+    _only(scheduler, "activity_run", ["09:20"])
+    scheduler.run_due(_at(9, 20))
+    assert scheduler.get("activity_run").retry is not None
+
+    # 第二天启动：昨天的补跑计划不跨天，直接作废。
+    reloaded = _build(tmp_path, recorder, now=_at(8, day=21))
+    reloaded.run_due(_at(8, day=21))
+    assert reloaded.get("activity_run").retry is None
+    assert len(recorder.calls) == 1

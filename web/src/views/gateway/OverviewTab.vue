@@ -1,11 +1,17 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { Activity, KeyRound, Radar, ScrollText, Users } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
 import SelectMenu from "../../components/SelectMenu.vue";
 import StatCard from "../../components/StatCard.vue";
 import StatusPill from "../../components/StatusPill.vue";
-import { formatAmount, formatTime, type GatewayPoolAccount } from "../../api";
+import {
+  api,
+  formatAmount,
+  formatTime,
+  type GatewayPoolAccount,
+  type QuotaState,
+} from "../../api";
 import { t, type MessageKey } from "../../lib/i18n";
 import { compact, useGateway } from "./useGateway";
 
@@ -21,6 +27,34 @@ const probeOptions = computed(() =>
 
 /** 账号池：可用 / 冷却中 / 积分耗尽 / 已排除；人工处置与探测都在这一区。 */
 const pool = computed(() => store.pool);
+
+/** 额度闭环台账：最近一轮评估看到谁耗尽/偏低、做了什么、为什么。 */
+const quota = ref<QuotaState | null>(null);
+const quotaBusy = ref(false);
+
+async function loadQuota(): Promise<void> {
+  try {
+    quota.value = await api.quota();
+  } catch {
+    // 台账读不到不影响本页其余信息。
+    quota.value = null;
+  }
+}
+
+async function runQuota(dryRun: boolean): Promise<void> {
+  if (quotaBusy.value) return;
+  quotaBusy.value = true;
+  try {
+    const result = await api.evaluateQuota(dryRun);
+    quota.value = result.state;
+  } catch {
+    // 评估失败保持原台账，不伪造结果。
+  } finally {
+    quotaBusy.value = false;
+  }
+}
+
+onMounted(loadQuota);
 
 /** 账号池状态的中文文案存 key：常量在模块级，直接调 t() 切语言不会更新。 */
 const STATE_TEXT_KEY: Record<string, MessageKey> = {
@@ -282,6 +316,96 @@ function bucketLabel(bucket: string): string {
           {{ t("gateway.pool.note.probe") }}
         </p>
       </div>
+    </SectionCard>
+
+    <SectionCard
+      class="mt-4"
+      :title="t('gateway.quota.title')"
+      :subtitle="t('gateway.quota.subtitle')"
+    >
+      <template #actions>
+        <button
+          type="button"
+          class="rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-brand/40 hover:text-brand disabled:opacity-50"
+          :disabled="quotaBusy"
+          @click="runQuota(true)"
+        >
+          {{ t("gateway.quota.dryRun") }}
+        </button>
+        <button
+          type="button"
+          class="rounded-control border border-brand/40 px-2 py-1 text-caption text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
+          :disabled="quotaBusy"
+          @click="runQuota(false)"
+        >
+          {{ t("gateway.quota.run") }}
+        </button>
+      </template>
+
+      <div v-if="!quota?.last" class="py-3 text-caption text-muted">
+        {{ t("gateway.quota.empty") }}
+      </div>
+      <template v-else>
+        <div class="flex flex-wrap items-center gap-2 text-caption">
+          <StatusPill :tone="quota.last.exhausted.length ? 'danger' : 'brand'">
+            {{
+              t("gateway.quota.exhaustedCount", { count: quota.last.exhausted.length })
+            }}
+          </StatusPill>
+          <StatusPill :tone="quota.last.warnings.length ? 'warn' : 'neutral'">
+            {{ t("gateway.quota.lowCount", { count: quota.last.warnings.length }) }}
+          </StatusPill>
+          <span class="text-muted">
+            {{
+              t("gateway.quota.lowThreshold", {
+                value: formatAmount(quota.lowThreshold),
+              })
+            }}
+          </span>
+          <span v-if="quota.lastEvaluatedAt" class="text-muted">
+            {{ t("gateway.quota.evaluatedAt", { time: formatTime(quota.lastEvaluatedAt) }) }}
+          </span>
+        </div>
+
+        <p class="mt-2 text-caption leading-relaxed text-ink-soft">{{ quota.last.reason }}</p>
+
+        <div
+          v-if="quota.last.exhausted.length || quota.last.warnings.length"
+          class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-caption"
+        >
+          <span
+            v-for="item in quota.last.exhausted"
+            :key="`empty-${item.accountId}`"
+            class="rounded-control bg-danger-soft px-2 py-0.5 text-danger"
+          >
+            {{ t("gateway.quota.exhaustedItem", { name: item.displayName }) }}
+          </span>
+          <span
+            v-for="item in quota.last.warnings"
+            :key="`low-${item.accountId}`"
+            class="rounded-control bg-warn-soft px-2 py-0.5 text-warn"
+          >
+            {{
+              t("gateway.quota.lowItem", {
+                name: item.displayName,
+                credits: formatAmount(item.credits ?? 0),
+              })
+            }}
+          </span>
+        </div>
+
+        <ul v-if="quota.history.length" class="mt-3 space-y-1 text-caption text-muted">
+          <li
+            v-for="(entry, index) in quota.history.slice(-3).reverse()"
+            :key="`${entry.at}-${index}`"
+            class="flex flex-wrap gap-x-2"
+          >
+            <span class="tabular-nums">{{ formatTime(entry.at) }}</span>
+            <span class="text-ink-soft">{{ entry.reason }}</span>
+            <span v-if="entry.actions.length">· {{ entry.actions.join("；") }}</span>
+          </li>
+        </ul>
+      </template>
     </SectionCard>
 
     <SectionCard

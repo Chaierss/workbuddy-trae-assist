@@ -6,16 +6,18 @@
 import { computed, ref } from "vue";
 import SectionCard from "../SectionCard.vue";
 import StatusPill from "../StatusPill.vue";
-import { t } from "../../lib/i18n";
-import type { ActivityRun } from "../../api";
+import { t, type MessageKey } from "../../lib/i18n";
+import type { ActivityRun, ActivityToday } from "../../api";
 
 const props = withDefaults(
   defineProps<{
     runs: ActivityRun[];
     /** 账号 id → 显示名；流水只带 id，名字由活动页的号池清单 join 进来。 */
     names?: Record<string, string>;
+    /** 今日成效：把跳过拆成四类，回答「今天到底做成了什么」。 */
+    today?: ActivityToday | null;
   }>(),
-  { runs: () => [], names: () => ({}) },
+  { runs: () => [], names: () => ({}), today: null },
 );
 
 const keyFilter = ref<string>("all");
@@ -81,6 +83,42 @@ function dayLabel(value: string): string {
         <option v-for="id in accountIds" :key="id" :value="id">{{ nameOf(id) }}</option>
       </select>
     </template>
+
+    <div
+      v-if="props.today"
+      class="grid grid-cols-2 gap-px border-b border-line-soft bg-line-soft sm:grid-cols-5"
+    >
+      <div
+        v-for="cell in [
+          { key: 'done', value: props.today.reasons.done, tone: 'text-brand-dark' },
+          { key: 'ok', value: props.today.ok, tone: 'text-brand-dark' },
+          { key: 'upstream', value: props.today.reasons.upstream, tone: 'text-ink-soft' },
+          { key: 'prereq', value: props.today.reasons.prereq, tone: 'text-warn' },
+          { key: 'detect', value: props.today.reasons.detect, tone: 'text-danger' },
+        ]"
+        :key="cell.key"
+        class="bg-surface px-5 py-3"
+      >
+        <div class="text-caption text-muted">
+          {{ t(`activity.today.${cell.key}` as MessageKey) }}
+        </div>
+        <div class="mt-0.5 text-metric font-semibold tabular-nums" :class="cell.tone">
+          {{ cell.value }}
+        </div>
+      </div>
+    </div>
+    <div
+      v-if="props.today"
+      class="border-b border-line-soft px-5 py-2 text-caption text-muted"
+    >
+      {{
+        t("activity.today.summary", {
+          total: props.today.total,
+          failed: props.today.failed,
+          reward: props.today.reward,
+        })
+      }}
+    </div>
 
     <div v-if="!filtered.length" class="px-5 py-10 text-center text-body text-muted">
       {{ t("activity.officialRunsEmpty") }}

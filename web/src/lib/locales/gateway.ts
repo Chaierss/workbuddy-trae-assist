@@ -61,6 +61,19 @@ export const gatewayZh = {
   "gateway.pool.note.probe":
     "探测是往上游真打一次最小请求（1 个 token）：成功会立即解除该账号的冷却；失败不清冷却，也不会改动排除状态。",
 
+  "gateway.quota.title": "额度闭环",
+  "gateway.quota.subtitle":
+    "每 10 分钟查一轮余额：耗尽自动移出网关，默认号耗尽时自动换到还有额度的号，并留下可解释记录",
+  "gateway.quota.run": "立即评估",
+  "gateway.quota.dryRun": "只推演",
+  "gateway.quota.empty": "还没有评估记录；点「立即评估」会先查一轮余额。",
+  "gateway.quota.exhaustedCount": "耗尽 {count} 个",
+  "gateway.quota.lowCount": "低额度 {count} 个",
+  "gateway.quota.lowThreshold": "预警线 {value}",
+  "gateway.quota.evaluatedAt": "评估于 {time}",
+  "gateway.quota.exhaustedItem": "{name}：余额 0，已出池",
+  "gateway.quota.lowItem": "{name}：{credits} 积分",
+
   "gateway.stat.requests": "请求总数",
   "gateway.stat.failed": "失败 {count} 次",
   "gateway.stat.tokens": "Token 合计",
@@ -441,6 +454,19 @@ export const gatewayEn = {
   "gateway.pool.note.excludeSuffix": "; the account still works normally in the local client.",
   "gateway.pool.note.probe":
     "A probe sends one minimal upstream request (a single token): success clears the account's cooldown at once; failure neither clears the cooldown nor changes its excluded state.",
+
+  "gateway.quota.title": "Quota guard",
+  "gateway.quota.subtitle":
+    "Checks balances every 10 minutes: exhausted accounts leave the gateway automatically, and an exhausted default account is swapped for one with credits, with an explainable ledger",
+  "gateway.quota.run": "Evaluate now",
+  "gateway.quota.dryRun": "Dry run",
+  "gateway.quota.empty": "No evaluation yet; use “Evaluate now” to check balances.",
+  "gateway.quota.exhaustedCount": "{count} exhausted",
+  "gateway.quota.lowCount": "{count} low",
+  "gateway.quota.lowThreshold": "Warn below {value}",
+  "gateway.quota.evaluatedAt": "Evaluated {time}",
+  "gateway.quota.exhaustedItem": "{name}: zero balance, removed from pool",
+  "gateway.quota.lowItem": "{name}: {credits} credits",
 
   "gateway.stat.requests": "Total requests",
   "gateway.stat.failed": "{count} failed",

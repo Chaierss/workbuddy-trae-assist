@@ -1180,7 +1180,13 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
     body = client.get("/api/overview/actionables").json()
     assert set(body) == {"items", "pulse", "campaigns"}
     by_kind = {item["kind"]: item for item in body["items"]}
-    assert set(by_kind) == {"credential", "checkin", "credits_expiring", "client_offline"}
+    assert set(by_kind) == {
+        "credential",
+        "checkin",
+        "credits_expiring",
+        "quota_low",
+        "client_offline",
+    }
 
     assert by_kind["credential"]["severity"] == "high"
     assert by_kind["credential"]["accountId"] == account_id
@@ -1341,7 +1347,7 @@ def test_overview_actionables_empty_when_all_clear(client, monkeypatch):
         client,
         monkeypatch,
         detected=[_pending_activity(account_id, done=True)],
-        credits={account_id: CreditInfo(available=True, credits=10.0, expiring_soon=False)},
+        credits={account_id: CreditInfo(available=True, credits=500.0, expiring_soon=False)},
         clients=[_client_row(installed=True, running=True)],
     )
 
@@ -1948,3 +1954,76 @@ def test_reconcile_walks_both_scopes_and_only_writes_changes(client, monkeypatch
     # Trae 客户端那份变了 → 收回号池并记「已更新」。
     assert records[trae.account.id]["result"] == "已更新"
     assert repo.credential_record(trae.account.id)[1]["accessToken"] == "fresh-trae"
+
+
+def test_activity_today_splits_skipped_reasons(client):
+    from datetime import UTC, datetime
+
+    account = _seed(client).account
+    day = datetime.now(UTC).astimezone().date().isoformat()
+    client.app.state.repository.record_activity_runs(
+        [
+            {
+                "accountId": account.id,
+                "key": "workbuddy.daily_checkin",
+                "day": day,
+                "attempt": 1,
+                "status": "ok",
+                "message": "签到成功",
+                "reward": 20.0,
+            },
+            {
+                "accountId": account.id,
+                "key": "workbuddy.daily_checkin",
+                "day": day,
+                "attempt": 1,
+                "status": "skipped",
+                "message": "今天已签到",
+                "reward": None,
+            },
+            {
+                "accountId": account.id,
+                "key": "workbuddy.growth_tasks",
+                "day": day,
+                "attempt": 1,
+                "status": "skipped",
+                "message": "没有可自动执行的成长任务",
+                "reward": None,
+            },
+            {
+                "accountId": account.id,
+                "key": "workbuddy.active_map",
+                "day": day,
+                "attempt": 1,
+                "status": "skipped",
+                "message": "热力图读不到，本轮不做判断",
+                "reward": None,
+            },
+        ]
+    )
+
+    body = client.get("/api/activities/today").json()
+
+    assert body["ok"] == 1
+    assert body["skipped"] == 3
+    assert body["reasons"]["done"] == 1
+    assert body["reasons"]["upstream"] == 1
+    assert body["reasons"]["detect"] == 1
+    assert body["accounts"][0]["done"] == 1
+    assert body["reward"] == 20.0
+
+
+def test_quota_state_is_readable_and_evaluable(client):
+    # 后台评估线程启动时会先跑一轮（空号池），所以 last 一定存在但没有任何账号。
+    state = client.get("/api/quota")
+    assert state.status_code == 200
+    body = state.json()
+    assert body["last"]["exhausted"] == []
+    assert body["last"]["warnings"] == []
+    assert body["lowThreshold"] > 0
+
+    result = client.post("/api/quota/evaluate?dryRun=true")
+    assert result.status_code == 200
+    evaluated = result.json()
+    assert evaluated["plan"]["exhausted"] == []
+    assert evaluated["executed"] is False

@@ -85,6 +85,12 @@ JITTER_CHOICES: tuple[int, ...] = (0, 5, 15, 30)
 
 DEFAULT_TICK_SECONDS = 30.0
 
+#: 失败后的当日补跑：等 30 分钟再跑一次（上游 5xx / 限流往往几分钟内自愈，
+#: 立刻重跑只会再失败一次）。一天最多补跑 2 次，且只补到当天结束 ——
+#: 跨天的补跑没有意义，第二天的正常时点会覆盖它。
+RETRY_DELAY_SECONDS = 1800
+RETRY_MAX_PER_DAY = 2
+
 #: 每个计划任务保留的执行日志条数（最近 N 次）。每跑一次追加一条（时间 + 结果摘要），
 #: 超出只留最近的，避免 `schedules.json` 随运行天数无限增长。
 HISTORY_KEEP = 7
@@ -99,8 +105,9 @@ _DEFAULT_TIMES: dict[str, tuple[str, ...]] = {
     # 派出放在签到/活动之后；回领留到下午，给猫留出在路上的时间。
     "travel_depart": ("09:30",),
     "travel_claim": ("15:30",),
-    # 凭据续期一天两次：早、晚各看一次「有没有 30 分钟内到期的号」。
-    "credential_refresh": ("08:00", "20:00"),
+    # 凭据续期一天四次：早、中、晚、夜各看一次「有没有进入续期窗口的号」。
+    # 加上启动时的一次巡检，应用即使白天没开，晚上打开也能补上。
+    "credential_refresh": ("08:00", "12:00", "16:00", "20:00"),
     # 会话镜像：白天每隔两小时采一次（只读）。客户端运行中也安全，
     # 因此不需要和「客户端是否退出」对齐；关掉后只剩切号那一刻才镜像。
     "session_sync": ("10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"),
@@ -132,6 +139,9 @@ class TaskSpec:
     #: 最近 `HISTORY_KEEP` 次执行记录（`{"at": ..., "result": ..., "meta": {...}}`），
     #: 旧的在前。``meta`` 是可选的机器可读结论，供界面画状态徽标。
     history: tuple[dict[str, Any], ...] = ()
+    #: 待执行的当日补跑：``{"at": due ISO, "attempt": 1|2, "day": YYYY-MM-DD,
+    #: "accountIds": [...], "keys": [...]}``。``None`` = 没有待补跑。
+    retry: dict[str, Any] | None = None
 
     def payload(self, next_run_at: str | None = None) -> dict[str, Any]:
         return {
@@ -145,6 +155,8 @@ class TaskSpec:
             "lastResult": self.last_result,
             "history": [dict(item) for item in self.history],
             "nextRunAt": next_run_at,
+            "retryAt": (self.retry or {}).get("at"),
+            "retry": dict(self.retry) if self.retry else None,
         }
 
 
@@ -248,6 +260,7 @@ class Scheduler:
                     item.get("lastResult") if isinstance(item.get("lastResult"), str) else ""
                 ),
                 history=_read_history(item.get("history")),
+                retry=_read_retry(item.get("retry")),
             )
             # 老版本的存档只留了「上次结果」一条。补齐成日志的第一条，
             # 免得升级后界面上明明跑过、日志区却是空的。
@@ -389,6 +402,34 @@ class Scheduler:
         found.sort(key=lambda pair: pair[1])
         return found
 
+    def due_retries(self, now: datetime | None = None) -> list[TaskSpec]:
+        """到点的当日补跑。跨天或已停用的补跑计划直接作废。"""
+        moment = now or self._now()
+        today = moment.date().isoformat()
+        due: list[TaskSpec] = []
+        stale: list[str] = []
+        with self._lock:
+            specs = [self._tasks[key] for key in TASK_KEYS if key in self._tasks]
+        for spec in specs:
+            plan = spec.retry
+            if not plan:
+                continue
+            if not spec.enabled or str(plan.get("day") or "") != today:
+                stale.append(spec.key)
+                continue
+            at = _parse_iso(str(plan.get("at") or ""))
+            if at is not None and at <= moment:
+                due.append(spec)
+        if stale:
+            with self._lock:
+                for key in stale:
+                    current = self._tasks.get(key)
+                    if current is not None and current.retry:
+                        self._tasks[key] = replace(current, retry=None)
+                self._write()
+        due.sort(key=lambda item: str((item.retry or {}).get("at") or ""))
+        return due
+
     def _next_run_at(self, spec: TaskSpec, now: datetime) -> str | None:
         if not spec.enabled or not spec.times:
             return None
@@ -411,28 +452,112 @@ class Scheduler:
         """
         moment = now or self._now()
         outcomes: list[dict[str, Any]] = []
+        retried: set[str] = set()
+        # 补跑先跑：它代表「今天早些时候的失败」，比正常时点更急。
+        for spec in self.due_retries(moment):
+            outcomes.append(self._execute(spec, at=moment, retry=spec.retry))
+            retried.add(spec.key)
         for spec, _occurrence in self.due_tasks(moment):
+            if spec.key in retried:
+                continue
             outcomes.append(self._execute(spec, at=moment))
         return outcomes
 
     def run_now(self, key: str) -> dict[str, Any]:
         spec = self.get(key)
-        return self._execute(spec, at=self._now())
+        # 手动「立即执行」不挂补跑计划：用户在场，失败他自己看得见，
+        # 半小时后又自动跑一次只会让人以为任务失控。
+        return self._execute(spec, at=self._now(), allow_retry=False)
 
-    def _execute(self, spec: TaskSpec, *, at: datetime) -> dict[str, Any]:
+    def _execute(
+        self,
+        spec: TaskSpec,
+        *,
+        at: datetime,
+        retry: dict[str, Any] | None = None,
+        allow_retry: bool = True,
+    ) -> dict[str, Any]:
+        plan = dict(retry) if retry else None
+        attempt = int((plan or {}).get("attempt") or 0)
+        account_ids = (
+            tuple(_string_list(plan.get("accountIds"))) if plan else spec.account_ids
+        ) or spec.account_ids
+        activity_keys = (
+            tuple(_string_list(plan.get("keys"))) if plan else spec.activity_keys
+        ) or spec.activity_keys
         try:
-            raw = self._executor(spec.key, spec.account_ids, spec.activity_keys)
+            raw = self._executor(spec.key, account_ids, activity_keys)
             result, meta = _split_outcome(raw)
         except Exception as exc:  # noqa: BLE001 - 单次失败只记结果，绝不退出线程
             logger.exception("计划任务执行异常：%s", spec.key)
             result = f"执行异常：{type(exc).__name__}：{exc}"
             meta = {}
-        stamped = self._mark(spec.key, at=at, result=result, meta=meta)
+        if attempt:
+            result = f"补跑第 {attempt} 次：{result}"
+        next_retry = (
+            self._next_retry(spec, at=at, meta=meta, attempt=attempt)
+            if allow_retry
+            else None
+        )
+        stamped = self._mark(
+            spec.key, at=at, result=result, meta=meta, retry=next_retry
+        )
         logger.info("计划任务 %s 执行完成：%s", spec.key, result)
-        return {"key": spec.key, "result": result, "meta": meta, "lastRunAt": stamped}
+        if next_retry:
+            logger.info(
+                "计划任务 %s 将在 %s 补跑（第 %s 次）",
+                spec.key,
+                next_retry["at"],
+                next_retry["attempt"],
+            )
+        return {
+            "key": spec.key,
+            "result": result,
+            "meta": meta,
+            "lastRunAt": stamped,
+            "retryAt": next_retry["at"] if next_retry else None,
+        }
+
+    def _next_retry(
+        self,
+        spec: TaskSpec,
+        *,
+        at: datetime,
+        meta: dict[str, Any],
+        attempt: int,
+    ) -> dict[str, Any] | None:
+        """这一轮失败值不值得当天补跑。
+
+        只认 ``retryable``（网络 / 5xx / 限流）：业务拒绝补了也还是拒绝，
+        401 补了还是 401。补跑不跨天 —— 第二天的正常时点会覆盖它。
+        """
+        if not spec.enabled or not isinstance(meta, dict):
+            return None
+        if int(meta.get("failed") or 0) <= 0:
+            return None
+        if int(meta.get("retryable") or 0) <= 0:
+            return None
+        if attempt >= RETRY_MAX_PER_DAY:
+            return None
+        due = at + timedelta(seconds=RETRY_DELAY_SECONDS)
+        if due.date() != at.date():
+            return None
+        return {
+            "at": due.isoformat(timespec="seconds"),
+            "attempt": attempt + 1,
+            "day": at.date().isoformat(),
+            "accountIds": list(spec.account_ids),
+            "keys": list(spec.activity_keys),
+        }
 
     def _mark(
-        self, key: str, *, at: datetime, result: str, meta: dict[str, Any] | None = None
+        self,
+        key: str,
+        *,
+        at: datetime,
+        result: str,
+        meta: dict[str, Any] | None = None,
+        retry: dict[str, Any] | None = None,
     ) -> str | None:
         stamp = at.isoformat(timespec="seconds")
         entry: dict[str, Any] = {"at": stamp, "result": result}
@@ -444,7 +569,11 @@ class Scheduler:
                 return None
             history = (*current.history, entry)[-HISTORY_KEEP:]
             self._tasks[key] = replace(
-                current, last_run_at=stamp, last_result=result, history=history
+                current,
+                last_run_at=stamp,
+                last_result=result,
+                history=history,
+                retry=retry,
             )
             self._write()
         return stamp
@@ -528,6 +657,30 @@ def _read_history(value: Any) -> tuple[dict[str, Any], ...]:
             entry["meta"] = dict(meta)
         entries.append(entry)
     return tuple(entries[-HISTORY_KEEP:])
+
+
+def _read_retry(value: Any) -> dict[str, Any] | None:
+    """读盘时清洗补跑计划：时间/日期/次数缺一不可，坏数据直接丢掉。"""
+    if not isinstance(value, dict):
+        return None
+    at = value.get("at")
+    day = value.get("day")
+    attempt = value.get("attempt")
+    if not isinstance(at, str) or _parse_iso(at) is None:
+        return None
+    if not isinstance(day, str) or not day:
+        return None
+    if isinstance(attempt, bool) or not isinstance(attempt, int):
+        return None
+    if not 1 <= attempt <= RETRY_MAX_PER_DAY:
+        return None
+    return {
+        "at": at,
+        "attempt": attempt,
+        "day": day,
+        "accountIds": _string_list(value.get("accountIds")),
+        "keys": _string_list(value.get("keys")),
+    }
 
 
 def _validate_times(times: Iterable[str]) -> tuple[str, ...]:

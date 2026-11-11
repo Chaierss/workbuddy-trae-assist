@@ -668,10 +668,10 @@ def test_sweep_records_upstream_error_code(repo, monkeypatch):
 
 
 def test_refresh_window_scales_with_lifetime():
-    """提前窗口 = min(6h, 寿命 × 10%)，下限 30 分钟。"""
-    assert _refresh_window(None) == timedelta(minutes=30)
-    # 2h 寿命按 10% 只有 12 分钟，抬到下限 30 分钟。
-    assert _refresh_window(timedelta(hours=2)) == timedelta(minutes=30)
+    """提前窗口 = min(6h, 寿命 × 10%)，下限 2 小时。"""
+    assert _refresh_window(None) == timedelta(hours=2)
+    # 2h 寿命按 10% 只有 12 分钟，抬到下限 2 小时。
+    assert _refresh_window(timedelta(hours=2)) == timedelta(hours=2)
     assert _refresh_window(timedelta(hours=30)) == timedelta(hours=3)
     # 100h 寿命按 10% 是 10h，压到上限 6h。
     assert _refresh_window(timedelta(hours=100)) == timedelta(hours=6)
@@ -840,7 +840,7 @@ def test_reconcile_failure_does_not_block_sweep(repo, monkeypatch):
 def test_credential_refresh_task_is_on_by_default():
     spec = _default_tasks()["credential_refresh"]
     assert spec.enabled is True
-    assert spec.times == ("08:00", "20:00")
+    assert spec.times == ("08:00", "12:00", "16:00", "20:00")
 
 
 # ---------- 巡检历史 / 退避时间 / 手动作废 ----------

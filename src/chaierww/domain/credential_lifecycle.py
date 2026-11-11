@@ -10,7 +10,7 @@
 ## 三种模式
 
 - ``due``：只续「有效期已知且进入提前窗口」的号。窗口 = min(6 小时, 寿命 × 10%)，
-  下限 30 分钟；寿命未知的老凭据退回 30 分钟。这是把「默认开启自动续期」的日常
+  下限 2 小时；寿命未知的老凭据退回 2 小时。这是把「默认开启自动续期」的日常
   上游压力压到接近零的关键。连续失败还会退避（1h / 6h / 熔断）。
 - ``force``：逐号强制续期（用户手动点的「续期凭据」）。没有 refreshToken 的号如实
   报「不支持」，不算失败。
@@ -78,8 +78,10 @@ from chaierww.domain.trae_crypto import TraeCryptoError, tc_decrypt
 
 logger = logging.getLogger("chaierww")
 
-#: 续期窗口下限：最短也要提前 30 分钟，避免短寿命令牌刚拿到就过期。
-REFRESH_WINDOW = timedelta(minutes=30)
+#: 续期窗口下限：最短也要提前 2 小时，避免短寿命令牌刚拿到就过期。
+#: 原先只提前 30 分钟 —— 应用没运行、或者一次巡检恰好在窗口外，就会错过续期；
+#: 提前到 2 小时后，一天四次巡检基本不可能全都落在窗口外。
+REFRESH_WINDOW = timedelta(hours=2)
 #: 续期窗口上限：再长的令牌也不提前超过 6 小时续期，控制日常上游压力。
 MAX_REFRESH_WINDOW = timedelta(hours=6)
 #: 过期时间未知的号：不再永久跳过，而是按这个间隔做一次「盲续期」探针。
@@ -333,9 +335,9 @@ def token_expiry(kind: str, credential: dict[str, Any]) -> datetime | None:
 
 
 def _refresh_window(lifetime: timedelta | None) -> timedelta:
-    """提前续期窗口 = min(6h, 寿命 × 10%)，下限 30 分钟。
+    """提前续期窗口 = min(6h, 寿命 × 10%)，下限 2 小时。
 
-    寿命未知（老导入凭据）时退回 30 分钟：宁可晚一点续，也不凭空放大上游压力。
+    寿命未知（老导入凭据）时退回 2 小时：宁可晚一点续，也不凭空放大上游压力。
     """
     if lifetime is None or lifetime <= timedelta(0):
         return REFRESH_WINDOW

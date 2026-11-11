@@ -225,6 +225,43 @@ export interface ActivityRuns {
   runs: ActivityRun[];
 }
 
+/**
+ * 今日活动成效：把「跳过」按真实原因拆开。
+ * done = 已完成/已领取，upstream = 上游暂无，prereq = 缺前置，detect = 读不出状态。
+ */
+export interface ActivityToday {
+  day: string;
+  total: number;
+  ok: number;
+  skipped: number;
+  failed: number;
+  reward: number;
+  reasons: {
+    done: number;
+    upstream: number;
+    prereq: number;
+    detect: number;
+    other: number;
+  };
+  accounts: {
+    accountId: string;
+    displayName: string;
+    ok: number;
+    skipped: number;
+    failed: number;
+    done: number;
+    reward: number;
+  }[];
+  byKey: {
+    key: string;
+    title: string;
+    ok: number;
+    skipped: number;
+    failed: number;
+    done: number;
+  }[];
+}
+
 export interface CredentialHealth {
   accounts: CredentialGap[];
   total: number;
@@ -963,6 +1000,8 @@ export interface ScheduleSpec {
   /** 最近若干次执行记录（时间 + 结果摘要），旧的在前，只保留最近 7 条。 */
   history: { at: string; result: string; meta?: Record<string, number> }[];
   nextRunAt: string | null;
+  /** 失败后计划中的当日补跑时刻；`null` = 没有待补跑。 */
+  retryAt?: string | null;
 }
 
 /** 自动轮换策略（防积分过期）。默认关闭，须在设置里手动开。 */
@@ -1001,6 +1040,49 @@ export interface RotationState {
   lastEvaluatedAt: string | null;
   lastSwitchAt: string | null;
   history: RotationLedgerEntry[];
+}
+
+/** 额度闭环的一条台账：这一轮看到谁耗尽/偏低、做了什么、为什么。 */
+export interface QuotaLedgerEntry {
+  at: string;
+  actions: string[];
+  switched: boolean;
+  reason: string;
+  exhausted: string[];
+  warnings: { accountId: string; credits: number | null }[];
+  targetAccountId: string | null;
+  targetName: string;
+}
+
+export interface QuotaState {
+  lastEvaluatedAt: string | null;
+  lastSwitchAt: string | null;
+  lowThreshold: number;
+  last: {
+    at: string;
+    exhausted: { accountId: string; displayName: string; credits: number | null }[];
+    warnings: { accountId: string; displayName: string; credits: number | null }[];
+    currentAccountId: string | null;
+    targetAccountId: string | null;
+    reason: string;
+    switched: boolean;
+  } | null;
+  history: QuotaLedgerEntry[];
+}
+
+export interface QuotaEvaluateResult {
+  plan: {
+    exhausted: string[];
+    warnings: { accountId: string; credits: number | null }[];
+    currentAccountId: string | null;
+    targetAccountId: string | null;
+    reason: string;
+  };
+  actions: string[];
+  executed: boolean;
+  detail: string;
+  clientRunning: boolean;
+  state: QuotaState;
 }
 
 export interface RotationDecision {
@@ -1674,6 +1756,15 @@ export const api = {
       state: RotationState;
     }>(`/api/rotation/run-now${dryRun ? "?dryRun=true" : ""}`, { method: "POST" }),
 
+  /** 号池额度闭环：最近一轮评估的预警 / 出池 / 换号台账。 */
+  quota: () => request<QuotaState>("/api/quota"),
+
+  /** 立即评估一轮额度；`dryRun=true` 只推演，不出池也不换号。 */
+  evaluateQuota: (dryRun = false) =>
+    request<QuotaEvaluateResult>(`/api/quota/evaluate${dryRun ? "?dryRun=true" : ""}`, {
+      method: "POST",
+    }),
+
   accounts: (scope: string) =>
     request<{ accounts: Account[] }>(`/api/accounts?scope=${encodeURIComponent(scope)}`),
 
@@ -1743,6 +1834,9 @@ export const api = {
   /** 最近几天的活动执行流水（新的在前）。 */
   activityRuns: (days = 7, limit = 500) =>
     request<ActivityRuns>(`/api/activities/runs?days=${days}&limit=${limit}`),
+
+  /** 今日成效：跳过按「已完成 / 上游暂无 / 缺前置 / 检测失败」拆开。 */
+  activityToday: () => request<ActivityToday>("/api/activities/today"),
 
   /** 按天聚合的活动趋势；`key` 省略 = 目录内全部活动。 */
   activityHistory: (days = 14, key?: string) => {

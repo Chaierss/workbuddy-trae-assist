@@ -616,6 +616,9 @@ onMounted(() => {
                   })
                 }}
               </div>
+              <div v-if="task.enabled && task.retryAt" class="text-warn">
+                {{ t("schedule.retryAt", { value: formatMoment(task.retryAt) }) }}
+              </div>
               <div
                 v-if="flash && flash.key === task.key"
                 :class="flash.tone === 'ok' ? 'text-brand-dark' : 'text-rose-500'"

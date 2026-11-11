@@ -54,6 +54,7 @@ import {
   type ActivityRunReport,
   type ActivityState,
   type ActivitySummary,
+  type ActivityToday,
 } from "../api";
 
 type Tab = "official" | "accounts" | "runs";
@@ -243,6 +244,8 @@ const hideDone = ref(false);
 const runReport = ref<ActivityRunReport | null>(null);
 /** 最近执行流水：落库的是每轮最终结论，用来回看「为什么失败」。 */
 const runs = ref<ActivityRun[]>([]);
+/** 今日成效：把「跳过」拆成做完 / 上游暂无 / 缺前置 / 检测失败。 */
+const today = ref<ActivityToday | null>(null);
 const runningTargets = ref<Set<string>>(new Set());
 const expanded = ref<Set<string>>(new Set());
 const toast = ref<string | null>(null);
@@ -555,11 +558,16 @@ async function load(refresh = false): Promise<void> {
 
 async function loadRuns(): Promise<void> {
   try {
-    const data = await api.activityRuns(7, 200);
+    const [data, summary] = await Promise.all([
+      api.activityRuns(7, 200),
+      api.activityToday(),
+    ]);
     runs.value = data.runs;
+    today.value = summary;
   } catch {
     // 流水只是辅助信息，读不到不影响活动页主流程。
     runs.value = [];
+    today.value = null;
   }
 }
 
@@ -844,7 +852,7 @@ const runReportView = computed(() =>
 
     <template v-else-if="tab === 'runs'">
       <div class="mt-3">
-        <ActivityRunsPanel :runs="runs" :names="accountNames" />
+        <ActivityRunsPanel :runs="runs" :names="accountNames" :today="today" />
       </div>
     </template>
 

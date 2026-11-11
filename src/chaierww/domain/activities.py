@@ -132,6 +132,103 @@ RESULT_OK = "ok"
 RESULT_SKIPPED = "skipped"
 RESULT_FAILED = "failed"
 
+#: 「跳过」不是一种结论，而是四种。以前全部记成 skipped，界面只能看到
+#: 「跳过 22」，分不清「今天做完了」和「今天什么都没做」。这里按原因拆开：
+#:
+#: - ``done``：已经完成/领取过（含上游已满足），今天确实有成效；
+#: - ``upstream``：上游当前没有可做项（窗口未到、已派完、没有任务），不是问题；
+#: - ``prereq``：缺前置（登录失效、没有凭据、缺补签卡/次数、需手动），要人处理；
+#: - ``detect``：状态读不出来（接口不可用/无法识别），结论未知，不猜；
+#: - ``other``：没匹配上任何一类，保持诚实，不硬归。
+REASON_DONE = "done"
+REASON_UPSTREAM = "upstream"
+REASON_PREREQ = "prereq"
+REASON_DETECT = "detect"
+REASON_OTHER = "other"
+
+SKIP_REASONS: tuple[str, ...] = (
+    REASON_DONE,
+    REASON_UPSTREAM,
+    REASON_PREREQ,
+    REASON_DETECT,
+    REASON_OTHER,
+)
+
+#: 判定顺序固定：先看「已经做完」，再看「读不出来」，然后「缺前置」，
+#: 最后才是「上游暂无」。顺序反了会把「凭据不可读」误记成「上游没任务」。
+_REASON_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        REASON_DONE,
+        (
+            "已签到",
+            "已处理过",
+            "已领取",
+            "已点亮",
+            "已兑换",
+            "已派完",
+            "已抽",
+            "已上报",
+        ),
+    ),
+    (
+        REASON_DETECT,
+        (
+            "无法识别",
+            "无法确认",
+            "无法读取",
+            "不可查",
+            "读不到",
+            "读取失败",
+            "检测失败",
+            "接口不可用",
+            "暂时读不到",
+        ),
+    ),
+    (
+        REASON_PREREQ,
+        (
+            "登录",
+            "凭据",
+            "设备",
+            "补签卡",
+            "次数不足",
+            "没有抽奖次数",
+            "还没有 Buddy",
+            "需手动",
+        ),
+    ),
+    (
+        REASON_UPSTREAM,
+        (
+            "没有可",
+            "没有夜猫子",
+            "未开放",
+            "未开启",
+            "不在进行期",
+            "不在 23:00",
+            "在路上",
+            "旅行中",
+            "当前没有",
+        ),
+    ),
+)
+
+
+def classify_skip(message: str) -> str:
+    """把「跳过」的文案归到四类原因之一；匹配不上就回 ``other``。
+
+    只做分类、不改文案：界面展示的仍是上游/本工具的原话。规则是关键词表，
+    新增跳过文案时应该同时在测试里补一条，避免新文案悄悄落进 ``other``。
+    """
+    text = (message or "").strip()
+    if not text:
+        return REASON_OTHER
+    for reason, keywords in _REASON_RULES:
+        if any(word in text for word in keywords):
+            return reason
+    return REASON_OTHER
+
+
 CACHE_TTL_SECONDS = 120.0
 ACCOUNT_GAP_SECONDS = 0.8
 #: 失败重试前的退避（秒）。上游 5xx / 网络抖动往往几秒内就恢复，但立刻重打只会再失败一次。
@@ -603,6 +700,8 @@ class RunResult:
     retryable: bool = False
     #: 这是第几次尝试的结果（1 = 首轮，2 = 失败重试轮）。
     attempt: int = 1
+    #: 「跳过」的真实原因（见 ``classify_skip``）；非跳过为空串。
+    reason: str = ""
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -616,6 +715,7 @@ class RunResult:
             "reward": self.reward,
             "retryable": self.retryable,
             "attempt": self.attempt,
+            "reason": self.reason,
         }
 
 
@@ -1925,7 +2025,12 @@ class ActivitiesService:
         reward: float | None = None,
         *,
         retryable: bool = False,
+        reason: str = "",
     ) -> RunResult:
+        # 跳过的原因在构造时一次性算好：调用方不需要逐个记得传，
+        # 漏传也只会落成 other（诚实未知），不会把「没做」说成「做完」。
+        if not reason and status == RESULT_SKIPPED:
+            reason = classify_skip(message)
         return RunResult(
             account_id=account.id,
             display_name=account.display_name,
@@ -1936,6 +2041,7 @@ class ActivitiesService:
             message=message,
             reward=reward,
             retryable=retryable,
+            reason=reason,
         )
 
     def close(self) -> None:
@@ -1945,11 +2051,24 @@ class ActivitiesService:
 
 
 def _summarize_results(results: list[RunResult]) -> dict[str, int]:
+    """一行汇总：总项数 + 三种结论 + 跳过的四种原因 + 可重试失败数。
+
+    ``retryable`` 供调度器判断「这一轮值不值得当日补跑」——
+    只有网络/5xx/限流这类会自愈的失败才补跑，业务拒绝补了也是再失败一次。
+    """
+    skipped = [item for item in results if item.status == RESULT_SKIPPED]
+    reasons = {reason: 0 for reason in SKIP_REASONS}
+    for item in skipped:
+        reasons[item.reason if item.reason in reasons else REASON_OTHER] += 1
     return {
         "total": len(results),
         "ok": sum(1 for item in results if item.status == RESULT_OK),
-        "skipped": sum(1 for item in results if item.status == RESULT_SKIPPED),
+        "skipped": len(skipped),
         "failed": sum(1 for item in results if item.status == RESULT_FAILED),
+        "retryable": sum(
+            1 for item in results if item.status == RESULT_FAILED and item.retryable
+        ),
+        **{f"skip.{reason}": count for reason, count in reasons.items()},
     }
 
 
