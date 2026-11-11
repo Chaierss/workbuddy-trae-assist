@@ -2014,7 +2014,12 @@ def test_activity_today_splits_skipped_reasons(client):
 
 
 def test_quota_state_is_readable_and_evaluable(client):
-    # 后台评估线程启动时会先跑一轮（空号池），所以 last 一定存在但没有任何账号。
+    # 后台评估线程的第一轮何时跑不由用例控制（CI 上慢到几秒很常见），
+    # 先手动跑一轮，台账才是确定的；否则读接口可能拿到 last=None。
+    executed = client.post("/api/quota/evaluate")
+    assert executed.status_code == 200
+    assert executed.json()["plan"]["exhausted"] == []
+
     state = client.get("/api/quota")
     assert state.status_code == 200
     body = state.json()
