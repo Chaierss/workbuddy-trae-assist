@@ -6,7 +6,8 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  // 用例总时长要容得下「首个断言等冷启动」的 45s 预算，否则断言还没超时就先被用例超时掐掉。
+  timeout: 90_000,
   retries: 0,
   // 首次冷启动时 Vite 预构建 + 后端首次读写库都偏慢，默认 5s 断言超时会假失败。
   expect: { timeout: 15_000 },

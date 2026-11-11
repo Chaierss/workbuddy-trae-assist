@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 
 test("概览与活动页可用（API 守卫下自动领取会话）", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  // 首个断言等的是 Vite dev 的冷启动：CI 上预构建 + 模块转换可能超过 15s，
+  // 这里单独放宽，避免首屏还没挂载就判失败（其余断言仍用配置里的 15s）。
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 45_000 });
 
   await page.goto("/activity");
   await expect(page.getByRole("heading", { name: "活动", exact: false }).first()).toBeVisible();
