@@ -353,6 +353,23 @@ def test_trae_checkin_disabled_is_not_started():
     assert item.actionable is False
 
 
+def test_trae_checkin_ignores_did_checked_in():
+    """`did_checked_in` 是「签过」，不是「今天签过」——不能拿它判今日完成。
+
+    线上实测：账号昨日签过后 `did_checked_in` 一直是 true，若把它算进完成态，
+    签到会被永久跳过，每天 100 积分再也拿不到。
+    """
+    item = parse_trae_checkin(
+        {"code": 0, "checked_in": False, "did_checked_in": True, "enable": True, "credits": 100}
+    )
+    assert item.state == STATE_TODO
+    assert item.actionable is True
+
+    # 上游老响应完全没有 checked_in 字段时才退回 did_checked_in 兜底。
+    legacy = parse_trae_checkin({"code": 0, "did_checked_in": True, "enable": True, "credits": 100})
+    assert legacy.state == STATE_DONE
+
+
 # ---------- 汇总 ----------
 
 

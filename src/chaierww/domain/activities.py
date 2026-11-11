@@ -994,7 +994,15 @@ def _tier_days(tier: str) -> int | None:
 
 def parse_trae_checkin(body: dict[str, Any]) -> ActivityItem:
     """`checkin_credits/status` 响应 → 每日签到这一项。"""
-    done = bool(body.get("checked_in") or body.get("did_checked_in"))
+    # 只认 checked_in：它表示「今天签了没有」。
+    # did_checked_in 是「这个账号签过」（当前活动周期内），账号签过一次之后
+    # 它会一直是 true —— 拿它当今日状态会让签到永久跳过，积分再也涨不上去
+    # （11-11 实测：checked_in=false 且 did_checked_in=true，被判成「今日已签到」）。
+    # 只有上游老响应里压根没有 checked_in 字段时才退回它兜底。
+    done = body.get("checked_in")
+    if done is None:
+        done = body.get("did_checked_in")
+    done = bool(done)
     enabled = body.get("enable")
     enable = True if enabled is None else bool(enabled)
     credits = _num(body.get("credits"))
