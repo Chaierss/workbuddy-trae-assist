@@ -28,6 +28,7 @@ ALLOWED = {
     "docs/QUICKSTART.md",
     "docs/QUICKSTART.en.md",
     "docs/LINUX.md",
+    "docs/DSH-PLUGIN.md",
     "docs/policies/TELEMETRY.md",
 }
 

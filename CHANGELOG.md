@@ -6,6 +6,16 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [1.6.0] - 2026-11-13
+
+### 新增
+
+- **DSH 插件**：新增组合包 `integrations/dsh`（npm 包名 `dsh-chaierww`），把号池、用量、
+  切换与活动执行暴露为 DeepSeek Harness 工具。`chaierww_pool` / `chaierww_usage` 只读；
+  `chaierww_switch` / `chaierww_activities_run` 必须显式传 `confirm: true`。
+  `baseUrl` 在插件加载时校验为回环地址，本机 API 令牌只发往本机。
+  安装与配置见 [docs/DSH-PLUGIN.md](docs/DSH-PLUGIN.md)。
+
 ## [1.5.1] - 2026-11-11
 
 安全补丁：桌面端构建依赖里的 `minimatch` 存在拒绝服务漏洞（CVE-2026-118764，

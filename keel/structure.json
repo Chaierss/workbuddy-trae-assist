@@ -8,6 +8,7 @@
     { "path": "docs", "purpose": "文档与 Wiki 正文（wikiDir = docs），门禁由 keel/wiki.json 校验", "layer": "docs" },
     { "path": "keel", "purpose": "唯一真相源：规则 / 组件注册表 / Wiki 清单 / 目录登记 / 门禁脚本", "layer": "console" },
     { "path": "scripts", "purpose": "构建、发布与仓库维护脚本（后端打包、图标、公开文档检查）", "layer": "tooling" },
+    { "path": "integrations", "purpose": "宿主集成包：DSH（DeepSeek Harness）组合包，把号池 / 用量 / 切换暴露成本机工具", "layer": "integration" },
     { "path": "tests", "purpose": "pytest 测试，覆盖领域逻辑与 API 路由", "layer": "tests" }
   ],
   "ignore": ["node_modules", "dist", "build", "release", "coverage", "tmp", "vendor", ".venv", "__pycache__", ".workbuddy", ".screenshots"]

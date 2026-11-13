@@ -70,6 +70,9 @@ curl -H "Authorization: Bearer $TOKEN" -H "X-Chaierww-Client: web" \
 开发或嵌入式场景可用 `CHAIERWW_API_GUARD=0` 关闭守卫（此时 Swagger 仍不声明
 `securitySchemes`；开启守卫时文档调用需要手动加上述请求头）。
 
+外部脚本接入的最短路径见 [DSH 插件](./DSH-PLUGIN.md)：同一套 Bearer 令牌与
+`X-Chaierww-Client: web` 规则，封装成 DSH 工具。
+
 ## 几个容易误解的点
 
 **切换前为什么要退出客户端。**

@@ -1,0 +1,37 @@
+{
+  "name": "dsh-chaierww",
+  "version": "0.1.0",
+  "description": "把 chaierww 的号池、用量、切换与活动执行暴露为 DeepSeek Harness 工具",
+  "type": "module",
+  "main": "index.js",
+  "files": ["index.js", "lib.js", "cordis.patch.yml", "README.md", "test.js"],
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0"
+  },
+  "scripts": {
+    "build": "node --check lib.js && node --check index.js",
+    "test": "node --test test.js",
+    "verify": "npm run build && npm test && npm pack --dry-run",
+    "pack": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.2.0",
+    "@deepseek-ai/schemastery": ">=0.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Chaierss/workbuddy-trae-assist",
+    "directory": "integrations/dsh"
+  },
+  "homepage": "https://github.com/Chaierss/workbuddy-trae-assist/blob/main/integrations/dsh/README.md",
+  "bugs": {
+    "url": "https://github.com/Chaierss/workbuddy-trae-assist/issues"
+  },
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
