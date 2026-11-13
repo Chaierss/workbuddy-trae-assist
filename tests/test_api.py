@@ -525,6 +525,9 @@ def test_preferences_defaults_and_roundtrip(client):
         # 切换后自动重启客户端：默认开。
         "relaunchAfterSwitch": True,
         "localMetricsEnabled": True,
+        # 号池供给告警阈值：默认健康 2 个、库存 3 天。
+        "minHealthyAccounts": 2,
+        "minCreditsDays": 3.0,
     }
 
     # 局部更新：不传的字段保持原值
@@ -549,6 +552,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "firstSwitchAt": None,
         "relaunchAfterSwitch": True,
         "localMetricsEnabled": True,
+        "minHealthyAccounts": 2,
+        "minCreditsDays": 3.0,
     }
 
     # 自动备份开关能单独关掉，且不影响切换迁移那组
@@ -999,7 +1004,8 @@ def test_api_conversation_messages_returns_transcript(client, monkeypatch):
 
 
 def test_schedules_lists_all_tasks(client):
-    """七个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期 / 会话镜像。"""
+    """九个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期 /
+    会话镜像 / 上游雷达 / 供给聚合。"""
     tasks = client.get("/api/schedules").json()["tasks"]
     assert [item["key"] for item in tasks] == [
         "keepalive",
@@ -1009,6 +1015,8 @@ def test_schedules_lists_all_tasks(client):
         "travel_claim",
         "credential_refresh",
         "session_sync",
+        "upstream_watch",
+        "pool_supply",
     ]
     assert {"enabled", "times", "jitterMinutes", "accountIds", "lastRunAt", "nextRunAt"} <= set(
         tasks[0]
@@ -1186,6 +1194,8 @@ def test_overview_actionables_splits_four_sources(client, monkeypatch):
         "credits_expiring",
         "quota_low",
         "client_offline",
+        # 这个用例只种了 1 个号，健康数低于默认阈值 2，供给告警应当出现。
+        "pool_supply",
     }
 
     assert by_kind["credential"]["severity"] == "high"
@@ -1309,7 +1319,7 @@ def test_overview_actionables_reports_credential_expiry(client, monkeypatch):
 
     body = client.get("/api/overview/actionables").json()
     by_kind = {item["kind"]: item for item in body["items"]}
-    assert set(by_kind) == {"credential_expired", "credential_expiring"}
+    assert set(by_kind) == {"credential_expired", "credential_expiring", "pool_supply"}
 
     expired_item = by_kind["credential_expired"]
     assert expired_item["severity"] == "high"
@@ -1343,6 +1353,8 @@ def test_overview_actionables_empty_when_all_clear(client, monkeypatch):
     from chaierww.domain.credits import CreditInfo
 
     account_id = _seed_id(client, CredentialState.USABLE)
+    # 本用例只有一个号：把供给下限调到 0，避免「健康账号不足」这条与本次断言无关的告警。
+    client.put("/api/preferences", json={"minHealthyAccounts": 0})
     _stub_overview(
         client,
         monkeypatch,

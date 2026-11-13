@@ -44,6 +44,12 @@ export interface Account {
   credentialReconcileAt: string | null;
   /** 对账结论：已更新 / 无需更新 / 客户端未运行 等。 */
   credentialReconcileResult: string;
+  /** 登录态：unknown 未探测 / valid 有效 / expiring 24h 内到期 / invalid 失效 / blocked 设备异常。 */
+  loginState: "unknown" | "valid" | "expiring" | "invalid" | "blocked";
+  /** 上次登录复检时间（ISO）；从未复检为 null。 */
+  lastLoginProbeAt: string | null;
+  /** 登录复检明细（探测失败原因 / 上游说明），没有为空串。 */
+  loginProbeDetail: string;
   lastUsedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -536,7 +542,8 @@ export interface ActivityRunResult {
   platform: string;
   key: string;
   title: string;
-  status: "ok" | "skipped" | "failed";
+  /** unknown = 上游返回了目录里没有的活动项；单独计数，不算失败。 */
+  status: "ok" | "skipped" | "failed" | "unknown";
   message: string;
   reward: number | null;
   /** 值得再试一次（网络失败 / 上游 5xx / Trae 9074）；4xx 与业务拒绝为 false。 */
@@ -547,7 +554,10 @@ export interface ActivityRunResult {
 
 export interface ActivityRunReport {
   results: ActivityRunResult[];
-  summary: { total: number; ok: number; skipped: number; failed: number };
+  summary: { total: number; ok: number; skipped: number; failed: number; unknown?: number };
+  /** 失败重跑的入口会带上：本次实际重跑的组合数与被忽略的组合数。 */
+  rerun?: number;
+  ignored?: number;
 }
 
 export interface RequestRow {
@@ -937,6 +947,10 @@ export interface Preferences {
   localMetricsEnabled: boolean;
   /** 切换后自动重启客户端（默认 true）；关掉后切完保持退出，需要时手动打开。 */
   relaunchAfterSwitch: boolean;
+  /** 号池供给告警：健康账号少于这个数就提示补给（默认 2，0 = 不因数量告警）。 */
+  minHealthyAccounts: number;
+  /** 号池供给告警：按近 7 天消耗推算的库存天数低于这个值就提示补给（默认 3）。 */
+  minCreditsDays: number;
 }
 
 /** 改偏好的入参：响应字段都可选；`resetOnboarding` 只进不出（清空引导进度）。 */
@@ -981,6 +995,76 @@ export interface LoginStateDiagnostics {
     externalId: string;
     hasWebviewPartition: boolean;
   }>;
+}
+
+/** 上游兼容雷达：一个平台当前的结构状态。指纹只含键路径，不含任何值。 */
+export interface CompatSnapshot {
+  platform: string;
+  scope: string;
+  clientVersion: string;
+  fingerprint: string;
+  statePathsOk: boolean;
+  missingPaths: string[];
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+}
+
+export interface CompatItem {
+  platform: string;
+  scope: string;
+  /** compatible 结构未变 / changed 新结构待确认 / missing 路径缺失 / unknown 读不到 / not_probed 还没探测过。 */
+  state: "compatible" | "changed" | "missing" | "unknown" | "not_probed";
+  detail: string;
+  current: CompatSnapshot | null;
+  latest: CompatSnapshot | null;
+  history: CompatSnapshot[];
+}
+
+export interface CompatOverview {
+  items: CompatItem[];
+  probed: boolean;
+  /** 5 分钟内重复点「立即探测」被去重。 */
+  deduped: boolean;
+  checkedAt: string;
+  changed: string[];
+}
+
+/** 号池供给：未知（数据不足）的指标一律为 null，不返回 0。 */
+export interface PoolHealth {
+  healthyAccounts: number;
+  accounts: number;
+  expiring24h: number;
+  cooling: number;
+  creditsDays: number | null;
+  successRate24h: number | null;
+  thresholds: { minHealthyAccounts: number; minCreditsDays: number };
+  alerts: Array<{ code: string; severity: "warn" | "high"; message: string }>;
+  checkedAt: string;
+}
+
+export interface LoginProbeItem {
+  accountId: string;
+  displayName: string;
+  scope: string;
+  state: "unknown" | "valid" | "expiring" | "invalid" | "blocked";
+  detail: string;
+  checkedAt: string;
+}
+
+export interface LoginProbeResult {
+  items: LoginProbeItem[];
+  total: number;
+  valid: number;
+  invalid: number;
+  blocked: number;
+}
+
+/** 活动目录版本对比：changed 只表示「上次执行用的目录与现在不同」。 */
+export interface ActivityCatalogVersion {
+  current: string;
+  lastSeen: string | null;
+  history: string[];
+  changed: boolean;
 }
 
 /** 一个计划任务：保活 / 签到 / 全部活动。 */
@@ -1848,6 +1932,34 @@ export const api = {
   /** 活动收益总览：今日 / 近 N 天合计 + 按账号与按活动的 Top 5。 */
   activityRewards: (days = 7) =>
     request<ActivityRewards>(`/api/activities/rewards?days=${days}`),
+
+  /** 活动目录版本对比：changed 时页面顶部提示「上游目录可能变了」。 */
+  activityCatalogVersion: () =>
+    request<ActivityCatalogVersion>("/api/activities/catalog-version"),
+
+  /** 失败重跑：省略 items = 今天所有失败项。 */
+  rerunActivities: (items?: Array<{ accountId: string; key: string }>) =>
+    request<ActivityRunReport>("/api/activities/rerun", {
+      method: "POST",
+      body: JSON.stringify({ items: items ?? [] }),
+    }),
+
+  /** 登录复检：只读探测登录态，不续期。省略 = 号池全部账号。 */
+  probeLogin: (accountIds?: string[]) =>
+    request<LoginProbeResult>("/api/accounts/login-probe", {
+      method: "POST",
+      body: JSON.stringify({ accountIds: accountIds ?? [] }),
+    }),
+
+  /** 号池供给指标：只读本地聚合，数据不足的指标为 null。 */
+  poolHealth: () => request<PoolHealth>("/api/pool/health"),
+
+  /** 上游兼容雷达：只读展示，不会触发探测。 */
+  compat: () => request<CompatOverview>("/api/compat"),
+
+  /** 立即探测上游结构（5 分钟内去重）。 */
+  probeCompat: () =>
+    request<CompatOverview>("/api/compat/probe", { method: "POST" }),
 
   /** 凭据巡检：due 只续快到期的，force 全部尝试续期，check 只验活。 */
   refreshCredentials: (mode: "due" | "force" | "check", accountIds?: string[]) =>

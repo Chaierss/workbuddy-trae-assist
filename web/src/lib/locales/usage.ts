@@ -261,6 +261,29 @@ export const usageZh = {
   "overview.snapshots.files": "{count} 个文件",
   "overview.snapshots.verified": "已校验",
   "overview.snapshots.unverified": "未校验",
+
+  "overview.supply.title": "号池供给",
+  "overview.supply.alert": "需补给",
+  "overview.supply.goPool": "去号池",
+  "overview.supply.healthy": "健康 {count}/{total} 个",
+  "overview.supply.expiring": "24h 内到期 {count} 个",
+  "overview.supply.cooling": "冷却中 {count} 个",
+  "overview.supply.credits": "库存 {days}",
+  "overview.supply.success": "近 24h 转发成功率：{rate}",
+  "overview.supply.days": "{days} 天",
+  "overview.supply.noData": "暂无数据",
+  "overview.supply.rate": "{percent}%",
+
+  "overview.compat.title": "上游兼容",
+  "overview.compat.probe": "立即探测",
+  "overview.compat.probing": "探测中…",
+  "overview.compat.compatible": "结构未变",
+  "overview.compat.changed": "待确认兼容",
+  "overview.compat.missing": "登录态缺失",
+  "overview.compat.unknown": "读不到状态",
+  "overview.compat.notProbed": "尚未探测",
+  "overview.compat.noVersion": "版本未知",
+  "overview.compat.changedHint": "检测到新的登录态结构（{scopes}）：切换与续期照常，建议先手动验证一次切号。",
 };
 
 export const usageEn = {
@@ -528,4 +551,28 @@ export const usageEn = {
   "overview.snapshots.files": "{count} files",
   "overview.snapshots.verified": "Verified",
   "overview.snapshots.unverified": "Not verified",
+
+  "overview.supply.title": "Pool supply",
+  "overview.supply.alert": "Restock",
+  "overview.supply.goPool": "Open pool",
+  "overview.supply.healthy": "{count}/{total} healthy",
+  "overview.supply.expiring": "{count} expiring within 24h",
+  "overview.supply.cooling": "{count} cooling down",
+  "overview.supply.credits": "Stock {days}",
+  "overview.supply.success": "24h relay success rate: {rate}",
+  "overview.supply.days": "{days} days",
+  "overview.supply.noData": "No data",
+  "overview.supply.rate": "{percent}%",
+
+  "overview.compat.title": "Upstream compatibility",
+  "overview.compat.probe": "Probe now",
+  "overview.compat.probing": "Probing…",
+  "overview.compat.compatible": "Structure unchanged",
+  "overview.compat.changed": "Needs confirmation",
+  "overview.compat.missing": "Login state missing",
+  "overview.compat.unknown": "Unreadable state",
+  "overview.compat.notProbed": "Not probed yet",
+  "overview.compat.noVersion": "Version unknown",
+  "overview.compat.changedHint":
+    "A new login-state structure was detected ({scopes}): switching and renewal still work, but verify one switch manually first.",
 };

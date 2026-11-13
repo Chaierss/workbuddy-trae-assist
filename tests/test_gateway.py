@@ -1085,7 +1085,7 @@ def test_v1_chat_503_when_pool_is_empty(client):
         json={"model": "deepseek-v3", "messages": []},
     )
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "no_account"
+    assert response.json()["error"]["code"] == "no_healthy_account"
 
 
 def test_v1_chat_503_when_gateway_disabled(tmp_path, recorder):

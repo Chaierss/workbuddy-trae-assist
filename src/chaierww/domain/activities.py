@@ -131,6 +131,8 @@ STATE_UNAVAILABLE = "unavailable"
 RESULT_OK = "ok"
 RESULT_SKIPPED = "skipped"
 RESULT_FAILED = "failed"
+#: 上游返回了本地目录里没有的活动项：单独计数，**不计入失败率**。
+RESULT_UNKNOWN = "unknown"
 
 #: 「跳过」不是一种结论，而是四种。以前全部记成 skipped，界面只能看到
 #: 「跳过 22」，分不清「今天做完了」和「今天什么都没做」。这里按原因拆开：
@@ -1512,6 +1514,57 @@ class ActivitiesService:
             "summary": summary,
         }
 
+    def catalog_version_state(self) -> dict[str, Any]:
+        """目录版本对比：当前代码里的版本 vs 最近一次流水里的版本。
+
+        ``changed=True`` 只表示「上次执行时用的目录与现在不同」，不等于上游变了；
+        它是提示用户「看一眼活动页对不对」的信号，不会自动改写任何东西。
+        """
+        versions: list[str] = []
+        try:
+            versions = self._repo.activity_catalog_versions(limit=5)
+        except Exception:  # noqa: BLE001 - 版本提示读不到不该让页面 500
+            logger.warning("读取活动目录版本失败", exc_info=True)
+        last_seen = versions[0] if versions else None
+        return {
+            "current": OFFICIAL_CATALOG_VERSION,
+            "lastSeen": last_seen,
+            "history": versions,
+            "changed": bool(last_seen and last_seen != OFFICIAL_CATALOG_VERSION),
+        }
+
+    def rerun_failed(
+        self, accounts: list[Account], pairs: list[tuple[str, str]] | None = None
+    ) -> dict[str, Any]:
+        """只重跑「今天最近一次确实失败」的 (账号, 活动) 组合。
+
+        ``pairs=None`` = 今天所有失败项。传入的组合里凡是不在上次失败集合里的，
+        一律忽略并在 ``ignored`` 里计数 —— 避免被当成「任意活动都能重跑」的入口。
+        """
+        day = datetime.now(UTC).astimezone().date().isoformat()
+        try:
+            failures = self._repo.activity_failures(day)
+        except Exception:  # noqa: BLE001 - 读流水失败 = 没有可重跑项
+            logger.exception("读取活动失败流水失败")
+            failures = []
+        allowed = {(item["accountId"], item["key"]) for item in failures}
+        wanted = list(allowed) if pairs is None else [pair for pair in pairs if pair in allowed]
+        ignored = 0 if pairs is None else len([p for p in pairs if p not in allowed])
+        if not wanted:
+            return {
+                "results": [],
+                "summary": _summarize_results([]),
+                "rerun": 0,
+                "ignored": ignored,
+            }
+        wanted_accounts = {account_id for account_id, _ in wanted}
+        keys = {_root_key(key) for _, key in wanted}
+        subset = [account for account in accounts if account.id in wanted_accounts]
+        report = self.run(subset, keys=keys)
+        report["rerun"] = len(wanted)
+        report["ignored"] = ignored
+        return report
+
     def _run_accounts(
         self,
         accounts: list[Account],
@@ -1811,6 +1864,15 @@ class ActivitiesService:
             status = outcome.get("status", RESULT_FAILED)
             message = outcome.get("message", "")
             credit = outcome.get("credit")
+            if (
+                status == RESULT_SKIPPED
+                and code not in ACTIONS
+                and str(message).startswith("已接受任务")
+            ):
+                # 上游新增了本地没有登记的任务：已替用户接受，但不假装做完，
+                # 也不算失败 —— 单独记 unknown，等目录更新。
+                status = RESULT_UNKNOWN
+                message = f"上游新增任务「{code}」未登记在本工具目录，已接受，需在客户端完成"
             results.append(
                 self._result(
                     account,
@@ -2007,6 +2069,8 @@ class ActivitiesService:
                 "status": item.status,
                 "message": item.message,
                 "reward": item.reward,
+                # 目录版本跟着流水走：升级目录后能一眼看出哪些结论是旧目录给的。
+                "catalogVersion": OFFICIAL_CATALOG_VERSION,
             }
             for item in results
         ]
@@ -2050,6 +2114,16 @@ class ActivitiesService:
             self._growth_runner.close()
 
 
+def _root_key(key: str) -> str:
+    """把「成长任务子项」收敛回目录里的父活动 key。
+
+    流水里成长任务按 ``workbuddy.growth_tasks.<code>`` 一行一项，但执行入口只认
+    目录里的 8 个 key；重跑时必须先映射回父 key，否则会被白名单直接过滤掉。
+    """
+    prefix = "workbuddy.growth_tasks."
+    return "workbuddy.growth_tasks" if key.startswith(prefix) else key
+
+
 def _summarize_results(results: list[RunResult]) -> dict[str, int]:
     """一行汇总：总项数 + 三种结论 + 跳过的四种原因 + 可重试失败数。
 
@@ -2065,6 +2139,8 @@ def _summarize_results(results: list[RunResult]) -> dict[str, int]:
         "ok": sum(1 for item in results if item.status == RESULT_OK),
         "skipped": len(skipped),
         "failed": sum(1 for item in results if item.status == RESULT_FAILED),
+        # unknown 单独一栏：上游新增项既不是做完，也不是失败。
+        "unknown": sum(1 for item in results if item.status == RESULT_UNKNOWN),
         "retryable": sum(
             1 for item in results if item.status == RESULT_FAILED and item.retryable
         ),

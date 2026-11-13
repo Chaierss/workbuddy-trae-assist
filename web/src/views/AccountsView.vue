@@ -8,6 +8,7 @@ import {
   Coins,
   Download,
   FileUp,
+  Fingerprint,
   History,
   LayoutGrid,
   Loader2,
@@ -92,6 +93,18 @@ const riskFilter = ref<RiskKey>("");
 
 /** 只看还能自动做活动的账号：与 KPI 的「今日待做」可叠加，互不替代。 */
 const onlyAuto = ref(false);
+
+/** 登录态筛选：与凭据风险筛选独立叠加，四态 + 全部。 */
+type LoginFilter = "" | "valid" | "expiring" | "invalid" | "blocked";
+const loginFilter = ref<LoginFilter>("");
+
+const loginOptions = computed<Array<{ value: LoginFilter; label: string }>>(() => [
+  { value: "", label: t("accounts.login.filterAll") },
+  { value: "valid", label: t("accounts.login.filterValid") },
+  { value: "expiring", label: t("accounts.login.filterExpiring") },
+  { value: "invalid", label: t("accounts.login.filterInvalid") },
+  { value: "blocked", label: t("accounts.login.filterBlocked") },
+]);
 
 /** 低积分阈值：低于它算「快用完了」，只做提醒不做判断依据。 */
 const LOW_CREDITS = 100;
@@ -360,6 +373,31 @@ async function runCredentialSweep(mode: "check" | "due", accountIds?: string[]):
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
+/** 登录复检：只读探测，不续期；有勾选就只查勾选的，否则查全部。 */
+const loginBusy = ref(false);
+
+async function runLoginProbe(): Promise<void> {
+  if (loginBusy.value) return;
+  const ids = selectedCount.value ? [...selectedIds.value] : accounts.value.map((item) => item.id);
+  if (!ids.length) return;
+  loginBusy.value = true;
+  try {
+    const result = await api.probeLogin(ids);
+    showToast(
+      t("accounts.login.probeDone", {
+        valid: result.valid,
+        bad: result.invalid + result.blocked,
+        total: result.total,
+      }),
+    );
+    await refreshAll();
+  } catch (error) {
+    showToast((error as Error).message);
+  } finally {
+    loginBusy.value = false;
+  }
+}
+
 function pickFile(): void {
   fileInputRef.value?.click();
 }
@@ -592,6 +630,16 @@ const visible = computed(() => {
   if (onlyAuto.value) {
     // 与 KPI「今日待做」口径一致：检测结果没拉到的账号不放行，不冒充「已做完」。
     list = list.filter((item) => (activityBriefs.value[item.id]?.automated ?? 0) > 0);
+  }
+
+  if (loginFilter.value) {
+    list = list.filter((item) => {
+      if (loginFilter.value === "blocked") return item.loginState === "blocked";
+      if (loginFilter.value === "expiring") return item.loginState === "expiring";
+      if (loginFilter.value === "invalid") return item.loginState === "invalid";
+      // 「登录正常」包含 24h 内到期：它们仍然可用，只是需要留意。
+      return item.loginState === "valid" || item.loginState === "expiring";
+    });
   }
 
   if (riskFilter.value === "credential") {
@@ -1917,6 +1965,28 @@ const confirmText = computed(() => {
         </button>
       </div>
 
+      <!-- 登录态筛选：只在确实探测过时出现，避免给没复检过的号池加一排空筛选 -->
+      <div
+        v-if="accounts.some((item) => item.loginState !== 'unknown')"
+        class="flex shrink-0 items-center gap-1 rounded-control border border-line bg-surface p-1"
+        :title="t('accounts.login.filterHint')"
+      >
+        <button
+          v-for="option in loginOptions"
+          :key="option.value"
+          type="button"
+          class="rounded-control px-2.5 py-[5px] text-body-sm transition-colors"
+          :class="
+            loginFilter === option.value
+              ? 'bg-line-soft text-ink'
+              : 'text-muted hover:text-ink-soft'
+          "
+          @click="loginFilter = option.value"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+
       <SelectMenu
         v-model="refreshSeconds"
         :options="refreshOptions"
@@ -1964,6 +2034,21 @@ const confirmText = computed(() => {
       >
         <LayoutGrid v-if="density === 'compact'" :size="14" :stroke-width="1.9" />
         <Rows3 v-else :size="14" :stroke-width="1.9" />
+      </button>
+
+      <!-- 登录复检：只读探测登录态，不续期；不勾选 = 全量 -->
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+        :disabled="loginBusy || !accounts.length"
+        :title="t('accounts.login.probeHint')"
+        @click="runLoginProbe"
+      >
+        <Loader2 v-if="loginBusy" :size="14" :stroke-width="1.9" class="animate-spin" />
+        <Fingerprint v-else :size="14" :stroke-width="1.9" />
+        {{
+          loginBusy ? t("accounts.login.probing") : t("accounts.login.probe")
+        }}
       </button>
 
       <!-- 全选常驻：选中后不搬走，否则按钮会在眼前消失又从别处冒出来 -->

@@ -145,6 +145,29 @@ async function toggle(key: PrefKey): Promise<void> {
     saving.value = null;
   }
 }
+
+/** 供给阈值：改完即存；存不下就重新拉一次，避免界面停在假值上。 */
+const thresholdBusy = ref<string | null>(null);
+
+async function saveThreshold(
+  field: "minHealthyAccounts" | "minCreditsDays",
+  raw: string,
+): Promise<void> {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return;
+  thresholdBusy.value = field;
+  try {
+    prefs.value = await api.savePreferences({ [field]: value });
+  } catch {
+    try {
+      prefs.value = await api.preferences();
+    } catch {
+      // 读不到就保持原值：阈值只是告警参数，不值得让页面报错。
+    }
+  } finally {
+    thresholdBusy.value = null;
+  }
+}
 </script>
 
 <template>
@@ -234,6 +257,41 @@ async function toggle(key: PrefKey): Promise<void> {
           />
         </div>
       </div>
+    </SectionCard>
+
+    <!-- 号池供给：低于阈值时概览页会出现「号池供给不足」告警 -->
+    <SectionCard :title="t('settings.supply.title')" :subtitle="t('settings.supply.desc')">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="flex items-center justify-between gap-3 rounded-control border border-line-soft px-3 py-2.5">
+          <span class="min-w-0 text-body-sm text-ink-soft">
+            {{ t("settings.supply.minHealthy") }}
+          </span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            class="w-[68px] shrink-0 rounded-md border border-line-soft bg-surface px-1.5 py-0.5 text-right text-body-sm tabular-nums text-ink outline-none"
+            :value="prefs?.minHealthyAccounts ?? 2"
+            :disabled="thresholdBusy === 'minHealthyAccounts'"
+            @change="saveThreshold('minHealthyAccounts', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="flex items-center justify-between gap-3 rounded-control border border-line-soft px-3 py-2.5">
+          <span class="min-w-0 text-body-sm text-ink-soft">
+            {{ t("settings.supply.minCreditsDays") }}
+          </span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            class="w-[68px] shrink-0 rounded-md border border-line-soft bg-surface px-1.5 py-0.5 text-right text-body-sm tabular-nums text-ink outline-none"
+            :value="prefs?.minCreditsDays ?? 3"
+            :disabled="thresholdBusy === 'minCreditsDays'"
+            @change="saveThreshold('minCreditsDays', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+      </div>
+      <p class="mt-2 text-caption text-muted">{{ t("settings.supply.hint") }}</p>
     </SectionCard>
 
     <!-- 换号体验：切换必须让客户端退出一次，这里决定切完是否自动拉起 -->

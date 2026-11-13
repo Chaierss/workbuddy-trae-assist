@@ -37,6 +37,7 @@ from chaierww.domain.activities import ActivitiesService, validate_official_cata
 from chaierww.domain.auto_backup import AutoBackupRunner
 from chaierww.domain.backup import BackupService
 from chaierww.domain.client_settings import ClientSettingsService, default_settings_file
+from chaierww.domain.compat import CompatService
 from chaierww.domain.credential_lifecycle import (
     MODE_DUE,
     CredentialLifecycleService,
@@ -45,8 +46,10 @@ from chaierww.domain.credential_lifecycle import (
 from chaierww.domain.credits import CreditsService
 from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewayStore
 from chaierww.domain.gateway_relay import GatewayRelay
+from chaierww.domain.login_health import LoginProbeService
 from chaierww.domain.metrics import MetricsStore
 from chaierww.domain.oauth import build_oauth
+from chaierww.domain.pool_health import PoolHealthService
 from chaierww.domain.preferences import PreferencesStore
 from chaierww.domain.quota_guard import (
     DEFAULT_SCOPE,
@@ -113,6 +116,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     accounts = AccountService(repository)
     backups = BackupService(conn, resolved.backups_dir, lock=repository.lock)
     adapters = build_adapters()
+    # 上游兼容雷达：只读客户端版本与登录态结构指纹，不依赖号池里有没有账号。
+    compat = CompatService(conn, adapters, lock=repository.lock)
+    # 登录健康：只读探测，和续期分开跑；结果落在 accounts.login_state。
+    login_probes = LoginProbeService(repository, adapters)
     sync_repository = SyncRepository(conn, repository.lock)
     sync_engine = SyncEngine(repository, sync_repository, resolved.home, adapters)
     preferences = PreferencesStore(resolved.home)
@@ -155,6 +162,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         on_success=_pool_on_success,
     )
     gateway_runtime = GatewayRuntime(gateway)
+    # 号池供给：纯本地聚合（登录态 / 到期 / 熔断 / 冷却 / 积分账本 / 网关日志）。
+    pool_health = PoolHealthService(
+        repository, gateway, relay=gateway_relay, preferences=preferences
+    )
 
     activities = ActivitiesService(repository, growth_runner=GrowthTaskRunner())
 
@@ -245,6 +256,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ``history[].meta``，供概览判断「这次到底失败了几个号」。
         """
         targets = scheduled_accounts(account_ids)
+        if key == "upstream_watch":
+            # 只读探测客户端版本与登录态结构；号池为空也该照跑，所以放在空池判断之前。
+            payload = compat.probe()
+            changed = payload.get("changed") or []
+            if changed:
+                return (
+                    f"上游结构待确认兼容：{', '.join(changed)}",
+                    {"ok": 0, "skipped": 0, "failed": 0, "changed": len(changed)},
+                )
+            return "上游结构未变化", {"ok": 1, "skipped": 0, "failed": 0, "changed": 0}
+        if key == "pool_supply":
+            # 纯本地聚合，不打上游；告警是否展示由前端按现状实时计算。
+            health = pool_health.health()
+            alerts = health.get("alerts") or []
+            if alerts:
+                # 供给不足不是「任务失败」：任务本身跑成功了，告警由概览实时展示。
+                return (
+                    "；".join(str(item.get("message") or "") for item in alerts),
+                    {"ok": 1, "skipped": 0, "failed": 0},
+                )
+            days = health.get("creditsDays")
+            stock = "未知" if days is None else f"{days:g} 天"
+            return (
+                f"号池供给正常：健康 {health.get('healthyAccounts', 0)} 个，库存 {stock}",
+                {"ok": 1, "skipped": 0, "failed": 0},
+            )
         if not targets:
             return "号池里没有可用账号，本轮跳过", {"ok": 0, "skipped": 0, "failed": 0}
         keys = set(activity_keys) or None
@@ -616,6 +653,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.repository = repository
     app.state.backups = backups
     app.state.adapters = adapters
+    app.state.compat = compat
+    app.state.login_probes = login_probes
+    app.state.pool_health = pool_health
     app.state.engine = engine
     app.state.gateway = gateway
     app.state.gateway_relay = gateway_relay

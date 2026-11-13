@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -282,6 +282,41 @@ def _migrate_v7(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V7 + "\nCOMMIT;")
 
 
+#: v8：上游兼容雷达 + 登录健康 + 活动目录版本。
+#:
+#: - ``compat_snapshots``：只存结构指纹（键路径哈希）与版本号，**不存任何值**；
+#: - ``accounts.login_state``：登录探测结论（unknown / valid / expiring / invalid /
+#:   blocked），与凭据巡检结论分开，探测失败不改它；
+#: - ``activity_runs.catalog_version``：这一行是用哪版活动目录跑出来的，
+#:   目录升级后页面据此提示「上游目录可能变了」。
+_SCHEMA_V8 = """
+CREATE TABLE IF NOT EXISTS compat_snapshots (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform         TEXT NOT NULL,
+    scope            TEXT NOT NULL,
+    client_version   TEXT NOT NULL DEFAULT '',
+    fingerprint      TEXT NOT NULL,
+    state_paths_ok   INTEGER NOT NULL DEFAULT 0,
+    missing_paths    TEXT NOT NULL DEFAULT '[]',
+    first_seen_at    TEXT NOT NULL,
+    last_seen_at     TEXT NOT NULL,
+    UNIQUE (platform, scope, fingerprint)
+);
+
+CREATE INDEX IF NOT EXISTS idx_compat_recent
+    ON compat_snapshots (platform, scope, last_seen_at DESC);
+
+ALTER TABLE accounts ADD COLUMN login_state TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE accounts ADD COLUMN last_login_probe_at TEXT;
+ALTER TABLE accounts ADD COLUMN login_probe_detail TEXT NOT NULL DEFAULT '';
+ALTER TABLE activity_runs ADD COLUMN catalog_version TEXT NOT NULL DEFAULT '';
+"""
+
+
+def _migrate_v8(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V8 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -301,6 +336,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v6(conn)
     if version < 7:
         _migrate_v7(conn)
+    if version < 8:
+        _migrate_v8(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

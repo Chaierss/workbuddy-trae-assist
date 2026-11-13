@@ -348,15 +348,21 @@ class GatewayRelay:
     # ----- 号池 -----
 
     def candidates(self, scope: str) -> list[Account]:
-        """可参与网关转发的账号：删掉的、需重新登录的、凭据解不开的都不算。"""
+        """可参与网关转发的账号：删掉的、需重新登录的、凭据解不开的都不算。
+
+        登录探测已判定 ``invalid`` / ``blocked`` 的号也排除：它们要么令牌已失效，
+        要么设备绑在别处，放进来只会把一次可用请求变成一次失败换号。
+        """
         if scope not in CHAT_SCOPES:
             return []
         accounts = self._repository.list_accounts(scope)
+        login_states = self._login_states([account.id for account in accounts])
         usable = [
             account
             for account in accounts
             if account.credential_state is not CredentialState.RELOGIN_REQUIRED
             and account.id not in self._broken
+            and login_states.get(account.id) not in ("invalid", "blocked")
         ]
         order = {
             CredentialState.USABLE: 0,
@@ -367,6 +373,17 @@ class GatewayRelay:
             usable,
             key=lambda account: (order.get(account.credential_state, 3), account.created_at),
         )
+
+    def _login_states(self, account_ids: list[str]) -> dict[str, str]:
+        """批量读登录态结论；读失败按「未探测」处理（宁可多试一个号）。"""
+        reader = getattr(self._repository, "login_probes", None)
+        if reader is None or not account_ids:
+            return {}
+        try:
+            records = reader(account_ids)
+        except Exception:  # noqa: BLE001 - 选号不该因为读探测结果失败而全停
+            return {}
+        return {key: value.get("state", "") for key, value in records.items()}
 
     def account(self, scope: str, account_id: str) -> Account | None:
         """按 id 取号池里的账号（含冷却中 / 已排除 / 凭据损坏的，供探测与人工处置用）。"""
@@ -409,6 +426,7 @@ class GatewayRelay:
         if (
             account.credential_state is CredentialState.RELOGIN_REQUIRED
             or account.id in self._broken
+            or self._login_states([account.id]).get(account.id) in ("invalid", "blocked")
         ):
             return "unavailable"
         if self.credits_exhausted(account.id):

@@ -110,6 +110,23 @@ const stateMap: Record<string, { textKey: MessageKey; tone: "warn" } | null> = {
 /** 只有异常状态（需重新登录 / 未知）才显示徽标；正常/未切换过不显示。 */
 const stateInfo = computed(() => stateMap[props.account.credentialState] ?? null);
 
+/**
+ * 登录态徽标：只提示「不正常」的三种，正常（valid）不占位。
+ * `unknown` 也藏起来 —— 没探测过不是异常，否则每张卡都多一个灰点。
+ */
+const loginMap: Record<
+  string,
+  { textKey: MessageKey; tone: "warn" | "danger" } | null
+> = {
+  unknown: null,
+  valid: null,
+  expiring: { textKey: "accounts.login.expiring", tone: "warn" },
+  invalid: { textKey: "accounts.login.invalid", tone: "danger" },
+  blocked: { textKey: "accounts.login.blocked", tone: "warn" },
+};
+
+const loginInfo = computed(() => loginMap[props.account.loginState] ?? null);
+
 /** 今日活动行只有「还有可自动项」且没在跑时才可点，避免空点击。 */
 const canRunActivity = computed(
   () => (props.activity?.automated ?? 0) > 0 && !props.activityRunning,
@@ -652,7 +669,10 @@ function formatCredits(value: number | null): string {
     </div>
 
     <!-- 风险徽标：点一下按同类筛号池；无风险时不占位 -->
-    <div v-if="risks.length || stateInfo" class="mt-1 flex flex-wrap items-center gap-1">
+    <div
+      v-if="risks.length || stateInfo || loginInfo"
+      class="mt-1 flex flex-wrap items-center gap-1"
+    >
       <button
         v-for="risk in risks"
         :key="risk.key"
@@ -665,6 +685,13 @@ function formatCredits(value: number | null): string {
       </button>
       <StatusPill v-if="stateInfo" :tone="stateInfo.tone">
         {{ t(stateInfo.textKey) }}
+      </StatusPill>
+      <StatusPill
+        v-if="loginInfo"
+        :tone="loginInfo.tone"
+        :title="account.loginProbeDetail || undefined"
+      >
+        {{ t(loginInfo.textKey) }}
       </StatusPill>
     </div>
 

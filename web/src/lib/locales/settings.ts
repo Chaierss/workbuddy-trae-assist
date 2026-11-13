@@ -344,6 +344,13 @@ export const settingsZh = {
   "sync.conflicts.subtitle": "两端都改过同一条会话；默认保留本地，另存镜像副本",
   "sync.conflicts.empty": "当前没有冲突。",
   "sync.conflicts.hint": "{count} 个账号存在冲突，展开对应账号逐条处理。",
+
+  "settings.supply.title": "号池供给告警",
+  "settings.supply.desc": "低于阈值时概览页提示补给；只做站内提示，不发外部通知。",
+  "settings.supply.minHealthy": "健康账号下限",
+  "settings.supply.minCreditsDays": "库存天数下限",
+  "settings.supply.hint":
+    "健康 = 登录有效 + 凭据未过期 + 未熔断 + 未冷却。库存天数按近 7 天消耗推算，数据不足时不告警。填 0 表示不按这项告警。",
 };
 
 export const settingsEn = {
@@ -704,4 +711,11 @@ export const settingsEn = {
     "Both sides changed the same conversation; local is kept and the mirror is saved as a copy",
   "sync.conflicts.empty": "No conflicts right now.",
   "sync.conflicts.hint": "{count} accounts have conflicts; expand one to resolve item by item.",
+
+  "settings.supply.title": "Pool supply alerts",
+  "settings.supply.desc": "Warn on the overview when supply drops below these thresholds — in-app only, no external notifications.",
+  "settings.supply.minHealthy": "Minimum healthy accounts",
+  "settings.supply.minCreditsDays": "Minimum days of credits",
+  "settings.supply.hint":
+    "Healthy = login valid + credential not expired + not tripped + not cooling. Days are estimated from the last 7 days of usage; no alert when there isn't enough data. 0 disables that alert.",
 };

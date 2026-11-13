@@ -134,14 +134,24 @@ function dayLabel(value: string): string {
         <span class="shrink-0 text-ink-soft">{{ run.title || run.key }}</span>
         <StatusPill v-if="run.ended" tone="neutral">{{ t("activity.ended") }}</StatusPill>
         <StatusPill
-          :tone="run.status === 'ok' ? 'brand' : run.status === 'failed' ? 'danger' : 'neutral'"
+          :tone="
+            run.status === 'ok'
+              ? 'brand'
+              : run.status === 'failed'
+                ? 'danger'
+                : run.status === 'unknown'
+                  ? 'info'
+                  : 'neutral'
+          "
         >
           {{
             run.status === "ok"
               ? t("activity.resultOk")
               : run.status === "failed"
                 ? t("activity.resultFailed")
-                : t("activity.resultSkipped")
+                : run.status === "unknown"
+                  ? t("activity.resultUnknown")
+                  : t("activity.resultSkipped")
           }}
         </StatusPill>
         <span v-if="run.attempt > 1" class="shrink-0 text-caption text-muted">

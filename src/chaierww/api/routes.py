@@ -116,6 +116,7 @@ def _account_payload(
     credential_device_foreign: bool = False,
     probe: dict[str, object] | None = None,
     reconcile: dict[str, str] | None = None,
+    login: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """对外只暴露界面需要的字段，凭据永远不出现在响应里。
 
@@ -124,6 +125,7 @@ def _account_payload(
     """
     probe = probe or {}
     reconcile = reconcile or {}
+    login = login or {}
     failures = int(probe.get("failures") or 0)
     return {
         "id": account.id,
@@ -147,6 +149,9 @@ def _account_payload(
         "credentialAutoPaused": bool(failures >= AUTH_FAILURE_LIMIT),
         "credentialReconcileAt": reconcile.get("at") or None,
         "credentialReconcileResult": reconcile.get("result") or "",
+        "loginState": login.get("state") or "unknown",
+        "lastLoginProbeAt": login.get("at") or None,
+        "loginProbeDetail": login.get("detail") or "",
         "lastUsedAt": account.last_used_at,
         "createdAt": account.created_at,
         "updatedAt": account.updated_at,
@@ -212,6 +217,7 @@ def _accounts_payload(request: Request, accounts: list[Account]) -> list[dict[st
     expiries, refreshable_map, device_foreign = _credential_meta(request, accounts)
     probes = _probe_meta(request, accounts)
     reconciles = _reconcile_meta(request, accounts)
+    logins = _login_meta(request, accounts)
     return [
         _account_payload(
             account,
@@ -220,9 +226,20 @@ def _accounts_payload(request: Request, accounts: list[Account]) -> list[dict[st
             credential_device_foreign=device_foreign.get(account.id, False),
             probe=probes.get(account.id),
             reconcile=reconciles.get(account.id),
+            login=logins.get(account.id),
         )
         for account in accounts
     ]
+
+
+def _login_meta(request: Request, accounts: list[Account]) -> dict[str, dict[str, str]]:
+    """批量取登录探测结论；读失败只降级为「未探测」，不让号池列表 500。"""
+    repository = request.app.state.repository
+    try:
+        return repository.login_probes([item.id for item in accounts])
+    except Exception:  # noqa: BLE001 - 登录态只是展示信息
+        logger.warning("批量读取登录探测结论失败", exc_info=True)
+        return {}
 
 
 def _platform_of(scope: str) -> str:
@@ -352,6 +369,9 @@ class PreferencesRequest(BaseModel):
     localMetricsEnabled: bool | None = None
     #: 切换后是否自动重启客户端。省略 = 不修改。
     relaunchAfterSwitch: bool | None = None
+    #: 号池供给告警阈值。省略 = 不修改。
+    minHealthyAccounts: int | None = Field(default=None, ge=0, le=100)
+    minCreditsDays: float | None = Field(default=None, ge=0, le=365)
 
 
 class GroupRequest(BaseModel):
@@ -366,6 +386,17 @@ class ActivityRunRequest(BaseModel):
     accountIds: list[str] | None = None
     #: 活动 key 白名单；省略 = 全部活动。空列表视为非法（不是「什么都不做」）。
     keys: list[str] | None = None
+
+
+class ActivityRerunItem(BaseModel):
+    accountId: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+
+
+class ActivityRerunRequest(BaseModel):
+    """失败重跑：省略 items = 今天所有失败项；传了就只认上次确实失败的组合。"""
+
+    items: list[ActivityRerunItem] = Field(default_factory=list)
 
 
 class ScheduleUpdateRequest(BaseModel):
@@ -406,6 +437,12 @@ class RotationUpdateRequest(BaseModel):
     activeGuardMinutes: int | None = Field(default=None, ge=0)
     minRemainingCredits: float | None = Field(default=None, ge=0)
     minGapHours: float | None = Field(default=None, ge=0)
+
+
+class LoginProbeRequest(BaseModel):
+    """登录复检：空 = 号池全部账号；只读，不触发续期。"""
+
+    accountIds: list[str] = Field(default_factory=list)
 
 
 # ---------- 基础 ----------
@@ -558,6 +595,41 @@ def _detection_items(request: Request) -> list[dict[str, Any]]:
         )
 
     return items
+
+
+# ---------- 上游兼容雷达 ----------
+
+
+@router.get(
+    "/compat",
+    summary="上游兼容：客户端版本与登录态结构指纹",
+    tags=["基础"],
+)
+def compat_overview(request: Request) -> dict[str, Any]:
+    """只读展示，不触发探测：页面刷新不该顺手去读客户端登录态文件。
+
+    探测由计划任务 ``upstream_watch`` 或手动「立即探测」触发。
+    """
+    return request.app.state.compat.overview()
+
+
+@router.post(
+    "/compat/probe",
+    summary="立即探测上游结构（5 分钟内去重）",
+    tags=["基础"],
+)
+def compat_probe(request: Request) -> dict[str, Any]:
+    return request.app.state.compat.probe(manual=True)
+
+
+@router.get(
+    "/pool/health",
+    summary="号池供给：健康数 / 24h 到期 / 冷却 / 库存天数 / 成功率",
+    tags=["号池"],
+)
+def pool_health(request: Request) -> dict[str, Any]:
+    """只读聚合，不发任何上游请求；数据不足的指标返回 null，不返回 0。"""
+    return request.app.state.pool_health.health()
 
 
 # ---------- 扫码登录（OAuth 采集） ----------
@@ -905,6 +977,19 @@ def credential_health(request: Request) -> dict[str, Any]:
         "total": len(accounts),
         "withGaps": sum(1 for item in items if not item["healthy"]),
     }
+
+
+@router.post(
+    "/accounts/login-probe",
+    summary="登录复检：只读探测登录态是否仍有效（不续期）",
+    tags=["账号"],
+)
+def login_probe(request: Request, body: LoginProbeRequest) -> dict[str, Any]:
+    """一键复检只跑探测：401/403 判失效，设备绑定在别处判 blocked，网络错误不下结论。"""
+    try:
+        return request.app.state.login_probes.probe(body.accountIds or None)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
 
 
 @router.get(
@@ -1348,6 +1433,36 @@ def run_activities(
         summary.get("skipped", 0),
         summary.get("failed", 0),
     )
+    return report
+
+
+@router.get(
+    "/activities/catalog-version",
+    summary="活动目录版本对比（当前版本 vs 上次执行时的版本）",
+    tags=["活动"],
+)
+def activity_catalog_version(request: Request) -> dict[str, Any]:
+    """``changed=True`` 只表示「上次执行用的目录和现在不同」，用于页面顶部提示。"""
+    return request.app.state.activities.catalog_version_state()
+
+
+@router.post(
+    "/activities/rerun",
+    summary="重跑最近一次失败的 (账号, 活动) 组合",
+    tags=["活动"],
+)
+def rerun_activities(
+    request: Request, payload: ActivityRerunRequest | None = None
+) -> dict[str, Any]:
+    """只重跑今天最近一次确实失败的项；不在失败集合里的组合会被忽略并计数。"""
+    pairs = None
+    if payload is not None and payload.items:
+        pairs = [(item.accountId, item.key) for item in payload.items]
+    try:
+        accounts = _activities_accounts(request, None)
+        report = request.app.state.activities.rerun_failed(accounts, pairs)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
     return report
 
 
@@ -2325,6 +2440,16 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
         local_metrics_enabled=pick(
             body.localMetricsEnabled, current.local_metrics_enabled
         ),
+        min_healthy_accounts=(
+            current.min_healthy_accounts
+            if body.minHealthyAccounts is None
+            else body.minHealthyAccounts
+        ),
+        min_credits_days=(
+            current.min_credits_days
+            if body.minCreditsDays is None
+            else body.minCreditsDays
+        ),
     )
     try:
         saved = request.app.state.preferences.save(updated)
@@ -2901,6 +3026,23 @@ def overview_actionables(request: Request) -> dict[str, Any]:
 
     # 6) 计划任务最近一次执行有失败（按任务而非账号报）
     items.extend(_schedule_items(request))
+
+    # 7) 号池供给低于阈值（按号池报一条，不按账号刷屏）
+    try:
+        supply = request.app.state.pool_health.health()
+    except Exception:  # noqa: BLE001 - 供给聚合失败不该拖垮整屏
+        supply = {}
+    for alert in supply.get("alerts") or []:
+        items.append(
+            {
+                "kind": "pool_supply",
+                "severity": alert.get("severity") or "warn",
+                "title": "号池供给不足",
+                "detail": str(alert.get("message") or ""),
+                "accountId": None,
+                "action": {"type": "navigate", "to": "/accounts"},
+            }
+        )
 
     items.sort(key=lambda entry: _SEVERITY_ORDER.get(entry["severity"], 3))
 

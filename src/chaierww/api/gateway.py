@@ -786,7 +786,10 @@ async def _relay_request(request: Request, protocol: str) -> Response:
     )
     if not accounts:
         return _protocol_error(
-            protocol, 503, "号池里没有可用账号，请先在「号池」里添加账号", code="no_account"
+            protocol,
+            503,
+            "号池里没有健康账号（登录有效且未熔断），请先在「号池」里补充或复检账号",
+            code="no_healthy_account",
         )
 
     client = httpx.AsyncClient(timeout=_timeout(), trust_env=False)

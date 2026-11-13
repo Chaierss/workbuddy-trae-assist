@@ -46,8 +46,10 @@ from chaierww.adapters.base import (
     Slot,
     StateUnreadable,
     SwitchPlan,
+    client_file_version,
     sanitize_child_env,
 )
+from chaierww.domain.compat import ClientProbe, fingerprint_of
 
 STATE_FILENAME = "workbuddy-desktop.info"
 #: ``~/.workbuddy/keyblob``：包裹 at-rest 主密钥的密钥库，用来判断凭据是否还解得开。
@@ -447,6 +449,42 @@ class WorkBuddyAdapter:
 
     def state_dir(self) -> Path:
         return self._paths.state_dir
+
+    # ---------- 上游兼容雷达（只读，不含任何凭据值） ----------
+
+    def probe_client(self) -> ClientProbe:
+        """读一次客户端版本与登录态**结构**，供「上游兼容」卡片对比。
+
+        只收集键路径，不碰值：登录态文件里的令牌都是加密信封，但即便将来变成明文，
+        这份探测也不会把它们带出去。
+        """
+        state_file = self._paths.state_file
+        missing: list[str] = []
+        detail = ""
+        document: object = None
+        if not state_file.parent.is_dir():
+            missing.append(str(state_file.parent))
+        if not state_file.is_file():
+            missing.append(str(state_file))
+        else:
+            try:
+                raw = state_file.read_bytes()
+                body = raw[3:] if raw.startswith(_BOM) else raw
+                document = json.loads(body.decode("utf-8", "replace"))
+            except OSError as exc:
+                # 客户端运行时可能独占锁住文件：这不是「结构变了」，只是这次读不到。
+                detail = f"登录态文件暂时不可读（{exc.strerror or exc}）"
+            except json.JSONDecodeError:
+                detail = "登录态文件不是有效 JSON，客户端可能正在写入"
+        return ClientProbe(
+            platform="workbuddy",
+            scope=self.scope,
+            client_version=client_file_version(self.app_path()),
+            fingerprint=fingerprint_of(document) if isinstance(document, dict) else "",
+            state_paths_ok=not missing,
+            missing_paths=tuple(missing),
+            detail=detail,
+        )
 
     # ---------- 登录态文件族（5.9.2 起由一个文件变成「文件 + 标记 + 账本」） ----------
 

@@ -43,8 +43,10 @@ from chaierww.adapters.base import (
     Slot,
     StateUnreadable,
     SwitchPlan,
+    client_file_version,
     sanitize_child_env,
 )
+from chaierww.domain.compat import ClientProbe, fingerprint_of
 from chaierww.domain.trae_crypto import (
     TraeCryptoError,
     device_keypair_from_storage,
@@ -375,6 +377,39 @@ class TraeAdapter:
 
     def state_dir(self) -> Path:
         return self._paths.state_dir
+
+    # ---------- 上游兼容雷达（只读，不含任何凭据值） ----------
+
+    def probe_client(self) -> ClientProbe:
+        """读客户端版本与 storage.json 的**结构**指纹。
+
+        storage.json 里大量是用户界面设置，只有 `iCubeAuthInfo*` 与登录相关；
+        但结构指纹只关心「键路径有没有变」，因此不需要挑字段，也不会泄露设置值。
+        """
+        storage = self._paths.storage_file
+        missing: list[str] = []
+        detail = ""
+        document: object = None
+        if not storage.parent.is_dir():
+            missing.append(str(storage.parent))
+        if not storage.is_file():
+            missing.append(str(storage))
+        else:
+            try:
+                document = json.loads(storage.read_bytes().decode("utf-8", "replace"))
+            except OSError as exc:
+                detail = f"登录态文件暂时不可读（{exc.strerror or exc}）"
+            except json.JSONDecodeError:
+                detail = "登录态文件不是有效 JSON，客户端可能正在写入"
+        return ClientProbe(
+            platform="trae",
+            scope=self.scope,
+            client_version=client_file_version(self.app_path()),
+            fingerprint=fingerprint_of(document) if isinstance(document, dict) else "",
+            state_paths_ok=not missing,
+            missing_paths=tuple(missing),
+            detail=detail,
+        )
 
     def app_path(self) -> Path | None:
         for candidate in self._paths.app_candidates:

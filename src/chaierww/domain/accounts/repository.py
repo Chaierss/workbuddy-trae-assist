@@ -444,6 +444,44 @@ class AccountRepository:
         }
 
     @_serialized
+    def set_login_probe(self, account_id: str, state: str, detail: str = "") -> None:
+        """记录一次登录探测结论。探测失败（网络错误）时由调用方保持原状态不变。"""
+        with transaction(self._conn):
+            cursor = self._conn.execute(
+                """
+                UPDATE accounts
+                   SET login_state = ?, last_login_probe_at = ?, login_probe_detail = ?
+                 WHERE id = ?
+                """,
+                (state, now_iso(), detail or "", account_id),
+            )
+            if cursor.rowcount == 0:
+                raise AccountNotFound(account_id)
+
+    @_serialized
+    def login_probes(
+        self, account_ids: list[str] | tuple[str, ...]
+    ) -> dict[str, dict[str, str]]:
+        """批量读登录探测结论（未探测过的号不会出现在结果里）。"""
+        wanted = [str(item) for item in account_ids if str(item)]
+        if not wanted:
+            return {}
+        placeholders = ",".join("?" for _ in wanted)
+        rows = self._conn.execute(
+            f"SELECT id, login_state, last_login_probe_at, login_probe_detail "
+            f"FROM accounts WHERE id IN ({placeholders})",
+            wanted,
+        ).fetchall()
+        return {
+            str(row["id"]): {
+                "state": str(row["login_state"] or "unknown"),
+                "at": str(row["last_login_probe_at"] or ""),
+                "detail": str(row["login_probe_detail"] or ""),
+            }
+            for row in rows
+        }
+
+    @_serialized
     def record_activity_runs(self, rows: list[dict[str, object]]) -> None:
         """追加活动执行流水；调用方负责只传已存在的 account_id。"""
         if not rows:
@@ -453,8 +491,9 @@ class AccountRepository:
             self._conn.executemany(
                 """
                 INSERT INTO activity_runs (
-                    id, account_id, activity_key, day, attempt, status, message, reward, at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, account_id, activity_key, day, attempt, status, message,
+                    reward, at, catalog_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -467,6 +506,7 @@ class AccountRepository:
                         str(row.get("message") or ""),
                         row.get("reward"),
                         now,
+                        str(row.get("catalogVersion") or ""),
                     )
                     for row in rows
                 ],
@@ -477,7 +517,8 @@ class AccountRepository:
         """按天读取活动执行流水（新的在前），供「最近执行」回看。"""
         rows = self._conn.execute(
             """
-            SELECT account_id, activity_key, day, attempt, status, message, reward, at
+            SELECT account_id, activity_key, day, attempt, status, message, reward, at,
+                   catalog_version
               FROM activity_runs
              WHERE day >= ?
              ORDER BY at DESC
@@ -495,8 +536,52 @@ class AccountRepository:
                 "message": str(row["message"]),
                 "reward": row["reward"],
                 "at": str(row["at"]),
+                "catalogVersion": str(row["catalog_version"] or ""),
             }
             for row in rows
+        ]
+
+    @_serialized
+    def activity_catalog_versions(self, limit: int = 5) -> list[str]:
+        """最近几版被记录的目录版本（新的在前，去重）。空版本号不算。"""
+        rows = self._conn.execute(
+            """
+            SELECT catalog_version FROM activity_runs
+             WHERE catalog_version != ''
+             ORDER BY at DESC LIMIT ?
+            """,
+            (max(1, int(limit)),),
+        ).fetchall()
+        seen: list[str] = []
+        for row in rows:
+            version = str(row["catalog_version"] or "")
+            if version and version not in seen:
+                seen.append(version)
+        return seen
+
+    @_serialized
+    def activity_failures(self, day: str) -> list[dict[str, str]]:
+        """某天最近一次执行为 ``failed`` 的 (accountId, key) 组合。
+
+        同一组合有多次尝试时只看最新一条：重试后成功的项不该再进重跑列表。
+        """
+        rows = self._conn.execute(
+            """
+            SELECT account_id, activity_key, status FROM activity_runs
+             WHERE day = ?
+             ORDER BY at ASC
+            """,
+            (day,),
+        ).fetchall()
+        latest: dict[tuple[str, str], str] = {}
+        for row in rows:
+            latest[(str(row["account_id"]), str(row["activity_key"]))] = str(
+                row["status"] or ""
+            )
+        return [
+            {"accountId": account_id, "key": key}
+            for (account_id, key), status in latest.items()
+            if status == "failed"
         ]
 
     @_serialized

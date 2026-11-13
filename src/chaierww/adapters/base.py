@@ -56,7 +56,6 @@ def sanitize_child_env(env: dict[str, str]) -> dict[str, str]:
 class AdapterError(RuntimeError):
     """适配器层的可预期失败。消息面向用户，不暴露底层堆栈。"""
 
-
 class NotInstalled(AdapterError):
     pass
 
@@ -67,6 +66,86 @@ class NotLoggedIn(AdapterError):
 
 class StateUnreadable(AdapterError):
     pass
+
+
+def client_file_version(path: Path | None) -> str:
+    """读客户端可执行文件的版本号；读不到返回空串。
+
+    只用于「上游兼容」卡片展示版本：**不参与任何兼容判定**（结构指纹才参与），
+    所以任何平台、任何权限问题都静默降级为空串，绝不为拿版本号去启动进程。
+    """
+    if path is None or os.name != "nt" or not path.is_file():
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _FixedFileInfo(ctypes.Structure):
+            _fields_ = [
+                ("dwSignature", wintypes.DWORD),
+                ("dwStrucVersion", wintypes.DWORD),
+                ("dwFileVersionMS", wintypes.DWORD),
+                ("dwFileVersionLS", wintypes.DWORD),
+                ("dwProductVersionMS", wintypes.DWORD),
+                ("dwProductVersionLS", wintypes.DWORD),
+                ("dwFileFlagsMask", wintypes.DWORD),
+                ("dwFileFlags", wintypes.DWORD),
+                ("dwFileOS", wintypes.DWORD),
+                ("dwFileType", wintypes.DWORD),
+                ("dwFileSubtype", wintypes.DWORD),
+                ("dwFileDateMS", wintypes.DWORD),
+                ("dwFileDateLS", wintypes.DWORD),
+            ]
+
+        version = ctypes.WinDLL("version", use_last_error=True)
+        version.GetFileVersionInfoSizeW.argtypes = [
+            wintypes.LPCWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        version.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        version.GetFileVersionInfoW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+        ]
+        version.GetFileVersionInfoW.restype = wintypes.BOOL
+        version.VerQueryValueW.argtypes = [
+            ctypes.c_void_p,
+            wintypes.LPCWSTR,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(wintypes.UINT),
+        ]
+        version.VerQueryValueW.restype = wintypes.BOOL
+
+        size = version.GetFileVersionInfoSizeW(str(path), None)
+        if not size:
+            return ""
+        buffer = ctypes.create_string_buffer(size)
+        if not version.GetFileVersionInfoW(str(path), 0, size, buffer):
+            return ""
+        pointer = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not version.VerQueryValueW(buffer, "\\", ctypes.byref(pointer), ctypes.byref(length)):
+            return ""
+        if not pointer or length.value < ctypes.sizeof(_FixedFileInfo):
+            return ""
+        info = ctypes.cast(pointer, ctypes.POINTER(_FixedFileInfo)).contents
+        parts = (
+            info.dwFileVersionMS >> 16,
+            info.dwFileVersionMS & 0xFFFF,
+            info.dwFileVersionLS >> 16,
+            info.dwFileVersionLS & 0xFFFF,
+        )
+        if not any(parts):
+            return ""
+        # 末尾的 0 不展示：`5.9.2.0` 读起来只是噪音。
+        trimmed = list(parts)
+        while len(trimmed) > 2 and trimmed[-1] == 0:
+            trimmed.pop()
+        return ".".join(str(item) for item in trimmed)
+    except Exception:  # noqa: BLE001 - 版本号只是展示信息，任何失败都降级为空串
+        return ""
 
 
 @dataclass(frozen=True, slots=True)

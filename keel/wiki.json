@@ -11,6 +11,7 @@
   { "name": "COMMERCIAL-RISK.md", "title": "商业风险" },
   { "name": "LEGAL-RISK.md", "title": "法律风险" },
   { "name": "DSH-PLUGIN.md", "title": "DSH 插件" },
+  { "name": "DESIGN-1.7.0.md", "title": "1.7.0 设计" },
   { "name": "policies/DISCLAIMER.md", "title": "免责声明" },
   { "name": "policies/TELEMETRY.md", "title": "遥测说明" }
 ]

@@ -102,6 +102,10 @@ class Preferences:
     first_switch_at: str | None = None
     relaunch_after_switch: bool = True
     local_metrics_enabled: bool = True
+    #: 号池供给告警阈值：健康号少于这个数就提示补给。
+    min_healthy_accounts: int = 2
+    #: 按近 7 天消耗推算的库存天数低于这个值就提示补给。
+    min_credits_days: float = 3.0
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -121,6 +125,8 @@ class Preferences:
             "firstSwitchAt": self.first_switch_at,
             "relaunchAfterSwitch": self.relaunch_after_switch,
             "localMetricsEnabled": self.local_metrics_enabled,
+            "minHealthyAccounts": self.min_healthy_accounts,
+            "minCreditsDays": self.min_credits_days,
         }
 
 
@@ -157,6 +163,8 @@ class PreferencesStore:
             first_switch_at=_optional_iso(data.get("firstSwitchAt")),
             relaunch_after_switch=flag("relaunchAfterSwitch"),
             local_metrics_enabled=flag("localMetricsEnabled"),
+            min_healthy_accounts=clean_positive_int(data.get("minHealthyAccounts"), 2),
+            min_credits_days=clean_positive_float(data.get("minCreditsDays"), 3.0),
         )
 
     def mark_first_switch(self, at: str | None = None) -> bool:
@@ -204,6 +212,23 @@ def clean_version(raw: Any) -> int:
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
         return 0
     return raw
+
+
+def clean_positive_int(raw: Any, fallback: int, *, maximum: int = 1000) -> int:
+    """供给阈值：接受 0 与正整数；非法（含 bool / 字符串）回落默认值。"""
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        return fallback
+    return min(raw, maximum)
+
+
+def clean_positive_float(raw: Any, fallback: float, *, maximum: float = 3650.0) -> float:
+    """供给阈值（天数）：接受 0 与正数；非法回落默认值。"""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return fallback
+    value = float(raw)
+    if value < 0:
+        return fallback
+    return min(value, maximum)
 
 
 def _optional_iso(raw: Any) -> str | None:

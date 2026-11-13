@@ -65,6 +65,9 @@ const exitTo = computed(() => {
       <StatusPill v-if="report.summary.skipped" tone="neutral">
         {{ t("common.runResult.skipped", { count: report.summary.skipped }) }}
       </StatusPill>
+      <StatusPill v-if="report.summary.unknown" tone="info">
+        {{ t("common.runResult.unknown", { count: report.summary.unknown }) }}
+      </StatusPill>
       <StatusPill v-if="report.summary.failed" tone="danger">
         {{ t("common.runResult.failed", { count: report.summary.failed }) }}
       </StatusPill>

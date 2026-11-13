@@ -22,6 +22,7 @@
     { "id": "M-03", "title": "1.2.0 稳定性与可观测性", "exit": "1.2.0 Release 发布；作用域只剩 workbuddy-cn / trae-cn，/api/scopes 返回 2 项，未知作用域一律 400", "status": "done" },
     { "id": "M-04", "title": "1.3.0 体验与质量", "exit": "node scripts/check_web_budget.mjs 退出码 0；preflight-scan 源码与 dist 均 warn 0；api / sanitize 单测通过", "status": "done" },
     { "id": "M-05", "title": "1.4.1 客户端信封可读可续", "exit": "1.4.1 Release 发布；从客户端导入的 WorkBuddy 号能显示到期时间、能查积分与活动、续期后凭据仍为 raw-file 且可解；tests/test_wb_crypto.py 全绿", "status": "done" },
-    { "id": "M-06", "title": "1.6.0 DSH 插件", "exit": "integrations/dsh 的 npm run verify 退出码 0；dsh --profile web --dump-config 出现 dsh-chaierww 层；四个工具在 DSH 中可调用，pool / usage 只读，switch / activities_run 未传 confirm=true 时拒绝执行", "status": "doing" }
+    { "id": "M-06", "title": "1.6.0 DSH 插件", "exit": "integrations/dsh 的 npm run verify 退出码 0；dsh --profile web --dump-config 出现 dsh-chaierww 层；四个工具在 DSH 中可调用，pool / usage 只读，switch / activities_run 未传 confirm=true 时拒绝执行", "status": "doing" },
+    { "id": "M-07", "title": "1.7.0 上游兼容与号池供给保障", "exit": "每日上游雷达能记录 WorkBuddy / Trae 客户端版本与登录态结构指纹，结构变化时概览给出「待确认兼容」且默认不写；登录态 / 凭据 / 设备绑定 / 认证熔断四态可在号池筛选并一键复检；网关只在健康账号间路由，低于供给阈值有告警；活动目录版本变化与失败重跑可见；新增测试与 keel 门禁全绿", "status": "doing" }
   ]
 }

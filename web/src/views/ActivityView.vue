@@ -27,6 +27,7 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Wand2,
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
@@ -49,6 +50,7 @@ import {
   type ActivityCampaign,
   type ActivityCatalog,
   type ActivityCatalogEntry,
+  type ActivityCatalogVersion,
   type ActivityItem,
   type ActivityRun,
   type ActivityRunReport,
@@ -549,6 +551,7 @@ async function load(refresh = false): Promise<void> {
     campaigns.value = data.campaigns ?? [];
     detectedAt.value = data.detectedAt;
     void loadRuns();
+    void loadCatalogVersion();
   } catch (cause) {
     error.value = (cause as Error).message;
   } finally {
@@ -568,6 +571,39 @@ async function loadRuns(): Promise<void> {
     // 流水只是辅助信息，读不到不影响活动页主流程。
     runs.value = [];
     today.value = null;
+  }
+}
+
+/** 目录版本：只提示「上次执行用的目录与现在不同」，不改任何东西。 */
+const catalogVersion = ref<ActivityCatalogVersion | null>(null);
+
+async function loadCatalogVersion(): Promise<void> {
+  try {
+    catalogVersion.value = await api.activityCatalogVersion();
+  } catch {
+    catalogVersion.value = null;
+  }
+}
+
+/** 失败重跑：只跑今天最近一次确实失败的项，后端会过滤掉不合法组合。 */
+const rerunBusy = ref(false);
+
+async function rerunFailed(): Promise<void> {
+  if (rerunBusy.value || busy.value) return;
+  rerunBusy.value = true;
+  try {
+    const report = await api.rerunActivities();
+    runReport.value = report;
+    if (report.rerun) {
+      showToast(t("activity.rerunDone", { count: report.rerun }));
+    } else {
+      showToast(t("activity.rerunNone"));
+    }
+    await load(true);
+  } catch (cause) {
+    showToast((cause as Error).message);
+  } finally {
+    rerunBusy.value = false;
   }
 }
 
@@ -832,6 +868,22 @@ const runReportView = computed(() =>
       {{ t("activity.detectFailed", { message: error }) }}
     </div>
 
+    <!-- 目录版本提示：只提醒「上次执行用的目录和现在不同」，不进失败率 -->
+    <div
+      v-if="catalogVersion?.changed && !error"
+      class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border border-warn/30 bg-warn-soft px-5 py-2.5 text-body-sm text-warn"
+    >
+      <AlertTriangle :size="14" :stroke-width="1.9" />
+      <span>
+        {{
+          t("activity.catalogChanged", {
+            current: catalogVersion.current,
+            lastSeen: catalogVersion.lastSeen ?? t("common.unknown"),
+          })
+        }}
+      </span>
+    </div>
+
     <template v-if="tab === 'official'">
       <OfficialActivitiesPanel
         class="mt-3"
@@ -851,6 +903,19 @@ const runReportView = computed(() =>
     </template>
 
     <template v-else-if="tab === 'runs'">
+      <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+          :disabled="rerunBusy || busy || running"
+          :title="t('activity.rerunHint')"
+          @click="rerunFailed"
+        >
+          <Loader2 v-if="rerunBusy" :size="14" :stroke-width="1.9" class="animate-spin" />
+          <RotateCcw v-else :size="14" :stroke-width="1.9" />
+          {{ rerunBusy ? t("activity.rerunBusy") : t("activity.rerun") }}
+        </button>
+      </div>
       <div class="mt-3">
         <ActivityRunsPanel :runs="runs" :names="accountNames" :today="today" />
       </div>

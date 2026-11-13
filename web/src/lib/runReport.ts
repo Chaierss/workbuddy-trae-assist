@@ -1,6 +1,6 @@
 import type { ActivityRunReport, CredentialRefreshReport } from "../api";
 
-export type RunStatus = "ok" | "skipped" | "failed";
+export type RunStatus = "ok" | "skipped" | "failed" | "unknown";
 
 export interface RunReportRow {
   /** 唯一行 key：账号 + 活动 key（凭据只有账号）。 */
@@ -15,7 +15,7 @@ export interface RunReportRow {
 
 export interface RunReportView {
   kind: "activity" | "credential";
-  summary: { total: number; ok: number; skipped: number; failed: number };
+  summary: { total: number; ok: number; skipped: number; failed: number; unknown?: number };
   rows: RunReportRow[];
   /** 凭据报告的原模式：重试时沿用（force / check）。 */
   mode?: "due" | "force" | "check";

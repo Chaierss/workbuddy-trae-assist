@@ -423,6 +423,20 @@ export const accountsZh = {
   "accounts.sync.pending": "待应用 {count}",
   "accounts.sync.conflicts": "冲突 {count}",
   "accounts.sync.tooltip": "本机会话镜像：切到该账号时把这些会话补进客户端",
+
+  "accounts.login.probe": "登录复检",
+  "accounts.login.probing": "复检中…",
+  "accounts.login.probeHint": "只读探测登录态是否还有效（不续期）；勾选时只查勾选的号",
+  "accounts.login.probeDone": "登录复检完成：{total} 个号，{valid} 个正常，{bad} 个需处理",
+  "accounts.login.expiring": "登录将过期",
+  "accounts.login.invalid": "登录已失效",
+  "accounts.login.blocked": "设备绑定异常",
+  "accounts.login.filterHint": "按登录复检结果筛选；未复检的号不会被这些筛选命中",
+  "accounts.login.filterAll": "登录不限",
+  "accounts.login.filterValid": "登录正常",
+  "accounts.login.filterExpiring": "即将过期",
+  "accounts.login.filterInvalid": "已失效",
+  "accounts.login.filterBlocked": "设备异常",
 };
 
 export const accountsEn = {
@@ -867,4 +881,19 @@ export const accountsEn = {
   "accounts.sync.pending": "Pending {count}",
   "accounts.sync.conflicts": "Conflicts {count}",
   "accounts.sync.tooltip": "Local conversation mirror: these get copied into the client when you switch to this account",
+
+  "accounts.login.probe": "Check login",
+  "accounts.login.probing": "Checking…",
+  "accounts.login.probeHint":
+    "Read-only check of whether the login still works (no renewal); checks selected accounts only when some are selected",
+  "accounts.login.probeDone": "Login check done: {total} accounts, {valid} healthy, {bad} need attention",
+  "accounts.login.expiring": "Login expiring",
+  "accounts.login.invalid": "Login invalid",
+  "accounts.login.blocked": "Device mismatch",
+  "accounts.login.filterHint": "Filter by login check result; accounts never checked don't match these filters",
+  "accounts.login.filterAll": "Any login",
+  "accounts.login.filterValid": "Login OK",
+  "accounts.login.filterExpiring": "Expiring soon",
+  "accounts.login.filterInvalid": "Invalid",
+  "accounts.login.filterBlocked": "Device issue",
 };

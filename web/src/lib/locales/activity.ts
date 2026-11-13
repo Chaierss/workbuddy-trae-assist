@@ -278,6 +278,15 @@ export const activityZh = {
     "写入前先比对格式指纹：如果读取之后文件被别的东西改过（缩进、行尾、键序变了），会直接拒绝写并要求刷新，绝不覆盖。补丁只替换目标值那一段，BOM / 缩进 / 行尾 / 未登记的键逐字节保留。",
   "clientSettings.fingerprintNoteB":
     "「客户端开机自启」是当前登记的唯一键 —— 客户端设置文件里其余键要么是一次性迁移标记（改了会让客户端重跑迁移），要么是账号数据与运行期状态，都不在可改范围内；没实测过的键一律不登记，免得往你的文件里插客户端不认识的东西。",
+
+  "activity.catalogChanged":
+    "活动目录版本有变化：当前 {current}，上次执行用的是 {lastSeen}。上游可能新增或调整了活动，建议点「重新检测」确认。",
+  "activity.rerun": "重跑失败项",
+  "activity.rerunBusy": "重跑中…",
+  "activity.rerunHint": "只重跑今天最近一次确实失败的活动，成功的不会重复执行",
+  "activity.rerunDone": "已重跑 {count} 个失败项",
+  "activity.rerunNone": "今天没有可重跑的失败项",
+  "activity.resultUnknown": "目录外任务",
 };
 
 export const activityEn = {
@@ -573,4 +582,13 @@ export const activityEn = {
     "Before writing, the format fingerprint is checked: if the file was changed by something else after it was read (indentation, line endings or key order), the write is refused and you'll be asked to refresh — never overwritten. The patch replaces only the target value, keeping the BOM, indentation, line endings and unregistered keys byte for byte.",
   "clientSettings.fingerprintNoteB":
     "\"Launch client at login\" is the only registered key right now — the other keys in the client settings file are either one-off migration markers (changing them makes the client re-run its migration) or account data and runtime state, none of which can be edited. Keys we haven't tested are never registered, so nothing the client doesn't understand gets inserted into your file.",
+
+  "activity.catalogChanged":
+    "Activity catalog version changed: now {current}, last run used {lastSeen}. Upstream may have added or adjusted activities — run “Detect again” to confirm.",
+  "activity.rerun": "Re-run failures",
+  "activity.rerunBusy": "Re-running…",
+  "activity.rerunHint": "Only re-runs activities that actually failed in today's latest run",
+  "activity.rerunDone": "Re-ran {count} failed items",
+  "activity.rerunNone": "No failed items to re-run today",
+  "activity.resultUnknown": "Outside catalog",
 };
