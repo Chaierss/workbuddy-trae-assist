@@ -164,7 +164,10 @@ def test_login_probe_network_error_keeps_unknown():
     assert probe_workbuddy_login(_client(boom), credential).state == LOGIN_UNKNOWN
 
 
-def test_trae_login_probe_maps_entitlement():
+def test_trae_login_probe_maps_entitlement(monkeypatch):
+    # 设备私钥是否存在取决于跑测试的机器：CI 上没有 Trae 设备密钥，
+    # 会被判成「设备绑在别处」。本用例只验证状态码映射，先把设备检查固定为 False。
+    monkeypatch.setattr("chaierww.domain.login_health._trae_device_foreign", lambda _c: False)
     credential = {"format": "oauth-token", "accessToken": "jwt", "uid": "u-1"}
     ok = _client(
         lambda request: httpx.Response(200, json={"user_entitlement_pack_list": []})
