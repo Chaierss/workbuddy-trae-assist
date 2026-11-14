@@ -549,6 +549,7 @@ async function loadGlobalBackups(): Promise<void> {
         </p>
       </div>
     </div>
+    <RunReportPanel
       v-if="runReport"
       :report="runReport"
       :busy="busy !== null"
