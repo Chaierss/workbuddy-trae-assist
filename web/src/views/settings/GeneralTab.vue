@@ -9,7 +9,9 @@ import {
   MessagesSquare,
   Monitor,
   Moon,
+  RefreshCw,
   Repeat2,
+  ShieldCheck,
   Sun,
 } from "lucide-vue-next";
 import SectionCard from "../../components/SectionCard.vue";
@@ -40,7 +42,9 @@ type PrefKey =
   | "migrateProfile"
   | "migrateWorkspaces"
   | "migrateWebview"
-  | "relaunchAfterSwitch";
+  | "relaunchAfterSwitch"
+  | "healthAutoRefresh"
+  | "healthAutoRerun";
 
 interface ToggleItem {
   key: PrefKey;
@@ -48,6 +52,22 @@ interface ToggleItem {
   descKey: MessageKey;
   icon: Component;
 }
+
+/** 健康中心自动处置：两项都会实际打上游，默认关。 */
+const healthItems: ToggleItem[] = [
+  {
+    key: "healthAutoRefresh",
+    titleKey: "settings.health.refreshTitle",
+    descKey: "settings.health.refreshDesc",
+    icon: RefreshCw,
+  },
+  {
+    key: "healthAutoRerun",
+    titleKey: "settings.health.rerunTitle",
+    descKey: "settings.health.rerunDesc",
+    icon: ShieldCheck,
+  },
+];
 
 const migrateItems: ToggleItem[] = [
   { key: "migrateMemory", titleKey: "migrate.memory.title", descKey: "migrate.memory.desc", icon: Brain },
@@ -292,6 +312,26 @@ async function saveThreshold(
         </label>
       </div>
       <p class="mt-2 text-caption text-muted">{{ t("settings.supply.hint") }}</p>
+    </SectionCard>
+
+    <!-- 健康中心自动处置：默认关，两件事都会实际打上游 -->
+    <SectionCard :title="t('settings.health.title')" :subtitle="t('settings.health.desc')">
+      <div class="divide-y divide-line-soft">
+        <div v-for="item in healthItems" :key="item.key" class="flex items-center gap-3 py-3.5">
+          <span class="grid size-9 shrink-0 place-items-center rounded-control bg-brand-soft text-brand-dark">
+            <component :is="item.icon" :size="17" :stroke-width="1.9" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <div class="text-body font-medium text-ink">{{ t(item.titleKey) }}</div>
+            <div class="mt-0.5 text-body-sm text-muted">{{ t(item.descKey) }}</div>
+          </div>
+          <ToggleSwitch
+            :model-value="!!prefs?.[item.key]"
+            :disabled="saving === item.key"
+            @update:model-value="() => toggle(item.key)"
+          />
+        </div>
+      </div>
     </SectionCard>
 
     <!-- 换号体验：切换必须让客户端退出一次，这里决定切完是否自动拉起 -->

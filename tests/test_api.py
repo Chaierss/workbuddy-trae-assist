@@ -528,6 +528,9 @@ def test_preferences_defaults_and_roundtrip(client):
         # 号池供给告警阈值：默认健康 2 个、库存 3 天。
         "minHealthyAccounts": 2,
         "minCreditsDays": 3.0,
+        # 健康中心自动处置：两项都实际打上游，默认关。
+        "healthAutoRefresh": False,
+        "healthAutoRerun": False,
     }
 
     # 局部更新：不传的字段保持原值
@@ -554,6 +557,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "localMetricsEnabled": True,
         "minHealthyAccounts": 2,
         "minCreditsDays": 3.0,
+        "healthAutoRefresh": False,
+        "healthAutoRerun": False,
     }
 
     # 自动备份开关能单独关掉，且不影响切换迁移那组
@@ -1004,8 +1009,8 @@ def test_api_conversation_messages_returns_transcript(client, monkeypatch):
 
 
 def test_schedules_lists_all_tasks(client):
-    """九个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期 /
-    会话镜像 / 上游雷达 / 供给聚合。"""
+    """十个任务：保活 / 签到 / 全部活动 / 派猫猫派出 / 派猫猫回领 / 凭据续期 /
+    会话镜像 / 上游雷达 / 供给聚合 / 健康自动处置。"""
     tasks = client.get("/api/schedules").json()["tasks"]
     assert [item["key"] for item in tasks] == [
         "keepalive",
@@ -1017,6 +1022,7 @@ def test_schedules_lists_all_tasks(client):
         "session_sync",
         "upstream_watch",
         "pool_supply",
+        "health_auto",
     ]
     assert {"enabled", "times", "jitterMinutes", "accountIds", "lastRunAt", "nextRunAt"} <= set(
         tasks[0]
@@ -1026,6 +1032,24 @@ def test_schedules_lists_all_tasks(client):
     assert by_key["travel_depart"]["enabled"] is False
     assert by_key["travel_depart"]["times"] == ["09:30"]
     assert by_key["travel_claim"]["times"] == ["15:30"]
+
+
+def test_health_events_snapshot_and_ack(client):
+    """健康事件流：只看本地信号，未知事件与未知动作都必须被拒绝。"""
+    body = client.get("/api/health/events").json()
+    assert set(body) == {"items", "summary", "checkedAt"}
+    assert {"open", "acked", "snoozed", "resolved", "unhandled"} <= set(body["summary"])
+    # 空号池也会有一条「供给不足」，但具体条数取决于本机环境，只验结构。
+    for item in body["items"]:
+        assert {"id", "kind", "severity", "state", "actions", "evidence"} <= set(item)
+
+    assert client.post("/api/health/events/bulk", json={"ids": [], "op": "ack"}).json()["done"] == 0
+    assert client.post("/api/health/events/missing/ack").status_code == 400
+    assert (
+        client.post("/api/health/events/missing/act", json={"action": "x"}).status_code
+        == 400
+    )
+    assert client.get("/api/health/events?state=bogus").status_code == 400
 
 
 def test_schedules_update_times_and_jitter(client):

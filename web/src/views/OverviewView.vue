@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Coins,
   Database,
+  HeartPulse,
   Loader2,
   MonitorSmartphone,
   Network,
@@ -33,6 +34,8 @@ import {
   clientDetections,
   credentialIssueCounts,
   detection,
+  healthUnhandled,
+  loadHealthBadge,
   scopedPath,
 } from "../stores/app";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
@@ -389,6 +392,7 @@ onMounted(() => {
   void loadRewards();
   void loadGlobalBackups();
   void loadSupplyWatch();
+  void loadHealthBadge();
 });
 
 const clientText = computed(() => {
@@ -437,6 +441,29 @@ async function loadGlobalBackups(): Promise<void> {
     </PageHeader>
 
     <OnboardingChecklist class="mt-4" />
+
+    <!-- 健康中心入口：只在真有未处理事件时出现，避免变成常驻横幅。 -->
+    <RouterLink
+      v-if="healthUnhandled"
+      to="/health"
+      class="mt-4 flex items-center gap-3 rounded-card border border-warn/25 bg-warn-soft px-4 py-3 transition-colors hover:border-warn/40"
+    >
+      <span class="grid size-9 shrink-0 place-items-center rounded-control bg-surface text-warn">
+        <HeartPulse :size="17" :stroke-width="1.9" />
+      </span>
+      <span class="min-w-0 flex-1">
+        <span class="block text-body font-semibold text-ink">
+          {{ t("overview.health.title", { count: healthUnhandled }) }}
+        </span>
+        <span class="mt-0.5 block text-body-sm leading-relaxed text-ink-soft">
+          {{ t("overview.health.desc") }}
+        </span>
+      </span>
+      <span class="flex shrink-0 items-center gap-1 text-body-sm font-medium text-brand-dark">
+        {{ t("overview.health.cta") }}
+        <ArrowRight :size="14" :stroke-width="2" />
+      </span>
+    </RouterLink>
 
     <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard :label="t('overview.stat.accounts')" :number="accounts.length" :icon="Users" :hint="t('overview.stat.accountsHint')" :to="navTo('/accounts')" />

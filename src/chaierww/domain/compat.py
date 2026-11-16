@@ -21,6 +21,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,15 @@ COMPAT_CHANGED = "changed"
 COMPAT_MISSING = "missing"
 COMPAT_UNKNOWN = "unknown"
 COMPAT_NOT_PROBED = "not_probed"
+
+
+def _stamp() -> str:
+    """结构快照的排序键必须比秒更细。
+
+    同一秒内先遇到新结构、又回滚到旧结构时，秒级时间戳会让 ``latest`` 挑错行；
+    微秒精度能保证「最后见到的结构」始终排在最前。
+    """
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +133,7 @@ def _row_payload(row: sqlite3.Row) -> dict[str, Any]:
         "missingPaths": missing,
         "firstSeenAt": row["first_seen_at"],
         "lastSeenAt": row["last_seen_at"],
+        "confirmedAt": row["confirmed_at"],
     }
 
 
@@ -193,7 +204,7 @@ class CompatService:
 
     def _record(self, probe: ClientProbe) -> bool:
         """同一 ``(platform, scope, fingerprint)`` 只更新末次时间；返回是否新结构。"""
-        stamp = now_iso()
+        stamp = _stamp()
         missing = json.dumps(list(probe.missing_paths), ensure_ascii=False)
         with self._lock, transaction(self._conn):
             row = self._conn.execute(
@@ -248,6 +259,61 @@ class CompatService:
             ).fetchone()
         return _row_payload(row) if row is not None else None
 
+    def confirm(self, scope: str) -> dict[str, Any]:
+        """人工确认「当前结构已适配」：只标记指纹，不改写客户端，也不改探测行为。
+
+        确认之后，同一份结构不再出现在「待确认兼容」；上游再换结构会出现新的
+        指纹行，仍然照常提示 —— 确认的是这一版，不是永久关掉提醒。
+        """
+        platform = _platform_name(scope)
+        latest = self.latest(platform, scope)
+        if latest is None:
+            raise LookupError("还没有可确认的结构指纹，请先执行一次探测")
+        stamp = _stamp()
+        with self._lock, transaction(self._conn):
+            self._conn.execute(
+                """
+                UPDATE compat_snapshots SET confirmed_at = ?
+                 WHERE platform = ? AND scope = ? AND fingerprint = ?
+                """,
+                (stamp, platform, scope, latest["fingerprint"]),
+            )
+        return {
+            "scope": scope,
+            "platform": platform,
+            "fingerprint": latest["fingerprint"],
+            "clientVersion": latest["clientVersion"],
+            "confirmedAt": stamp,
+        }
+
+    def unconfirmed(self) -> list[dict[str, Any]]:
+        """每个作用域最新一份「尚未确认」的结构指纹。
+
+        只读 ``compat_snapshots``，不发探测请求。读不到结构（``missing``）时
+        没有指纹可确认，交给兼容页的缺失提示处理，这里不出事件。
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM compat_snapshots
+                 ORDER BY platform, scope, last_seen_at DESC, id DESC
+                """
+            ).fetchall()
+        latest: dict[tuple[str, str], sqlite3.Row] = {}
+        confirmed: set[tuple[str, str, str]] = set()
+        for row in rows:
+            latest.setdefault((row["platform"], row["scope"]), row)
+            if row["confirmed_at"]:
+                confirmed.add((row["platform"], row["scope"], row["fingerprint"]))
+        return [
+            _row_payload(row)
+            for row in latest.values()
+            if row["confirmed_at"] is None
+            and row["state_paths_ok"]
+            # 回滚到曾经确认过的结构不算新变化，不再要求确认第二次。
+            and (row["platform"], row["scope"], row["fingerprint"]) not in confirmed
+        ]
+
     def history(self, platform: str, scope: str, *, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
@@ -296,7 +362,12 @@ class CompatService:
                 else:
                     # 当前结构在历史里出现过（曾经兼容过）也算兼容；只有没见过才算变化。
                     known = any(item["fingerprint"] == probe.fingerprint for item in history)
-                    state = COMPAT_COMPATIBLE if known else COMPAT_CHANGED
+                    # 人工确认过的结构同样视为兼容：确认是「这一版能用」，不是关掉提醒。
+                    confirmed = any(
+                        item["fingerprint"] == probe.fingerprint and item["confirmedAt"]
+                        for item in history
+                    )
+                    state = COMPAT_COMPATIBLE if (known or confirmed) else COMPAT_CHANGED
             elif latest is not None:
                 state = COMPAT_COMPATIBLE if latest["statePathsOk"] else COMPAT_MISSING
             items.append(

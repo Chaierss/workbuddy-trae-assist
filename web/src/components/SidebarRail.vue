@@ -8,6 +8,7 @@ import {
   accountCount,
   activityActionable,
   health,
+  healthUnhandled,
   resolvedTheme,
   scopedPath,
   setTheme,
@@ -35,11 +36,15 @@ const items = computed(() =>
         ? accountCount.value
         : item.key === "activity"
           ? activityActionable.value
-          : 0,
+          : item.key === "health"
+            ? healthUnhandled.value
+            : 0,
     badgeTitle:
       item.key === "activity"
         ? t("shell.activityBadge", { count: activityActionable.value })
-        : "",
+        : item.key === "health" && healthUnhandled.value
+          ? t("overview.health.title", { count: healthUnhandled.value })
+          : "",
   })),
 );
 

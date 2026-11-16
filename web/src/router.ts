@@ -19,6 +19,12 @@ export const router = createRouter({
      * 不带前缀的短地址继续可用（回退路径），所以侧栏链接与旧书签都不会失效。
      */
     {
+      // 健康中心跨平台，和概览一样不分作用域。
+      path: "/health",
+      name: "health",
+      component: () => import("./views/HealthView.vue"),
+    },
+    {
       path: "/accounts",
       name: "accounts",
       component: () => import("./views/AccountsView.vue"),

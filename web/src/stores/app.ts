@@ -95,6 +95,19 @@ export const accountCount = computed(() => accounts.value.length);
 /** 侧栏活动角标：有可执行项的活动个数（不是账号数，避免和号池徽标重复）。 */
 export const activityActionable = ref(0);
 
+/** 侧栏健康角标：未确认（open）的事件数。打开健康中心或确认后应立即回落。 */
+export const healthUnhandled = ref(0);
+
+export async function loadHealthBadge(): Promise<void> {
+  try {
+    const data = await api.healthEvents("active", 1);
+    healthUnhandled.value = data.summary.unhandled;
+  } catch {
+    // 角标取不到就不亮，不影响主界面。
+    healthUnhandled.value = 0;
+  }
+}
+
 export async function loadActivityActionable(): Promise<void> {
   try {
     const data = await api.overviewActionables();
@@ -225,6 +238,7 @@ export async function refreshAll(): Promise<void> {
       loadAccounts(),
       loadBackups(),
       loadActivityActionable(),
+      loadHealthBadge(),
     ]);
     // 账号列表就绪后再查积分（需要账号 ID 集合）。
     await loadCredits();

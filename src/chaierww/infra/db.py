@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -317,6 +317,61 @@ def _migrate_v8(conn: sqlite3.Connection) -> None:
     conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V8 + "\nCOMMIT;")
 
 
+#: v9：健康中心事件流。信号仍然实时读本地数据，这里只存「人怎么看这件事」：
+#: 事件状态（待处理 / 已确认 / 稍后提醒 / 已解决）与处置审计。
+#:
+#: - ``health_events.dedupe_key`` 唯一：同一异常反复刷新只更新末次时间，不刷屏；
+#: - 信号消失时自动置 ``resolved``，不要求用户手动关闭；
+#: - ``health_actions`` 只追加，回答「谁在什么时候点了什么、结果如何」；
+#: - ``compat_snapshots.confirmed_at``：结构指纹经人工确认后不再反复报「待确认」。
+_SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS health_events (
+    id               TEXT PRIMARY KEY,
+    dedupe_key       TEXT NOT NULL UNIQUE,
+    kind             TEXT NOT NULL,
+    severity         TEXT NOT NULL,
+    scope            TEXT NOT NULL DEFAULT '',
+    account_id       TEXT,
+    title            TEXT NOT NULL,
+    detail           TEXT NOT NULL DEFAULT '',
+    evidence         TEXT NOT NULL DEFAULT '{}',
+    actions          TEXT NOT NULL DEFAULT '[]',
+    state            TEXT NOT NULL DEFAULT 'open',
+    first_seen_at    TEXT NOT NULL,
+    last_seen_at     TEXT NOT NULL,
+    state_changed_at TEXT,
+    snoozed_until    TEXT,
+    resolved_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_health_events_state
+    ON health_events (state, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_health_events_account
+    ON health_events (account_id, state);
+
+CREATE TABLE IF NOT EXISTS health_actions (
+    seq      INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL,
+    action   TEXT NOT NULL,
+    ok       INTEGER NOT NULL,
+    message  TEXT NOT NULL DEFAULT '',
+    at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_health_actions_event
+    ON health_actions (event_id, seq DESC);
+"""
+
+
+def _migrate_v9(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V9 + "\nCOMMIT;")
+    # SQLite 没有 ADD COLUMN IF NOT EXISTS；先看列再看要不要加，
+    # 避免迁移执行到一半中断、重跑时被「列已存在」卡住。
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(compat_snapshots)")}
+    if "confirmed_at" not in columns:
+        conn.execute("ALTER TABLE compat_snapshots ADD COLUMN confirmed_at TEXT")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -338,6 +393,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v7(conn)
     if version < 8:
         _migrate_v8(conn)
+    if version < 9:
+        _migrate_v9(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

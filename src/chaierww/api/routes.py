@@ -54,6 +54,7 @@ from chaierww.domain.credential_lifecycle import (
     refreshable,
 )
 from chaierww.domain.credential_refresh import trae_device_foreign
+from chaierww.domain.health_center import HealthCenterError
 from chaierww.domain.preferences import (
     clean_global_parts,
     clean_onboarding_steps,
@@ -372,6 +373,9 @@ class PreferencesRequest(BaseModel):
     #: 号池供给告警阈值。省略 = 不修改。
     minHealthyAccounts: int | None = Field(default=None, ge=0, le=100)
     minCreditsDays: float | None = Field(default=None, ge=0, le=365)
+    #: 健康中心自动处置：到期自动续期 / 失败活动自动补跑。省略 = 不修改。
+    healthAutoRefresh: bool | None = None
+    healthAutoRerun: bool | None = None
 
 
 class GroupRequest(BaseModel):
@@ -630,6 +634,100 @@ def compat_probe(request: Request) -> dict[str, Any]:
 def pool_health(request: Request) -> dict[str, Any]:
     """只读聚合，不发任何上游请求；数据不足的指标返回 null，不返回 0。"""
     return request.app.state.pool_health.health()
+
+
+# ---------- 健康中心：异常事件流与处置 ----------
+
+
+class HealthActRequest(BaseModel):
+    """处置动作 id 必须出现在该事件的 ``actions`` 白名单里。"""
+
+    action: str = Field(min_length=1, max_length=64)
+
+
+class HealthBulkRequest(BaseModel):
+    """批量确认 / 稍后提醒；逐条处理，坏 id 只计数不整批失败。"""
+
+    ids: list[str] = Field(default_factory=list)
+    op: str = Field(default="ack", pattern="^(ack|snooze)$")
+    hours: int = Field(default=24, ge=1, le=168)
+
+
+@router.get(
+    "/health/events",
+    summary="健康事件流：上游结构 / 登录 / 凭据 / 供给 / 活动 / 计划任务",
+    tags=["基础"],
+)
+def health_events(request: Request, state: str = "active", limit: int = 200) -> dict[str, Any]:
+    """刷新一次本地信号并返回事件流。
+
+    ``state=active``（默认）只返回待处理 / 已确认 / 稍后提醒；``resolved`` 回看已解决；
+    ``all`` 两者都给。整个过程只读本地数据，不发任何上游请求。
+    """
+    if state not in ("active", "resolved", "all"):
+        raise HTTPException(status_code=400, detail=f"未知状态：{state}")
+    return request.app.state.health.snapshot(state=state, limit=limit)
+
+
+@router.post(
+    "/health/events/{event_id}/ack",
+    summary="确认健康事件（不再计入未处理）",
+    tags=["基础"],
+)
+def health_ack(request: Request, event_id: str) -> dict[str, Any]:
+    try:
+        return request.app.state.health.ack(event_id)
+    except HealthCenterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/health/events/{event_id}/snooze",
+    summary="稍后提醒健康事件（默认 24 小时）",
+    tags=["基础"],
+)
+def health_snooze(request: Request, event_id: str, hours: int = 24) -> dict[str, Any]:
+    try:
+        return request.app.state.health.snooze(event_id, hours)
+    except HealthCenterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/health/events/{event_id}/act",
+    summary="执行事件登记的处置动作（服务端白名单校验）",
+    tags=["基础"],
+)
+def health_act(
+    request: Request, event_id: str, body: HealthActRequest
+) -> dict[str, Any]:
+    try:
+        return request.app.state.health.act(event_id, body.action)
+    except HealthCenterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/health/events/{event_id}/actions",
+    summary="某个事件的处置审计（只读，新的在前）",
+    tags=["基础"],
+)
+def health_event_actions(request: Request, event_id: str, limit: int = 20) -> dict[str, Any]:
+    return {
+        "items": request.app.state.health.actions(event_id, limit=limit),
+    }
+
+
+@router.post(
+    "/health/events/bulk",
+    summary="批量确认或稍后提醒",
+    tags=["基础"],
+)
+def health_bulk(request: Request, body: HealthBulkRequest) -> dict[str, Any]:
+    try:
+        return request.app.state.health.bulk(body.ids, op=body.op, hours=body.hours)
+    except HealthCenterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------- 扫码登录（OAuth 采集） ----------
@@ -2450,6 +2548,8 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
             if body.minCreditsDays is None
             else body.minCreditsDays
         ),
+        health_auto_refresh=pick(body.healthAutoRefresh, current.health_auto_refresh),
+        health_auto_rerun=pick(body.healthAutoRerun, current.health_auto_rerun),
     )
     try:
         saved = request.app.state.preferences.save(updated)

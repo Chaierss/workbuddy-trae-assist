@@ -81,6 +81,11 @@ DEFAULTS: dict[str, Any] = {
     # ---------- 本地体验数据（0.8.0） ----------
     #: 本地漏斗事件开关。只写本机 NDJSON，不上传；关掉后不再产生新事件。
     "localMetricsEnabled": True,
+    # ---------- 健康中心自动处置（1.8.0） ----------
+    #: 快到期 / 已过期的号是否自动续期一次。默认关：续期会轮换令牌，属于写操作。
+    "healthAutoRefresh": False,
+    #: 当天失败的活动是否在下一轮自动补跑一次。默认关：重跑会再次打上游。
+    "healthAutoRerun": False,
 }
 
 
@@ -106,6 +111,10 @@ class Preferences:
     min_healthy_accounts: int = 2
     #: 按近 7 天消耗推算的库存天数低于这个值就提示补给。
     min_credits_days: float = 3.0
+    #: 健康中心：快到期 / 已过期的号自动续期一次。
+    health_auto_refresh: bool = False
+    #: 健康中心：当天失败的活动自动补跑一次。
+    health_auto_rerun: bool = False
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -127,6 +136,8 @@ class Preferences:
             "localMetricsEnabled": self.local_metrics_enabled,
             "minHealthyAccounts": self.min_healthy_accounts,
             "minCreditsDays": self.min_credits_days,
+            "healthAutoRefresh": self.health_auto_refresh,
+            "healthAutoRerun": self.health_auto_rerun,
         }
 
 
@@ -165,6 +176,8 @@ class PreferencesStore:
             local_metrics_enabled=flag("localMetricsEnabled"),
             min_healthy_accounts=clean_positive_int(data.get("minHealthyAccounts"), 2),
             min_credits_days=clean_positive_float(data.get("minCreditsDays"), 3.0),
+            health_auto_refresh=flag("healthAutoRefresh"),
+            health_auto_rerun=flag("healthAutoRerun"),
         )
 
     def mark_first_switch(self, at: str | None = None) -> bool:

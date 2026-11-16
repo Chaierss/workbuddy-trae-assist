@@ -74,6 +74,7 @@ def test_same_time_point_runs_only_once(tmp_path):
     scheduler.update("session_sync", enabled=False)
     scheduler.update("upstream_watch", enabled=False)
     scheduler.update("pool_supply", enabled=False)
+    scheduler.update("health_auto", enabled=False)
 
     scheduler.run_due(_at(9, 5))
     assert len(recorder.calls) == 1
@@ -110,6 +111,7 @@ def test_disabled_task_never_runs(tmp_path):
     scheduler.update("session_sync", enabled=False)
     scheduler.update("upstream_watch", enabled=False)
     scheduler.update("pool_supply", enabled=False)
+    scheduler.update("health_auto", enabled=False)
 
     scheduler.run_due(_at(12, 0))
     assert recorder.calls == []
@@ -126,6 +128,7 @@ def test_multi_times_backfills_only_the_latest_missed(tmp_path):
     scheduler.update("session_sync", enabled=False)
     scheduler.update("upstream_watch", enabled=False)
     scheduler.update("pool_supply", enabled=False)
+    scheduler.update("health_auto", enabled=False)
 
     # 18:05 才启动：应该只跑 18:00 这一档。
     scheduler.run_due(_at(18, 5))
@@ -345,6 +348,7 @@ def test_travel_tasks_run_independently_at_their_own_times(tmp_path):
     scheduler.update("session_sync", enabled=False)
     scheduler.update("upstream_watch", enabled=False)
     scheduler.update("pool_supply", enabled=False)
+    scheduler.update("health_auto", enabled=False)
     scheduler.update("travel_depart", enabled=True, jitter_minutes=0)
     scheduler.update("travel_claim", enabled=True, jitter_minutes=0)
 
@@ -401,6 +405,7 @@ def _only(scheduler: Scheduler, key: str, times: list[str]) -> None:
         "session_sync",
         "upstream_watch",
         "pool_supply",
+        "health_auto",
     ):
         scheduler.update(other, enabled=other == key)
     scheduler.update(key, enabled=True, times=times, jitter_minutes=0)

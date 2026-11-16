@@ -1,6 +1,7 @@
 import type { Component } from "vue";
 import {
   Activity,
+  HeartPulse,
   LayoutDashboard,
   Network,
   Settings,
@@ -25,6 +26,8 @@ export interface NavDestination {
 
 export const NAV_DESTINATIONS: NavDestination[] = [
   { key: "overview", labelKey: "nav.overview", path: "/overview", icon: LayoutDashboard },
+  // 健康中心跨平台（号池供给与上游结构都是全局信号），因此不带作用域前缀。
+  { key: "health", labelKey: "nav.health", path: "/health", icon: HeartPulse },
   { key: "accounts", labelKey: "nav.accounts", path: "/accounts", icon: Users },
   { key: "activity", labelKey: "nav.activity", path: "/activity", icon: Sparkles },
   { key: "usage", labelKey: "nav.usage", path: "/usage", icon: Activity },

@@ -70,7 +70,8 @@ def write_schedules(path: Path, payload: dict[str, Any]) -> None:
 #: credential_refresh = 凭据巡检续期（只动到期前 30 分钟的号）；
 #: session_sync = 会话镜像的只读采集（不写客户端）；
 #: upstream_watch = 上游客户端版本与登录态结构指纹探测（只读，每日一次）；
-#: pool_supply = 号池供给指标聚合（只读，定期检查健康数与库存天数）。
+#: pool_supply = 号池供给指标聚合（只读，定期检查健康数与库存天数）；
+#: health_auto = 健康中心的自动处置（续期 / 补跑，两个开关都在常规设置里，默认关）。
 #: 拆成两个旅行任务是因为派出后猫要在路上待一段时间，同一次执行里做不完两件事。
 TASK_KEYS: tuple[str, ...] = (
     "keepalive",
@@ -82,6 +83,7 @@ TASK_KEYS: tuple[str, ...] = (
     "session_sync",
     "upstream_watch",
     "pool_supply",
+    "health_auto",
 )
 
 #: 抖动的可选半径（分钟）。实际偏移在 `[-n, +n]` 内确定性派生。
@@ -117,6 +119,8 @@ _DEFAULT_TIMES: dict[str, tuple[str, ...]] = {
     "session_sync": ("10:00", "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"),
     # 上游雷达每天一次即可：结构不会一天变两次，探测太勤只会打扰客户端文件。
     "upstream_watch": ("07:30",),
+    # 自动处置一天两轮：早班补昨天遗留，晚班再兜一次；做不做由偏好开关决定。
+    "health_auto": ("09:40", "20:40"),
     # 供给聚合每 30 分钟一次；纯本地计算，不打上游。
     "pool_supply": (
         "00:30", "01:00", "01:30", "02:00", "02:30", "03:00", "03:30", "04:00",
@@ -203,6 +207,7 @@ def _jitter_offset(day: datetime, key: str, time_text: str, jitter: int) -> int:
 #: 同名偏好开关给出同样的默认值），所以这里也默认开；全部活动是重动作，默认关。
 #: 凭据续期默认开：它只在到期前 30 分钟才发请求，日常轮次基本是空跑。
 #: 上游雷达与供给聚合都是只读本地动作，默认开；前者每天一次，后者每 30 分钟一次。
+#: 健康中心自动处置默认开「任务」但默认关「动作」：执行体先读偏好，两个开关都没开就空跑。
 _DEFAULT_ENABLED: tuple[str, ...] = (
     "keepalive",
     "checkin",
@@ -210,6 +215,7 @@ _DEFAULT_ENABLED: tuple[str, ...] = (
     "session_sync",
     "upstream_watch",
     "pool_supply",
+    "health_auto",
 )
 
 

@@ -3,8 +3,11 @@ import { computed, onMounted, ref, type Component } from "vue";
 import {
   CalendarClock,
   CalendarCheck,
+  Gauge,
   HeartPulse,
+  MessagesSquare,
   Play,
+  Radar,
   RotateCcw,
   Send,
   Sparkles,
@@ -65,6 +68,26 @@ const META: Record<string, TaskMeta> = {
     titleKey: "schedule.credentialTitle",
     descKey: "schedule.credentialDesc",
     icon: ShieldCheck,
+  },
+  session_sync: {
+    titleKey: "schedule.sessionTitle",
+    descKey: "schedule.sessionDesc",
+    icon: MessagesSquare,
+  },
+  upstream_watch: {
+    titleKey: "schedule.upstreamTitle",
+    descKey: "schedule.upstreamDesc",
+    icon: Radar,
+  },
+  pool_supply: {
+    titleKey: "schedule.poolTitle",
+    descKey: "schedule.poolDesc",
+    icon: Gauge,
+  },
+  health_auto: {
+    titleKey: "schedule.healthAutoTitle",
+    descKey: "schedule.healthAutoDesc",
+    icon: RotateCcw,
   },
 };
 

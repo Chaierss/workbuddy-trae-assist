@@ -951,6 +951,10 @@ export interface Preferences {
   minHealthyAccounts: number;
   /** 号池供给告警：按近 7 天消耗推算的库存天数低于这个值就提示补给（默认 3）。 */
   minCreditsDays: number;
+  /** 健康中心：快到期 / 已过期的号自动续期一次（默认关，续期属于写操作）。 */
+  healthAutoRefresh: boolean;
+  /** 健康中心：当天失败的活动自动补跑一次（默认关）。 */
+  healthAutoRerun: boolean;
 }
 
 /** 改偏好的入参：响应字段都可选；`resetOnboarding` 只进不出（清空引导进度）。 */
@@ -1057,6 +1061,68 @@ export interface LoginProbeResult {
   valid: number;
   invalid: number;
   blocked: number;
+}
+
+/**
+ * 健康中心事件：每一条都能直接处置。
+ *
+ * `kind` 是稳定枚举，用于筛选与配色；`title` / `detail` 由后端生成（与待处理清单
+ * 同一口径），前端只负责展示。`actions` 是服务端登记的白名单，点按钮时原样回传 id。
+ */
+export type HealthEventState = "open" | "acked" | "snoozed" | "resolved";
+export type HealthSeverity = "high" | "warn" | "info";
+
+export interface HealthAction {
+  id: string;
+  kind: string;
+  label: string;
+  /** 跳转类动作：前端直接 router.push，不调服务端。 */
+  to?: string;
+  /** 计划任务类动作：明确要重试哪个任务。 */
+  taskKey?: string;
+}
+
+export interface HealthEvent {
+  id: string;
+  kind: string;
+  severity: HealthSeverity;
+  state: HealthEventState;
+  scope: string;
+  accountId: string | null;
+  title: string;
+  detail: string;
+  evidence: Record<string, unknown>;
+  actions: HealthAction[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  stateChangedAt: string | null;
+  snoozedUntil: string | null;
+  resolvedAt: string | null;
+}
+
+export interface HealthSummary {
+  open: number;
+  acked: number;
+  snoozed: number;
+  resolved: number;
+  high: number;
+  warn: number;
+  info: number;
+  /** 未确认的 open 事件数；侧栏角标与概览提示都用它。 */
+  unhandled: number;
+}
+
+export interface HealthSnapshot {
+  items: HealthEvent[];
+  summary: HealthSummary;
+  checkedAt: string;
+}
+
+export interface HealthActionLog {
+  action: string;
+  ok: boolean;
+  message: string;
+  at: string;
 }
 
 /** 活动目录版本对比：changed 只表示「上次执行用的目录与现在不同」。 */
@@ -1960,6 +2026,40 @@ export const api = {
   /** 立即探测上游结构（5 分钟内去重）。 */
   probeCompat: () =>
     request<CompatOverview>("/api/compat/probe", { method: "POST" }),
+
+  /** 健康事件流：刷新一次本地信号后返回；`state=active` 默认只看未解决。 */
+  healthEvents: (state: "active" | "resolved" | "all" = "active", limit = 200) =>
+    request<HealthSnapshot>(`/api/health/events?state=${state}&limit=${limit}`),
+
+  /** 确认事件：不再计入「未处理」，信号消失后自动转已解决。 */
+  ackHealthEvent: (eventId: string) =>
+    request<HealthEvent>(`/api/health/events/${eventId}/ack`, { method: "POST" }),
+
+  /** 稍后提醒：到点后下一次刷新自动回到待处理。 */
+  snoozeHealthEvent: (eventId: string, hours = 24) =>
+    request<HealthEvent>(`/api/health/events/${eventId}/snooze?hours=${hours}`, {
+      method: "POST",
+    }),
+
+  /** 执行事件登记的处置动作；动作 id 必须出现在该事件的 actions 里。 */
+  actHealthEvent: (eventId: string, action: string) =>
+    request<{ ok: boolean; message: string; event: HealthEvent }>(
+      `/api/health/events/${eventId}/act`,
+      { method: "POST", body: JSON.stringify({ action }) },
+    ),
+
+  /** 某个事件的处置审计（新的在前）。 */
+  healthEventActions: (eventId: string, limit = 20) =>
+    request<{ items: HealthActionLog[] }>(
+      `/api/health/events/${eventId}/actions?limit=${limit}`,
+    ),
+
+  /** 批量确认 / 稍后提醒。 */
+  bulkHealthEvents: (ids: string[], op: "ack" | "snooze", hours = 24) =>
+    request<{ ok: boolean; done: number; skipped: number }>("/api/health/events/bulk", {
+      method: "POST",
+      body: JSON.stringify({ ids, op, hours }),
+    }),
 
   /** 凭据巡检：due 只续快到期的，force 全部尝试续期，check 只验活。 */
   refreshCredentials: (mode: "due" | "force" | "check", accountIds?: string[]) =>

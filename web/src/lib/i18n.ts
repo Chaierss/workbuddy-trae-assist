@@ -3,6 +3,7 @@ import { accountsEn, accountsZh } from "./locales/accounts";
 import { activityEn, activityZh } from "./locales/activity";
 import { chromeEn, chromeZh } from "./locales/chrome";
 import { gatewayEn, gatewayZh } from "./locales/gateway";
+import { healthEn, healthZh } from "./locales/health";
 import { settingsEn, settingsZh } from "./locales/settings";
 import { updateEn, updateZh } from "./locales/update";
 import { usageEn, usageZh } from "./locales/usage";
@@ -43,6 +44,7 @@ const zhCN = {
   ...activityZh,
   ...usageZh,
   ...gatewayZh,
+  ...healthZh,
   ...settingsZh,
   ...updateZh,
 };
@@ -54,6 +56,7 @@ const en: Record<keyof typeof zhCN, string> = {
   ...activityEn,
   ...usageEn,
   ...gatewayEn,
+  ...healthEn,
   ...settingsEn,
   ...updateEn,
 };

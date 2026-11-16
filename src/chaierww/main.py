@@ -46,6 +46,7 @@ from chaierww.domain.credential_lifecycle import (
 from chaierww.domain.credits import CreditsService
 from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewayStore
 from chaierww.domain.gateway_relay import GatewayRelay
+from chaierww.domain.health_center import HealthCenterService
 from chaierww.domain.login_health import LoginProbeService
 from chaierww.domain.metrics import MetricsStore
 from chaierww.domain.oauth import build_oauth
@@ -246,6 +247,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "done": int(summary.get("skip.done", 0)),
         }
 
+    # 调度器的执行体在这里定义，但健康中心要等调度器创建后才能注入（它自己也要用
+    # 调度器重试任务）。用一个持有器延后绑定，避免闭包引用未赋值的局部变量。
+    runtime: dict[str, Any] = {}
+
     def run_scheduled(
         key: str, account_ids: tuple[str, ...], activity_keys: tuple[str, ...]
     ) -> str | tuple[str, dict[str, Any]]:
@@ -266,6 +271,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     {"ok": 0, "skipped": 0, "failed": 0, "changed": len(changed)},
                 )
             return "上游结构未变化", {"ok": 1, "skipped": 0, "failed": 0, "changed": 0}
+        if key == "health_auto":
+            service = runtime.get("health")
+            if service is None:
+                return "健康中心尚未就绪，本轮跳过", {
+                    "ok": 0,
+                    "skipped": 0,
+                    "failed": 0,
+                }
+            # 开关在常规设置里；任务本身默认在跑，两个开关都没开时只留一行说明。
+            outcome = service.auto_dispose()
+            if not outcome.get("enabled"):
+                return "自动处置未开启，本轮不执行", {
+                    "ok": 1,
+                    "skipped": 0,
+                    "failed": 0,
+                }
+            return (
+                f"自动续期 {outcome.get('refreshed', 0)} 个号，"
+                f"补跑 {outcome.get('rerunPairs', 0)} 项活动",
+                {"ok": 1, "skipped": 0, "failed": 0},
+            )
         if key == "pool_supply":
             # 纯本地聚合，不打上游；告警是否展示由前端按现状实时计算。
             health = pool_health.health()
@@ -399,6 +425,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 logger.exception("客户端退出后采集会话失败：%s", scope_key)
 
     scheduler = Scheduler(resolved.home, executor=run_scheduled, tick_hook=sync_tick)
+    # 健康中心：把兼容 / 登录 / 供给 / 活动 / 计划任务的异常收成一条可处置事件流。
+    # 动作仍复用上面的服务实例，避免出现第二套续期或第二套重跑逻辑。
+    runtime["health"] = HealthCenterService(
+        conn,
+        repository,
+        compat=compat,
+        pool_health=pool_health,
+        login_probes=login_probes,
+        lifecycle=lifecycle,
+        activities=activities,
+        scheduler=scheduler,
+        preferences=preferences,
+        scopes=tuple(item.key for item in all_scopes() if item.implemented),
+        lock=repository.lock,
+    )
 
     # 积分到期自动轮换（默认关闭，设置里手动开）：判定走 `domain/rotation.py`，
     # 这里只提供两个回调 —— 取快照（账号库 + 积分 + 客户端状态）与执行切换。
@@ -656,6 +697,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.compat = compat
     app.state.login_probes = login_probes
     app.state.pool_health = pool_health
+    app.state.health = runtime["health"]
     app.state.engine = engine
     app.state.gateway = gateway
     app.state.gateway_relay = gateway_relay

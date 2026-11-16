@@ -94,6 +94,52 @@ def test_compat_probe_marks_new_structure_then_compatible(tmp_path):
         conn.close()
 
 
+def test_compat_confirm_acknowledges_only_current_fingerprint(tmp_path):
+    conn = open_database(tmp_path / "compat.db")
+    adapter = _ProbeAdapter(
+        ClientProbe(
+            platform="workbuddy",
+            scope="workbuddy-cn",
+            client_version="5.9.2",
+            fingerprint="abcdef0123456789",
+            state_paths_ok=True,
+        )
+    )
+    service = CompatService(conn, {"workbuddy-cn": adapter})
+    try:
+        service.probe()
+        assert len(service.unconfirmed()) == 1
+
+        service.confirm("workbuddy-cn")
+        assert service.unconfirmed() == []
+        assert service.overview()["items"][0]["state"] == COMPAT_COMPATIBLE
+
+        # 上游再换结构：新指纹仍然要确认一次，确认不是永久关掉提醒。
+        adapter._probe = ClientProbe(
+            platform="workbuddy",
+            scope="workbuddy-cn",
+            client_version="5.9.3",
+            fingerprint="ffffffffffffffff",
+            state_paths_ok=True,
+        )
+        service.probe()
+        assert len(service.unconfirmed()) == 1
+        assert service.unconfirmed()[0]["fingerprint"] == "ffffffffffffffff"
+
+        # 回滚到曾确认过的结构，不该再要求确认第二次。
+        adapter._probe = ClientProbe(
+            platform="workbuddy",
+            scope="workbuddy-cn",
+            client_version="5.9.2",
+            fingerprint="abcdef0123456789",
+            state_paths_ok=True,
+        )
+        service.probe()
+        assert service.unconfirmed() == []
+    finally:
+        conn.close()
+
+
 def test_compat_reports_missing_paths_without_fingerprint(tmp_path):
     conn = open_database(tmp_path / "compat.db")
     adapter = _ProbeAdapter(
@@ -365,7 +411,8 @@ def test_v8_adds_login_and_catalog_columns(tmp_path):
             row["name"] for row in conn.execute("PRAGMA table_info(activity_runs)")
         }
         assert "catalog_version" in run_columns
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+        # v8 的列仍然要加上；版本号随 v9 健康事件表一起前进。
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
 
         repo = AccountRepository(conn, InMemoryBox())
         repo.upsert(
