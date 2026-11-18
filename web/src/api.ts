@@ -955,6 +955,14 @@ export interface Preferences {
   healthAutoRefresh: boolean;
   /** 健康中心：当天失败的活动自动补跑一次（默认关）。 */
   healthAutoRerun: boolean;
+  /** 网关自动隔离：连续认证失败达到阈值后暂时移出网关候选（只影响网关）。 */
+  isolationEnabled: boolean;
+  /** 连续认证失败多少次触发隔离（1-10，默认 3）。 */
+  isolationThreshold: number;
+  /** 隔离多久自动回归（1-168 小时，默认 24）。 */
+  isolationHours: number;
+  /** 活动截止雷达：周期结束前多少天开始提示（1-14，默认 3）。 */
+  activityDeadlineDays: number;
 }
 
 /** 改偏好的入参：响应字段都可选；`resetOnboarding` 只进不出（清空引导进度）。 */
@@ -1044,6 +1052,65 @@ export interface PoolHealth {
   thresholds: { minHealthyAccounts: number; minCreditsDays: number };
   alerts: Array<{ code: string; severity: "warn" | "high"; message: string }>;
   checkedAt: string;
+}
+
+/** 活动截止雷达的一项：只统计有截止日且仍有账号未完成的周期活动。 */
+export interface ActivityDeadline {
+  key: string;
+  title: string;
+  periodEnd: string;
+  daysLeft: number;
+  totalAccounts: number;
+  pending: number;
+  pendingAccounts: Array<{ accountId: string; displayName: string; scope: string }>;
+  detectedAt: string | null;
+  /** 快照超过 24 小时：页面只显示「待检测」，健康中心不据此告警。 */
+  stale: boolean;
+}
+
+export interface ActivityDeadlines {
+  items: ActivityDeadline[];
+  days: number;
+  checkedAt: string;
+}
+
+/** 单账号稳定度：数据不足的指标为 null（未知 ≠ 0）。 */
+export interface StabilityAccount {
+  accountId: string;
+  displayName: string;
+  scope: string;
+  platform: string;
+  switchTotal: number;
+  switchOk: number;
+  switchRate: number | null;
+  loginInvalid: number | null;
+  refreshFailed: number | null;
+  gatewayFailed: number | null;
+  lastReason: string;
+  lastAt: string | null;
+}
+
+export interface StabilityReport {
+  days: number;
+  items: StabilityAccount[];
+  checkedAt: string;
+}
+
+/** 网关隔离台账：active 才真正影响候选；只影响网关，不影响切号与数据。 */
+export interface IsolationItem {
+  accountId: string;
+  reason: string;
+  failureCount: number;
+  firstFailureAt: string | null;
+  lastFailureAt: string | null;
+  isolatedUntil: string | null;
+  releasedAt: string | null;
+  active: boolean;
+}
+
+export interface IsolationOverview {
+  items: IsolationItem[];
+  active: number;
 }
 
 export interface LoginProbeItem {
@@ -2019,6 +2086,26 @@ export const api = {
 
   /** 号池供给指标：只读本地聚合，数据不足的指标为 null。 */
   poolHealth: () => request<PoolHealth>("/api/pool/health"),
+
+  /** 账号稳定度：切换成功率 / 登录失效 / 续期失败 / 网关失败（7 或 30 天）。 */
+  poolStability: (days: 7 | 30 = 7) =>
+    request<StabilityReport>(`/api/pool/stability?days=${days}`),
+
+  /** 网关隔离台账：只影响网关候选，不影响切号与数据。 */
+  poolIsolation: () => request<IsolationOverview>("/api/pool/isolation"),
+
+  /** 人工解除隔离：账号立即回到网关候选。 */
+  releaseIsolation: (accountId: string) =>
+    request<{ accountId: string; releasedAt: string }>("/api/pool/isolation/release", {
+      method: "POST",
+      body: JSON.stringify({ accountId }),
+    }),
+
+  /** 活动截止雷达：只读本地快照，不触发检测。 */
+  activityDeadlines: (days?: number) =>
+    request<ActivityDeadlines>(
+      `/api/activities/deadlines${days ? `?days=${days}` : ""}`,
+    ),
 
   /** 上游兼容雷达：只读展示，不会触发探测。 */
   compat: () => request<CompatOverview>("/api/compat"),

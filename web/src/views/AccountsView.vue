@@ -33,6 +33,7 @@ import AnimatedNumber from "../components/AnimatedNumber.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import CredentialDiagnoseDialog from "../components/CredentialDiagnoseDialog.vue";
 import CredentialHistoryDialog from "../components/CredentialHistoryDialog.vue";
+import StabilityDrawer from "../components/stability/StabilityDrawer.vue";
 import EmptyState from "../components/EmptyState.vue";
 import NoteDialog from "../components/NoteDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -48,6 +49,8 @@ import {
   type MigrationPreview,
   type OverviewPulse,
   type RecycleBinAccount,
+  type StabilityAccount,
+  type IsolationItem,
   type SyncAccountStatus,
 } from "../api";
 import {
@@ -68,6 +71,7 @@ import { track } from "../lib/metrics";
 import { openSwitch, switchFlow } from "../lib/switchFlow";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { localeTag, t, type MessageKey } from "../lib/i18n";
+import { runTask } from "../stores/tasks";
 
 const keyword = ref("");
 const sortBy = ref<"recent" | "name" | "credits" | "expiry" | "activity">("recent");
@@ -361,7 +365,12 @@ async function runCredentialSweep(mode: "check" | "due", accountIds?: string[]):
   if (!ids.length || credentialBusy.value) return;
   credentialBusy.value = mode;
   try {
-    const report = await api.refreshCredentials(mode, ids);
+    const report = await runTask({
+      kind: `credential-${mode}`,
+      title: mode === "check" ? t("tasks.credentialCheck") : t("tasks.credentialRefresh"),
+      run: () => api.refreshCredentials(mode, ids),
+      message: t("tasks.receiptCredential", { count: ids.length }),
+    });
     showToast(credentialReportText(report));
     await refreshAll();
   } catch (error) {
@@ -382,7 +391,12 @@ async function runLoginProbe(): Promise<void> {
   if (!ids.length) return;
   loginBusy.value = true;
   try {
-    const result = await api.probeLogin(ids);
+    const result = await runTask({
+      kind: "login-probe",
+      title: t("tasks.loginProbe"),
+      run: () => api.probeLogin(ids),
+      message: t("tasks.receiptLoginProbe", { count: ids.length }),
+    });
     showToast(
       t("accounts.login.probeDone", {
         valid: result.valid,
@@ -1287,6 +1301,41 @@ async function loadSyncStatus(): Promise<void> {
   syncRows.value = next;
 }
 
+/**
+ * 稳定度：切换成功率 / 登录失效 / 续期失败 / 网关失败。
+ * 只读本地数据，拉不到就保持空表，不影响号池主流程。
+ */
+const stabilityRows = ref<Record<string, StabilityAccount>>({});
+const isolationRows = ref<Record<string, IsolationItem>>({});
+const stabilityDays = ref<7 | 30>(7);
+const stabilityOpen = ref(false);
+const stabilityLoading = ref(false);
+
+async function loadStability(): Promise<void> {
+  stabilityLoading.value = true;
+  try {
+    const [report, isolation] = await Promise.all([
+      api.poolStability(stabilityDays.value),
+      api.poolIsolation(),
+    ]);
+    stabilityRows.value = Object.fromEntries(
+      report.items.map((item) => [item.accountId, item]),
+    );
+    isolationRows.value = Object.fromEntries(
+      isolation.items.map((item) => [item.accountId, item]),
+    );
+  } catch {
+    // 稳定度只是辅助判断；读不到时卡片不显示徽标，不假装「0 次失败」。
+  } finally {
+    stabilityLoading.value = false;
+  }
+}
+
+function setStabilityDays(days: 7 | 30): void {
+  stabilityDays.value = days;
+  void loadStability();
+}
+
 onMounted(() => {
   applyRefreshTimer();
   window.addEventListener("keydown", onKeydown);
@@ -1298,6 +1347,7 @@ onMounted(() => {
   // 回收站只在打开弹层时才需要明细，但按钮上的角标要有数，所以启动时拉一次。
   void loadRecycleBin();
   void loadCredentialHealth();
+  void loadStability();
   scrollToFocused();
 });
 onBeforeUnmount(() => {
@@ -2191,6 +2241,8 @@ const confirmText = computed(() => {
           :selected="selectedIds.has(account.id)"
           :preview="previews[account.id] ?? null"
           :sync="syncRows[account.id] ?? null"
+          :stability="stabilityRows[account.id] ?? null"
+          :isolation="isolationRows[account.id] ?? null"
           :density="density"
           class="h-full"
           @switch="(account) => openSwitch(account, 'manual')"
@@ -2205,6 +2257,7 @@ const confirmText = computed(() => {
           @run-activity="(item) => runActivitiesFor([item.id])"
           @diagnose="openDiagnose"
           @history="openHistory"
+          @stability="stabilityOpen = true"
         />
       </div>
     </div>
@@ -2257,6 +2310,17 @@ const confirmText = computed(() => {
       :account-id="historyDialog.account?.id ?? null"
       :account-name="historyDialog.account?.displayName"
       @close="historyDialog.open = false"
+    />
+
+    <StabilityDrawer
+      :open="stabilityOpen"
+      :items="Object.values(stabilityRows)"
+      :isolation="Object.values(isolationRows)"
+      :days="stabilityDays"
+      :loading="stabilityLoading"
+      @close="stabilityOpen = false"
+      @days="setStabilityDays"
+      @refresh="loadStability"
     />
 
     <ConfirmDialog

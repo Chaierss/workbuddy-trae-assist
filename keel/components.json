@@ -37,5 +37,8 @@
   { "key": "onboarding-checklist", "name": "OnboardingChecklist", "path": "web/src/components/onboarding/OnboardingChecklist.vue", "category": "business", "summaryKey": "settings.components.summary.onboardingChecklist", "status": "stable", "demo": null },
 
   { "key": "credential-diagnose-dialog", "name": "CredentialDiagnoseDialog", "path": "web/src/components/CredentialDiagnoseDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.credentialDiagnoseDialog", "status": "stable", "demo": null },
-  { "key": "credential-history-dialog", "name": "CredentialHistoryDialog", "path": "web/src/components/CredentialHistoryDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.credentialHistoryDialog", "status": "stable", "demo": null }
+  { "key": "credential-history-dialog", "name": "CredentialHistoryDialog", "path": "web/src/components/CredentialHistoryDialog.vue", "category": "feedback", "summaryKey": "settings.components.summary.credentialHistoryDialog", "status": "stable", "demo": null },
+
+  { "key": "task-center-drawer", "name": "TaskCenterDrawer", "path": "web/src/components/TaskCenterDrawer.vue", "category": "feedback", "summaryKey": "settings.components.summary.taskCenterDrawer", "status": "stable", "demo": null },
+  { "key": "stability-drawer", "name": "StabilityDrawer", "path": "web/src/components/stability/StabilityDrawer.vue", "category": "business", "summaryKey": "settings.components.summary.stabilityDrawer", "status": "stable", "demo": null }
 ]

@@ -6,7 +6,7 @@ from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 #: 迁移前备份保留份数（按文件名时间排序滚动）。
 KEEP_PRE_MIGRATE = 5
 
@@ -372,6 +372,45 @@ def _migrate_v9(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE compat_snapshots ADD COLUMN confirmed_at TEXT")
 
 
+#: v10：活动截止快照 + 网关自动隔离。
+#:
+#: - ``activity_snapshots``：检测结果的**最近一次**状态（不是流水），
+#:   用于「快到期但还没做完」的聚合；不存 token、不存上游响应原文。
+#: - ``account_isolation``：网关连续认证失败的处置台账。只影响网关候选，
+#:   不影响切号 / 数据；``isolated_until`` 到点自动回归，``released_at`` 是人工解除。
+_SCHEMA_V10 = """
+CREATE TABLE IF NOT EXISTS activity_snapshots (
+    account_id   TEXT NOT NULL,
+    activity_key TEXT NOT NULL,
+    state        TEXT NOT NULL,
+    period_end   TEXT,
+    detected_at  TEXT NOT NULL,
+    PRIMARY KEY (account_id, activity_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_snapshots_period
+    ON activity_snapshots (activity_key, period_end);
+
+CREATE TABLE IF NOT EXISTS account_isolation (
+    account_id       TEXT PRIMARY KEY,
+    reason           TEXT NOT NULL DEFAULT 'auth',
+    failure_count    INTEGER NOT NULL DEFAULT 0,
+    first_failure_at TEXT,
+    last_failure_at  TEXT,
+    isolated_until   TEXT,
+    released_at      TEXT,
+    updated_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_isolation_until
+    ON account_isolation (isolated_until);
+"""
+
+
+def _migrate_v10(conn: sqlite3.Connection) -> None:
+    conn.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA_V10 + "\nCOMMIT;")
+
+
 def migrate(conn: sqlite3.Connection) -> int:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version >= SCHEMA_VERSION:
@@ -395,6 +434,8 @@ def migrate(conn: sqlite3.Connection) -> int:
         _migrate_v8(conn)
     if version < 9:
         _migrate_v9(conn)
+    if version < 10:
+        _migrate_v10(conn)
     conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return SCHEMA_VERSION
 

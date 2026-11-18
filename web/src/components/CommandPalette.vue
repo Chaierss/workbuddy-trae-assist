@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { CornerDownLeft, Search, Users } from "lucide-vue-next";
+import {
+  Activity,
+  CornerDownLeft,
+  DatabaseBackup,
+  HeartPulse,
+  RefreshCw,
+  ScanFace,
+  Search,
+  Users,
+} from "lucide-vue-next";
+import ConfirmDialog from "./ConfirmDialog.vue";
+import { api } from "../api";
 import { t } from "../lib/i18n";
 import { NAV_DESTINATIONS, SETTINGS_DESTINATION } from "../lib/nav";
-import { matchPalette, type PaletteResult } from "../lib/paletteResults";
+import type { NavDestination } from "../lib/nav";
+import { matchPalette, type PaletteAction, type PaletteResult } from "../lib/paletteResults";
+import { toastError, toastSuccess } from "../lib/toast";
 import { openSwitch } from "../lib/switchFlow";
-import { accounts, scopedPath } from "../stores/app";
+import { accounts, scope, scopedPath } from "../stores/app";
+import { runTask } from "../stores/tasks";
+import { SETTINGS_TABS, SETTINGS_DEFAULT_KEY } from "../views/settings/tabs";
+import { GATEWAY_TABS } from "../views/gateway/tabs";
 
 /**
- * `Ctrl+K` 的落点：页面跳转 + 账号换号。
+ * `Ctrl+K` 的落点：页面跳转 + 设置/网关分栏 + 账号换号 + 可直接执行的维护动作。
  * 由 AppShell 控制挂载，打开即聚焦输入框、Esc 关闭。
  */
 const emit = defineEmits<{ close: [] }>();
@@ -18,11 +34,94 @@ const router = useRouter();
 const keyword = ref("");
 const cursor = ref(0);
 const inputRef = ref<HTMLInputElement | null>(null);
+const pending = ref<PaletteAction | null>(null);
 
-const destinations = [...NAV_DESTINATIONS, SETTINGS_DESTINATION];
+const destinations: NavDestination[] = [
+  ...NAV_DESTINATIONS,
+  SETTINGS_DESTINATION,
+  ...SETTINGS_TABS.filter((tab) => tab.key !== SETTINGS_DEFAULT_KEY).map((tab) => ({
+    key: `settings-${tab.key}`,
+    labelKey: tab.labelKey,
+    path: `/settings?tab=${tab.key}`,
+    icon: tab.icon,
+  })),
+  ...GATEWAY_TABS.map((tab) => ({
+    key: `gateway-${tab.key}`,
+    labelKey: tab.labelKey,
+    path: `/gateway?tab=${tab.key}`,
+    icon: tab.icon,
+  })),
+];
+
+/** 五个维护动作：前四个会写上游或落盘，健康中心只是跳转。 */
+const actions = computed<PaletteAction[]>(() => [
+  {
+    key: "login-probe",
+    label: t("palette.action.loginProbe"),
+    hint: t("palette.action.loginProbeHint"),
+    icon: ScanFace,
+    run: () =>
+      runTask({
+        kind: "login-probe",
+        title: t("palette.action.loginProbe"),
+        run: () => api.probeLogin(),
+        message: t("palette.action.loginProbeDone"),
+      }),
+  },
+  {
+    key: "credential-refresh",
+    label: t("palette.action.refresh"),
+    hint: t("palette.action.refreshHint"),
+    icon: RefreshCw,
+    destructive: true,
+    run: () =>
+      runTask({
+        kind: "credential-refresh",
+        title: t("palette.action.refresh"),
+        run: () => api.refreshCredentials("force"),
+        message: t("palette.action.refreshDone"),
+      }),
+  },
+  {
+    key: "backup",
+    label: t("palette.action.backup"),
+    hint: t("palette.action.backupHint"),
+    icon: DatabaseBackup,
+    run: () =>
+      runTask({
+        kind: "backup",
+        title: t("palette.action.backup"),
+        run: () => api.createBackup(scope.value),
+        message: t("palette.action.backupDone"),
+      }),
+  },
+  {
+    key: "run-activities",
+    label: t("palette.action.runActivities"),
+    hint: t("palette.action.runActivitiesHint"),
+    icon: Activity,
+    destructive: true,
+    run: () =>
+      runTask({
+        kind: "run-activities",
+        title: t("palette.action.runActivities"),
+        run: () => api.runActivities(),
+        message: t("palette.action.runActivitiesDone"),
+      }),
+  },
+  {
+    key: "health",
+    label: t("palette.action.health"),
+    hint: t("palette.action.healthHint"),
+    icon: HeartPulse,
+    run: async () => {
+      await router.push(scopedPath("/health"));
+    },
+  },
+]);
 
 const matches = computed<PaletteResult[]>(() =>
-  matchPalette(keyword.value, destinations, accounts.value),
+  matchPalette(keyword.value, destinations, accounts.value, actions.value),
 );
 
 onMounted(() => inputRef.value?.focus());
@@ -34,18 +133,47 @@ function showGroup(index: number): boolean {
 }
 
 function groupLabel(item: PaletteResult): string {
-  return item.kind === "nav" ? t("palette.groupPages") : t("palette.groupAccounts");
+  if (item.kind === "nav") return t("palette.groupPages");
+  if (item.kind === "action") return t("palette.groupActions");
+  return t("palette.groupAccounts");
+}
+
+async function execute(action: PaletteAction): Promise<void> {
+  try {
+    await action.run();
+    toastSuccess(action.successMessage ?? t("palette.action.done", { label: action.label }));
+  } catch (cause) {
+    toastError((cause as Error)?.message || t("palette.action.failed", { label: action.label }));
+  }
 }
 
 function go(index: number): void {
   const target = matches.value[index];
   if (!target) return;
-  emit("close");
   if (target.kind === "nav") {
+    emit("close");
     void router.push(scopedPath(target.path));
     return;
   }
-  void openSwitch(target.account, "command");
+  if (target.kind === "account") {
+    emit("close");
+    void openSwitch(target.account, "command");
+    return;
+  }
+  // 破坏性动作先收起面板再弹确认，避免两个模态叠在一起。
+  if (target.action.destructive) {
+    pending.value = target.action;
+    return;
+  }
+  emit("close");
+  void execute(target.action);
+}
+
+function confirmAction(): void {
+  const action = pending.value;
+  pending.value = null;
+  emit("close");
+  if (action) void execute(action);
 }
 
 function move(step: number): void {
@@ -87,7 +215,7 @@ function onInput(): void {
     @click.self="emit('close')"
   >
     <div
-      class="w-full max-w-[440px] overflow-hidden rounded-card border border-line bg-surface shadow-float"
+      class="w-full max-w-[480px] overflow-hidden rounded-card border border-line bg-surface shadow-float"
     >
       <div class="flex items-center gap-2.5 border-b border-line-soft px-4">
         <Search :size="15" :stroke-width="1.9" class="shrink-0 text-muted" />
@@ -109,7 +237,7 @@ function onInput(): void {
         {{ keyword.trim() ? t("palette.empty") : t("palette.searchAccounts") }}
       </p>
 
-      <ul v-else class="max-h-[320px] overflow-y-auto p-1.5">
+      <ul v-else class="max-h-[360px] overflow-y-auto p-1.5">
         <template v-for="(item, index) in matches" :key="item.key">
           <li
             v-if="showGroup(index)"
@@ -130,13 +258,19 @@ function onInput(): void {
               @click="go(index)"
             >
               <component
-                :is="item.kind === 'nav' ? item.icon : Users"
+                :is="item.kind === 'account' ? Users : item.icon"
                 :size="16"
                 :stroke-width="1.9"
                 class="shrink-0"
               />
               <span class="flex-1 truncate">{{ item.label }}</span>
-              <span v-if="item.kind === 'account'" class="shrink-0 text-micro text-muted">
+              <span
+                v-if="item.kind === 'action'"
+                class="shrink-0 rounded-full bg-line-soft px-1.5 py-[1px] text-micro text-muted"
+              >
+                {{ item.action.destructive ? t("palette.executeConfirm") : t("palette.execute") }}
+              </span>
+              <span v-else-if="item.kind === 'account'" class="shrink-0 text-micro text-muted">
                 {{ item.hint }}
               </span>
               <CornerDownLeft v-if="index === cursor" :size="13" :stroke-width="1.9" />
@@ -145,5 +279,15 @@ function onInput(): void {
         </template>
       </ul>
     </div>
+
+    <ConfirmDialog
+      :open="pending !== null"
+      :title="pending?.label ?? ''"
+      :message="t('palette.confirmBody', { label: pending?.label ?? '' })"
+      :confirm-text="t('palette.confirmExecute')"
+      :tone="'danger'"
+      @confirm="confirmAction"
+      @cancel="pending = null"
+    />
   </div>
 </template>

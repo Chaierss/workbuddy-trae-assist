@@ -20,6 +20,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from
 import { useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   CircleDashed,
@@ -29,6 +30,7 @@ import {
   RefreshCw,
   RotateCcw,
   Wand2,
+  X,
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -42,6 +44,7 @@ import ActivityRunsPanel from "../components/activity/ActivityRunsPanel.vue";
 import { safeActivityUrl } from "../lib/activity";
 import { normalizeActivityReport } from "../lib/runReport";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
+import { runTask } from "../stores/tasks";
 import { t, type MessageKey } from "../lib/i18n";
 import { refreshOnboardingSignals } from "../lib/onboarding";
 import {
@@ -51,6 +54,7 @@ import {
   type ActivityCatalog,
   type ActivityCatalogEntry,
   type ActivityCatalogVersion,
+  type ActivityDeadline,
   type ActivityItem,
   type ActivityRun,
   type ActivityRunReport,
@@ -59,21 +63,30 @@ import {
   type ActivityToday,
 } from "../api";
 
-type Tab = "official" | "accounts" | "runs";
+type Tab = "official" | "accounts" | "todo" | "runs";
 
 const route = useRoute();
 const router = useRouter();
 
 function readTab(raw: unknown): Tab {
-  return raw === "accounts" || raw === "runs" ? raw : "official";
+  return raw === "accounts" || raw === "todo" || raw === "runs" ? raw : "official";
 }
 
 const tab = ref<Tab>(readTab(route.query.tab));
+/** 从截止雷达点进来时只看这一项活动；清空即看全部手动项。 */
+const todoFilter = ref(typeof route.query.key === "string" ? route.query.key : "");
 
 watch(
   () => route.query.tab,
   (value) => {
     tab.value = readTab(value);
+  },
+);
+
+watch(
+  () => route.query.key,
+  (value) => {
+    todoFilter.value = typeof value === "string" ? value : "";
   },
 );
 
@@ -83,6 +96,7 @@ function setTab(next: Tab): void {
   if (next === "official" && typeof route.query.campaign === "string") {
     query.campaign = route.query.campaign;
   }
+  if (next === "todo" && todoFilter.value) query.key = todoFilter.value;
   void router.replace({ query });
 }
 
@@ -99,6 +113,7 @@ function selectCampaign(key: string | null): void {
 const TAB_OPTIONS = computed(() => [
   { value: "official", label: t("activity.tabOfficial") },
   { value: "accounts", label: t("activity.tabAccounts") },
+  { value: "todo", label: t("activity.tabTodo", { count: todoCount.value }) },
   { value: "runs", label: t("activity.tabRuns") },
 ]);
 
@@ -229,6 +244,26 @@ interface AccountBase {
   scope: string;
 }
 
+/** 待办工作台的一行：只收手动项，不代做。 */
+interface TodoRow {
+  accountId: string;
+  accountName: string;
+  activityKey: string;
+  activityTitle: string;
+  platform: string;
+  title: string;
+  desc: string;
+  category: string;
+  jumpUrl: string;
+}
+
+interface TodoGroupView {
+  key: string;
+  title: string;
+  platform: string;
+  rows: TodoRow[];
+}
+
 const catalog = ref<ActivityCatalogEntry[]>([]);
 const catalogMeta = ref<ActivityCatalog | null>(null);
 const knownAccounts = ref<AccountBase[]>([]);
@@ -251,6 +286,8 @@ const today = ref<ActivityToday | null>(null);
 const runningTargets = ref<Set<string>>(new Set());
 const expanded = ref<Set<string>>(new Set());
 const toast = ref<string | null>(null);
+/** 截止雷达：只读本地快照，没有 periodEnd 的活动不会出现在这里。 */
+const deadlines = ref<ActivityDeadline[]>([]);
 
 /** 官方面板当前执行的活动 key；按账号执行 / 全量执行时为 null。 */
 const activeRunningKey = computed(() =>
@@ -418,6 +455,78 @@ const visibleAccounts = computed(() =>
   ),
 );
 
+/** 手动项按活动聚合：一屏回答「每个活动还要人去点什么」。 */
+const todoGroups = computed<TodoGroupView[]>(() => {
+  const groups = new Map<string, TodoGroupView>();
+  for (const group of activityGroups.value) {
+    if (todoFilter.value && group.key !== todoFilter.value) continue;
+    for (const entry of group.entries) {
+      if (entry.actionable) continue; // 能自动做的进「一键执行」，不占待办工作台
+      if (entry.state === "done" || entry.state === "unavailable" || entry.state === "undetected") {
+        continue;
+      }
+      const tasks = entry.manualTasks.length
+        ? entry.manualTasks
+        : entry.manualReason
+          ? [
+              {
+                code: "",
+                title: entry.manualReason,
+                desc: "",
+                jumpUrl: entry.jumpUrl,
+                category: "other",
+              },
+            ]
+          : [];
+      for (const task of tasks) {
+        const slot = groups.get(group.key) ?? {
+          key: group.key,
+          title: group.title,
+          platform: group.platform,
+          rows: [],
+        };
+        slot.rows.push({
+          accountId: entry.accountId,
+          accountName: entry.name,
+          activityKey: group.key,
+          activityTitle: group.title,
+          platform: group.platform,
+          title: task.title,
+          desc: task.desc,
+          category: task.category,
+          jumpUrl: task.jumpUrl,
+        });
+        groups.set(group.key, slot);
+      }
+    }
+  }
+  return [...groups.values()].sort(
+    (a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title),
+  );
+});
+
+const todoCount = computed(() =>
+  todoGroups.value.reduce((sum, group) => sum + group.rows.length, 0),
+);
+
+/** 完成率只算「今天有意义的项」：已完成 / (已完成 + 可自动 + 需手动)。 */
+const completion = computed(() => {
+  const done = summary.value?.done ?? 0;
+  const todo = actionable.value + (summary.value?.manual ?? 0);
+  return { done, total: done + todo };
+});
+
+function openDeadline(item: ActivityDeadline): void {
+  todoFilter.value = item.key;
+  tab.value = "todo";
+  void router.replace({ query: { tab: "todo", key: item.key } });
+}
+
+function clearTodoFilter(): void {
+  todoFilter.value = "";
+  void router.replace({ query: { tab: "todo" } });
+}
+
 const actionable = computed(() => summary.value?.actionable ?? 0);
 const canRun = computed(() => actionable.value > 0 && !running.value && !busy.value);
 const detecting = computed(() => busy.value && !pool.value.length);
@@ -552,6 +661,7 @@ async function load(refresh = false): Promise<void> {
     detectedAt.value = data.detectedAt;
     void loadRuns();
     void loadCatalogVersion();
+    void loadDeadlines();
   } catch (cause) {
     error.value = (cause as Error).message;
   } finally {
@@ -571,6 +681,15 @@ async function loadRuns(): Promise<void> {
     // 流水只是辅助信息，读不到不影响活动页主流程。
     runs.value = [];
     today.value = null;
+  }
+}
+
+/** 截止雷达：只读本地快照；读不到就整块不显示，不编造到期信息。 */
+async function loadDeadlines(): Promise<void> {
+  try {
+    deadlines.value = (await api.activityDeadlines()).items;
+  } catch {
+    deadlines.value = [];
   }
 }
 
@@ -689,10 +808,16 @@ async function runTargets(targets: string[], keys?: string[]): Promise<void> {
   runningKeys.value = keys ?? null;
   runningTargets.value = new Set(targets);
   try {
-    const report = await api.runActivities(
-      targets.length ? targets : undefined,
-      keys?.length ? keys : undefined,
-    );
+    const report = await runTask({
+      kind: "activity-run",
+      title: t("tasks.runActivities"),
+      run: () =>
+        api.runActivities(
+          targets.length ? targets : undefined,
+          keys?.length ? keys : undefined,
+        ),
+      message: t("tasks.receiptRun", { count: targets.length || 0 }),
+    });
     runReport.value = report;
     const { ok, skipped, failed } = report.summary;
     if (!report.summary.total) {
@@ -813,6 +938,36 @@ const runReportView = computed(() =>
       </template>
     </PageHeader>
 
+    <!-- 截止雷达：只显示 N 天内截止且有账号没做完的活动；快照过期只说「待检测」 -->
+    <div v-if="deadlines.length" class="mt-4 flex flex-wrap gap-2">
+      <button
+        v-for="item in deadlines"
+        :key="`${item.key}:${item.periodEnd}`"
+        type="button"
+        class="inline-flex items-center gap-2 rounded-card border px-3 py-2 text-left text-body-sm transition-colors"
+        :class="
+          item.stale
+            ? 'border-line bg-line-soft/50 text-muted hover:border-line-strong'
+            : item.daysLeft <= 1
+              ? 'border-danger/30 bg-danger-soft text-danger hover:border-danger'
+              : 'border-warn/30 bg-warn-soft text-warn hover:border-warn'
+        "
+        @click="openDeadline(item)"
+      >
+        <CalendarClock :size="14" :stroke-width="1.9" class="shrink-0" />
+        <span class="font-medium">{{ item.title }}</span>
+        <span v-if="item.stale">{{ t("activity.deadlineStale") }}</span>
+        <span v-else>
+          {{
+            t("activity.deadlineDays", {
+              days: item.daysLeft,
+              count: item.pending,
+            })
+          }}
+        </span>
+      </button>
+    </div>
+
     <div
       class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-card border border-line bg-surface px-5 py-3 shadow-card"
     >
@@ -836,6 +991,12 @@ const runReportView = computed(() =>
           {{ summary?.done ?? 0 }}
         </span>
         <span class="text-caption text-muted">{{ t("activity.stateDone") }}</span>
+      </div>
+      <div class="flex items-baseline gap-1.5">
+        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
+          {{ completion.done }}/{{ completion.total }}
+        </span>
+        <span class="text-caption text-muted">{{ t("activity.statCompletion") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
         <span class="text-metric font-semibold leading-none tabular-nums text-ink">
@@ -900,6 +1061,74 @@ const runReportView = computed(() =>
         @select="selectCampaign"
         @run="(accountIds, keys) => execute(accountIds, keys)"
       />
+    </template>
+
+    <template v-else-if="tab === 'todo'">
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <span class="text-caption text-muted">{{ t("activity.todoHint") }}</span>
+        <button
+          v-if="todoFilter"
+          type="button"
+          class="inline-flex items-center gap-1 rounded-badge border border-line bg-surface px-2 py-0.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          @click="clearTodoFilter"
+        >
+          {{ t("activity.todoClearFilter") }}
+          <X :size="11" :stroke-width="2" />
+        </button>
+        <button
+          type="button"
+          class="ml-auto inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+          :disabled="busy"
+          @click="recheck"
+        >
+          <RefreshCw :size="14" :stroke-width="1.9" :class="busy ? 'animate-spin' : ''" />
+          {{ t("activity.todoRecheck") }}
+        </button>
+      </div>
+
+      <div v-if="!todoGroups.length" class="mt-4 rounded-card border border-line bg-surface px-5 py-8 text-center">
+        <p class="text-body-sm text-muted">{{ t("activity.todoEmpty") }}</p>
+      </div>
+
+      <div v-else class="mt-3 space-y-3">
+        <SectionCard
+          v-for="group in todoGroups"
+          :key="group.key"
+          :title="group.title"
+          :subtitle="t('activity.todoGroupCount', { count: group.rows.length })"
+        >
+          <div class="divide-y divide-line-soft">
+            <div
+              v-for="row in group.rows"
+              :key="`${row.accountId}:${row.title}`"
+              class="flex flex-wrap items-start gap-x-3 gap-y-1 py-2.5"
+            >
+              <span class="w-[110px] shrink-0 truncate text-body-sm font-medium text-ink">
+                {{ row.accountName }}
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="text-body-sm text-ink-soft">{{ row.title }}</div>
+                <div v-if="row.desc" class="mt-0.5 text-caption leading-relaxed text-muted">
+                  {{ row.desc }}
+                </div>
+                <div v-if="row.category" class="mt-0.5 text-caption text-muted">
+                  {{ manualGuide(row.category) }}
+                </div>
+              </div>
+              <a
+                v-if="row.jumpUrl"
+                :href="row.jumpUrl"
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-brand-dark transition-colors hover:border-brand"
+              >
+                {{ t("activity.todoOpen") }}
+                <ExternalLink :size="10" :stroke-width="2" />
+              </a>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
     </template>
 
     <template v-else-if="tab === 'runs'">

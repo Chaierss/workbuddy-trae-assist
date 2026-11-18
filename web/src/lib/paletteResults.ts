@@ -3,7 +3,20 @@ import type { Account } from "../api";
 import { t } from "./i18n";
 import type { NavDestination } from "./nav";
 
-/** 命令面板的一行：页面跳转，或一个可直接换号的账号。 */
+/** 命令面板里可以直接执行的动作（与页面跳转、换号分开）。 */
+export interface PaletteAction {
+  key: string;
+  label: string;
+  hint: string;
+  icon: Component;
+  /** 会写上游 / 产生数据的动作，执行前要二次确认。 */
+  destructive?: boolean;
+  /** 执行体；结果由面板统一提示并写入任务中心。 */
+  run: () => Promise<unknown>;
+  successMessage?: string;
+}
+
+/** 命令面板的一行：页面跳转、可执行动作，或一个可直接换号的账号。 */
 export type PaletteResult =
   | {
       kind: "nav";
@@ -11,6 +24,14 @@ export type PaletteResult =
       label: string;
       path: string;
       icon: Component;
+    }
+  | {
+      kind: "action";
+      key: string;
+      label: string;
+      hint: string;
+      icon: Component;
+      action: PaletteAction;
     }
   | {
       kind: "account";
@@ -40,13 +61,14 @@ function accountHint(account: Account): string {
 }
 
 /**
- * 面板结果：空关键词只列页面；有输入时页面与账号一起匹配。
+ * 面板结果：空关键词只列页面；有输入时页面、动作与账号一起匹配。
  * 纯函数，账号最多 `ACCOUNT_LIMIT` 条，避免面板变成第二张号池表。
  */
 export function matchPalette(
   keyword: string,
   navItems: NavDestination[],
   accounts: Account[],
+  actions: PaletteAction[] = [],
 ): PaletteResult[] {
   const query = keyword.trim().toLowerCase();
   const nav = navItems
@@ -67,6 +89,22 @@ export function matchPalette(
 
   if (!query) return nav;
 
+  const matchedActions = actions
+    .filter(
+      (action) =>
+        action.label.toLowerCase().includes(query) ||
+        action.hint.toLowerCase().includes(query) ||
+        action.key.includes(query),
+    )
+    .map<PaletteResult>((action) => ({
+      kind: "action",
+      key: `action:${action.key}`,
+      label: action.label,
+      hint: action.hint,
+      icon: action.icon,
+      action,
+    }));
+
   const matchedAccounts = accounts
     .filter(
       (account) =>
@@ -85,5 +123,5 @@ export function matchPalette(
       account,
     }));
 
-  return [...nav, ...matchedAccounts];
+  return [...nav, ...matchedActions, ...matchedAccounts];
 }

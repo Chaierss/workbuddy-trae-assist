@@ -381,6 +381,7 @@ class AccountRepository:
         rows = self._conn.execute(
             "SELECT at, status, code, detail, refreshed, next_retry_at "
             "FROM credential_probe_log WHERE account_id = ? "
+            "AND status NOT IN ('login_invalid', 'login_valid') "
             "ORDER BY seq DESC LIMIT ?",
             (account_id, max(1, min(20, int(limit)))),
         ).fetchall()
@@ -445,7 +446,16 @@ class AccountRepository:
 
     @_serialized
     def set_login_probe(self, account_id: str, state: str, detail: str = "") -> None:
-        """记录一次登录探测结论。探测失败（网络错误）时由调用方保持原状态不变。"""
+        """记录一次登录探测结论。探测失败（网络错误）时由调用方保持原状态不变。
+
+        同时往巡检历史追加一行 ``login_valid`` / ``login_invalid``：
+        稳定度视图要按窗口统计「登录失效次数」，但又不该另开一张表。
+        凭据历史读取处会过滤这两个状态，避免混进续期时间线。
+        """
+        stamp = now_iso()
+        log_status = (
+            "login_invalid" if state in ("invalid", "blocked") else "login_valid"
+        )
         with transaction(self._conn):
             cursor = self._conn.execute(
                 """
@@ -453,10 +463,31 @@ class AccountRepository:
                    SET login_state = ?, last_login_probe_at = ?, login_probe_detail = ?
                  WHERE id = ?
                 """,
-                (state, now_iso(), detail or "", account_id),
+                (state, stamp, detail or "", account_id),
             )
             if cursor.rowcount == 0:
                 raise AccountNotFound(account_id)
+            self._conn.execute(
+                """
+                INSERT INTO credential_probe_log (
+                    account_id, at, status, code, detail, refreshed, next_retry_at
+                ) VALUES (?, ?, ?, '', ?, 0, NULL)
+                """,
+                (account_id, stamp, log_status, detail or ""),
+            )
+            self._conn.execute(
+                """
+                DELETE FROM credential_probe_log
+                WHERE account_id = ?
+                  AND seq NOT IN (
+                      SELECT seq FROM credential_probe_log
+                      WHERE account_id = ?
+                      ORDER BY seq DESC
+                      LIMIT 20
+                  )
+                """,
+                (account_id, account_id),
+            )
 
     @_serialized
     def login_probes(

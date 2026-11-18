@@ -4,10 +4,12 @@ import { RouterView, useRoute, useRouter } from "vue-router";
 import CommandPalette from "./CommandPalette.vue";
 import SidebarRail from "./SidebarRail.vue";
 import SwitchDialog from "./SwitchDialog.vue";
+import TaskCenterDrawer from "./TaskCenterDrawer.vue";
 import ToastHost from "./ToastHost.vue";
 import UpdateDialog from "./UpdateDialog.vue";
 import { closeSwitch, confirmSwitch, openSwitch, switchFlow } from "../lib/switchFlow";
 import { initUpdateStore } from "../stores/update";
+import { taskDrawerOpen } from "../stores/tasks";
 import { resolveFocusModule } from "../lib/focusMode";
 import { NAV_DESTINATIONS } from "../lib/nav";
 import {
@@ -301,6 +303,8 @@ watch(
     </div>
 
     <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
+    <!-- 任务中心：复检 / 续期 / 备份 / 跑活动的结果都留在这里，刷新后仍可回看 -->
+    <TaskCenterDrawer v-if="taskDrawerOpen" />
     <!-- 换号弹层挂在壳层：命令面板 / 托盘发起时，切到任何页面都不会丢流程 -->
     <SwitchDialog
       :open="switchFlow.open"

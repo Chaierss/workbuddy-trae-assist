@@ -366,12 +366,17 @@ def test_v9_health_tables_are_idempotent(tmp_path):
     path = tmp_path / "v9.db"
     conn = open_database(path)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
         tables = {
             row["name"]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        assert {"health_events", "health_actions"} <= tables
+        assert {
+            "health_events",
+            "health_actions",
+            "activity_snapshots",
+            "account_isolation",
+        } <= tables
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(compat_snapshots)")}
         assert "confirmed_at" in columns
     finally:
@@ -379,6 +384,6 @@ def test_v9_health_tables_are_idempotent(tmp_path):
 
     reopened = open_database(path)
     try:
-        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert reopened.execute("PRAGMA user_version").fetchone()[0] == 10
     finally:
         reopened.close()

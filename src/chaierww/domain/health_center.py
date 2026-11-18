@@ -29,6 +29,7 @@ from chaierww.domain.credential_lifecycle import (
     MODE_FORCE,
     refreshable,
 )
+from chaierww.domain.deadlines import deadlines as deadline_report
 from chaierww.domain.login_health import (
     EXPIRING_WINDOW,
     LOGIN_BLOCKED,
@@ -71,8 +72,9 @@ _FAMILY_KINDS: dict[str, tuple[str, ...]] = {
         "credential_relogin",
     ),
     "supply": ("pool_supply",),
-    "activity": ("activity_failed",),
+    "activity": ("activity_failed", "activity_deadline"),
     "schedule": ("schedule_failed",),
+    "isolation": ("account_isolated",),
 }
 
 _ACTIVITY_TITLES = {entry["key"]: entry["title"] for entry in ACTIVITY_CATALOG}
@@ -153,6 +155,7 @@ class HealthCenterService:
         lifecycle: Any | None = None,
         activities: Any | None = None,
         scheduler: Any | None = None,
+        isolation: Any | None = None,
         preferences: Any | None = None,
         scopes: tuple[str, ...] = ("workbuddy-cn", "trae-cn"),
         lock: threading.RLock | None = None,
@@ -167,6 +170,7 @@ class HealthCenterService:
         self._lifecycle = lifecycle
         self._activities = activities
         self._scheduler = scheduler
+        self._isolation = isolation
         self._preferences = preferences
         self._scopes = scopes
         self._lock = lock or threading.RLock()
@@ -191,6 +195,8 @@ class HealthCenterService:
             ("supply", self._supply_signals),
             ("activity", self._activity_signals),
             ("schedule", self._schedule_signals),
+            ("deadline", self._deadline_signals),
+            ("isolation", self._isolation_signals),
         )
         for family, collector in collectors:
             try:
@@ -534,6 +540,96 @@ class HealthCenterService:
 
     # ---------- 状态机 ----------
 
+    def _deadline_days(self) -> int:
+        if self._preferences is None:
+            return 3
+        try:
+            return max(1, int(getattr(self._preferences.load(), "activity_deadline_days", 3)))
+        except Exception:  # noqa: BLE001 - 读偏好失败就用默认 3 天
+            return 3
+
+    def _deadline_signals(self) -> list[Signal]:
+        """活动周期快结束但仍有账号没做完；快照过期只提示重新检测，不告警。"""
+        report = deadline_report(self._conn, days=self._deadline_days(), now=self._now())
+        signals: list[Signal] = []
+        for item in report.get("items") or []:
+            if item.get("stale"):
+                continue
+            pending = item.get("pendingAccounts") or []
+            names = "、".join(str(row.get("displayName") or "") for row in pending[:3])
+            if len(pending) > 3:
+                names += f" 等 {len(pending)} 个账号"
+            days = int(item.get("daysLeft") or 0)
+            signals.append(
+                Signal(
+                    kind="activity_deadline",
+                    severity="warn",
+                    scope="",
+                    account_id=None,
+                    title="活动即将截止",
+                    detail=(
+                        f"{item.get('title') or item.get('key')} 还有 {days} 天截止，"
+                        f"{item.get('pending') or len(pending)} 个账号未完成"
+                        + (f"（{names}）" if names else "")
+                    ),
+                    evidence={
+                        "key": item.get("key"),
+                        "periodEnd": item.get("periodEnd"),
+                        "daysLeft": days,
+                        "pending": item.get("pending"),
+                    },
+                    actions=(
+                        _action(
+                            "open_deadline",
+                            "navigate",
+                            "去待办处理",
+                            to=f"/activity?tab=todo&key={item.get('key')}",
+                        ),
+                    ),
+                    dedupe_key=f"deadline:{item.get('key')}:{item.get('periodEnd')}",
+                )
+            )
+        return signals
+
+    def _isolation_signals(self) -> list[Signal]:
+        if self._isolation is None:
+            return []
+        names = {account.id: self._name(account) for account in self._accounts()}
+        signals: list[Signal] = []
+        for item in self._isolation.items():
+            if not item.get("active"):
+                continue
+            account_id = str(item.get("accountId") or "")
+            name = names.get(account_id) or f"账号 {account_id[-8:]}"
+            until = str(item.get("isolatedUntil") or "")
+            signals.append(
+                Signal(
+                    kind="account_isolated",
+                    severity="warn",
+                    scope="",
+                    account_id=account_id or None,
+                    title="账号已被网关隔离",
+                    detail=(
+                        f"{name}：网关连续 {item.get('failureCount')} 次认证失败，"
+                        "已暂时不参与转发（只影响网关，不影响切号与数据）"
+                        + (f"，预计 {until} 自动恢复" if until else "")
+                    ),
+                    evidence={
+                        "accountName": name,
+                        "failureCount": item.get("failureCount"),
+                        "isolatedUntil": until,
+                    },
+                    actions=(
+                        _action("release_isolation", "isolation_release", "解除隔离"),
+                        _action("open_accounts", "navigate", "前往号池", to="/accounts"),
+                    ),
+                    dedupe_key=f"isolation:{account_id}:{until}",
+                )
+            )
+        return signals
+
+    # ---------- 状态机 ----------
+
     def snapshot(self, *, state: str = "active", limit: int = 200) -> dict[str, Any]:
         signals, degraded = self._collect()
         self._persist(signals, degraded)
@@ -858,6 +954,14 @@ class HealthCenterService:
             if not changed:
                 return "探测完成，结构未变化"
             return f"探测完成，{len(changed)} 个作用域结构仍有变化"
+        if kind == "isolation_release":
+            if self._isolation is None or not row["account_id"]:
+                raise HealthCenterError("隔离服务不可用")
+            try:
+                self._isolation.release(str(row["account_id"]))
+            except LookupError as exc:
+                raise HealthCenterError(str(exc)) from exc
+            return "已解除隔离，账号重新参与网关选号"
         raise HealthCenterError(f"未知的处置动作：{kind}")
 
     def _audit(self, event_id: str, action: str, *, ok: bool, message: str) -> None:

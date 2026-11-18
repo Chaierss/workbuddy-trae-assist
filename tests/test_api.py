@@ -499,6 +499,26 @@ def test_import_json_reimport_updates_not_creates(client):
     assert second.json()["created"] is False
 
 
+def test_pool_stability_isolation_and_deadlines(client):
+    """1.9.0 三个只读接口与解除隔离的边界；空库也要能稳定返回。"""
+    stability = client.get("/api/pool/stability").json()
+    assert stability["days"] == 7
+    assert stability["items"] == []
+    assert client.get("/api/pool/stability?days=5").status_code == 400
+
+    isolation = client.get("/api/pool/isolation").json()
+    assert isolation == {"items": [], "active": 0}
+    # 没有隔离记录的账号不能假装解除成功
+    assert (
+        client.post("/api/pool/isolation/release", json={"accountId": "missing"}).status_code
+        == 400
+    )
+
+    deadlines = client.get("/api/activities/deadlines").json()
+    assert deadlines["items"] == []
+    assert deadlines["days"] == 3
+
+
 def test_preferences_defaults_and_roundtrip(client):
     body = client.get("/api/preferences").json()
     # 保活 / 自动签到已收敛到计划任务，常规设置里只剩「切换迁移」与两个自动备份开关。
@@ -531,6 +551,11 @@ def test_preferences_defaults_and_roundtrip(client):
         # 健康中心自动处置：两项都实际打上游，默认关。
         "healthAutoRefresh": False,
         "healthAutoRerun": False,
+        # 1.9.0：网关自动隔离默认开、阈值 3 次 / 24 小时；截止雷达提前 3 天。
+        "isolationEnabled": True,
+        "isolationThreshold": 3,
+        "isolationHours": 24,
+        "activityDeadlineDays": 3,
     }
 
     # 局部更新：不传的字段保持原值
@@ -559,6 +584,11 @@ def test_preferences_defaults_and_roundtrip(client):
         "minCreditsDays": 3.0,
         "healthAutoRefresh": False,
         "healthAutoRerun": False,
+        # 1.9.0：网关自动隔离默认开、阈值 3 次 / 24 小时；截止雷达提前 3 天。
+        "isolationEnabled": True,
+        "isolationThreshold": 3,
+        "isolationHours": 24,
+        "activityDeadlineDays": 3,
     }
 
     # 自动备份开关能单独关掉，且不影响切换迁移那组

@@ -411,8 +411,8 @@ def test_v8_adds_login_and_catalog_columns(tmp_path):
             row["name"] for row in conn.execute("PRAGMA table_info(activity_runs)")
         }
         assert "catalog_version" in run_columns
-        # v8 的列仍然要加上；版本号随 v9 健康事件表一起前进。
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
+        # v8 的列仍然要加上；版本号随 1.9.0 的截止快照 / 隔离台账一起前进。
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
 
         repo = AccountRepository(conn, InMemoryBox())
         repo.upsert(

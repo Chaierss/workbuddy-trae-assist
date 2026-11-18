@@ -322,6 +322,7 @@ class GatewayRelay:
         credits: Callable[[str], CreditInfo | None] | None = None,
         on_failure: Callable[[str, str, int | None], None] | None = None,
         on_success: Callable[[str], None] | None = None,
+        on_auth_failure: Callable[[str, int], None] | None = None,
     ) -> None:
         self._repository = repository
         self._excluded_source = excluded
@@ -330,6 +331,8 @@ class GatewayRelay:
         self._on_failure = on_failure
         #: 成功一次即清除「自动」持久排除（人工排除不在此列）。
         self._on_success = on_success
+        #: 网关 401/403 的出口：用于自动隔离（只影响网关候选）。
+        self._on_auth_failure = on_auth_failure
         self._cooldown: dict[str, float] = {}
         self._broken: set[str] = set()
         #: 连续同类失败计数：`account_id -> (类别, 次数)`。成功即清零。
@@ -592,6 +595,11 @@ class GatewayRelay:
             # 过长的封禁交给持久排除机制，不让一个号在内存里挂一整天。
             seconds = max(seconds, min(float(retry_after), 1800.0))
         self._cooldown[account_id] = self._clock() + seconds
+        if status in (401, 403) and self._on_auth_failure is not None:
+            try:
+                self._on_auth_failure(account_id, status)
+            except Exception:  # noqa: BLE001 - 隔离写库失败不影响本次转发
+                logger.exception("网关认证失败隔离记账失败：%s", account_id)
         # 单次 401/403 只冷却：偶发 WAF 拦截不是死号，不能升级成持久排除。
         if category in ("rate_limited", "upstream"):
             self._note_upstream_failure(account_id, category)

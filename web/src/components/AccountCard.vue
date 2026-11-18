@@ -27,7 +27,9 @@ import {
   type Account,
   type ActivityBrief,
   type CreditInfo,
+  type IsolationItem,
   type MigrationPreview,
+  type StabilityAccount,
   type SyncAccountStatus,
 } from "../api";
 import { t, type MessageKey } from "../lib/i18n";
@@ -55,6 +57,10 @@ const props = defineProps<{
   sync?: SyncAccountStatus | null;
   /** 卡片密度：compact 只留身份 + 主状态，次级信息收进舒适视图。 */
   density?: "compact" | "comfortable";
+  /** 稳定度：null = 还没拉到，不占位。 */
+  stability?: StabilityAccount | null;
+  /** 网关隔离台账：active 时在卡片上标出来。 */
+  isolation?: IsolationItem | null;
 }>();
 
 const emit = defineEmits<{
@@ -76,6 +82,8 @@ const emit = defineEmits<{
   diagnose: [account: Account];
   /** 打开凭据巡检历史时间线。 */
   history: [account: Account];
+  /** 打开稳定度抽屉（成功率 / 登录失效 / 隔离状态）。 */
+  stability: [account: Account];
 }>();
 
 const PALETTE = [
@@ -271,6 +279,41 @@ const risks = computed<Array<{ key: RiskKey; label: string; tone: string }>>(() 
     });
   }
   return out;
+});
+
+/** 稳定度徽标：隔离优先，其次成功率；没有样本时明确写「样本不足」。 */
+const stabilityInfo = computed<{ label: string; tone: string; title: string } | null>(() => {
+  if (props.isolation?.active) {
+    return {
+      label: t("accounts.stability.isolated"),
+      tone: "border-warn/30 bg-warn-soft text-warn",
+      title: t("accounts.stability.isolatedHint", {
+        until: props.isolation.isolatedUntil ? formatTime(props.isolation.isolatedUntil) : "",
+      }),
+    };
+  }
+  const info = props.stability;
+  if (!info) return null;
+  if (info.switchRate !== null) {
+    return {
+      label: t("accounts.stability.rate", { rate: Math.round(info.switchRate * 100) }),
+      tone:
+        info.switchRate >= 0.9
+          ? "border-brand/25 bg-brand-soft text-brand-dark"
+          : info.switchRate >= 0.7
+            ? "border-warn/30 bg-warn-soft text-warn"
+            : "border-danger/25 bg-danger-soft text-danger",
+      title: info.lastReason || t("accounts.stability.rateHint", { count: info.switchTotal }),
+    };
+  }
+  if (info.loginInvalid === null && info.refreshFailed === null && info.gatewayFailed === null) {
+    return {
+      label: t("accounts.stability.noSamples"),
+      tone: "border-line bg-line-soft text-muted",
+      title: t("accounts.stability.noSamplesHint"),
+    };
+  }
+  return null;
 });
 
 /** 预检摘要：把「切换会迁移多少」直接摊在卡片上，少点一次对话框。 */
@@ -670,7 +713,7 @@ function formatCredits(value: number | null): string {
 
     <!-- 风险徽标：点一下按同类筛号池；无风险时不占位 -->
     <div
-      v-if="risks.length || stateInfo || loginInfo"
+      v-if="risks.length || stateInfo || loginInfo || stabilityInfo"
       class="mt-1 flex flex-wrap items-center gap-1"
     >
       <button
@@ -693,6 +736,16 @@ function formatCredits(value: number | null): string {
       >
         {{ t(loginInfo.textKey) }}
       </StatusPill>
+      <button
+        v-if="stabilityInfo"
+        type="button"
+        class="rounded-full border px-1.5 py-[1px] text-micro font-medium leading-none transition-opacity hover:opacity-80"
+        :class="stabilityInfo.tone"
+        :title="stabilityInfo.title"
+        @click="emit('stability', account)"
+      >
+        {{ stabilityInfo.label }}
+      </button>
     </div>
 
     <!-- 会话同步：只在有镜像 / 有待应用 / 有冲突时占一行，平时不干扰 -->

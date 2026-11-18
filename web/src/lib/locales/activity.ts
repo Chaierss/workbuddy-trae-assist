@@ -287,6 +287,17 @@ export const activityZh = {
   "activity.rerunDone": "已重跑 {count} 个失败项",
   "activity.rerunNone": "今天没有可重跑的失败项",
   "activity.resultUnknown": "目录外任务",
+  // 1.9.0：截止雷达 + 待办工作台
+  "activity.tabTodo": "待办 {count}",
+  "activity.statCompletion": "完成进度",
+  "activity.deadlineStale": "待检测",
+  "activity.deadlineDays": "剩 {days} 天 · {count} 个号未完成",
+  "activity.todoHint": "这里只收需要你在客户端里动手的项目；本工具不会代做。",
+  "activity.todoClearFilter": "看全部待办",
+  "activity.todoRecheck": "重新检测",
+  "activity.todoEmpty": "当前没有需要手动处理的活动项。",
+  "activity.todoGroupCount": "{count} 个账号待处理",
+  "activity.todoOpen": "去客户端",
 };
 
 export const activityEn = {
@@ -591,4 +602,14 @@ export const activityEn = {
   "activity.rerunDone": "Re-ran {count} failed items",
   "activity.rerunNone": "No failed items to re-run today",
   "activity.resultUnknown": "Outside catalog",
+  "activity.tabTodo": "To do {count}",
+  "activity.statCompletion": "Completion",
+  "activity.deadlineStale": "Check needed",
+  "activity.deadlineDays": "{days} days left · {count} accounts unfinished",
+  "activity.todoHint": "Only items that need your action in the client; this tool won't do them for you.",
+  "activity.todoClearFilter": "Show all",
+  "activity.todoRecheck": "Detect again",
+  "activity.todoEmpty": "Nothing needs manual action right now.",
+  "activity.todoGroupCount": "{count} accounts pending",
+  "activity.todoOpen": "Open client",
 };

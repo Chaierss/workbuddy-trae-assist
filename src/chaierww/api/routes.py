@@ -54,6 +54,8 @@ from chaierww.domain.credential_lifecycle import (
     refreshable,
 )
 from chaierww.domain.credential_refresh import trae_device_foreign
+from chaierww.domain.deadlines import deadlines as activity_deadlines
+from chaierww.domain.deadlines import record_snapshots
 from chaierww.domain.health_center import HealthCenterError
 from chaierww.domain.preferences import (
     clean_global_parts,
@@ -376,6 +378,15 @@ class PreferencesRequest(BaseModel):
     #: 健康中心自动处置：到期自动续期 / 失败活动自动补跑。省略 = 不修改。
     healthAutoRefresh: bool | None = None
     healthAutoRerun: bool | None = None
+    #: 1.9.0：网关自动隔离与截止雷达。省略 = 不修改。
+    isolationEnabled: bool | None = None
+    isolationThreshold: int | None = Field(default=None, ge=1, le=10)
+    isolationHours: int | None = Field(default=None, ge=1, le=168)
+    activityDeadlineDays: int | None = Field(default=None, ge=1, le=14)
+
+
+class IsolationReleaseRequest(BaseModel):
+    accountId: str = Field(min_length=1)
 
 
 class GroupRequest(BaseModel):
@@ -634,6 +645,54 @@ def compat_probe(request: Request) -> dict[str, Any]:
 def pool_health(request: Request) -> dict[str, Any]:
     """只读聚合，不发任何上游请求；数据不足的指标返回 null，不返回 0。"""
     return request.app.state.pool_health.health()
+
+
+@router.get(
+    "/pool/stability",
+    summary="账号稳定度：切换成功率 / 登录失效 / 续期失败 / 网关失败",
+    tags=["号池"],
+)
+def pool_stability(request: Request, days: int = 7) -> dict[str, Any]:
+    """只读本地已落盘记录；样本不足的指标返回 null，不编 0。"""
+    if days not in (7, 30):
+        raise HTTPException(status_code=400, detail="days 只支持 7 或 30")
+    return request.app.state.stability.report(days)
+
+
+@router.get("/pool/isolation", summary="网关隔离台账（只影响网关候选）", tags=["号池"])
+def pool_isolation(request: Request) -> dict[str, Any]:
+    items = request.app.state.isolation.items()
+    return {"items": items, "active": sum(1 for item in items if item["active"])}
+
+
+@router.post(
+    "/pool/isolation/release",
+    summary="人工解除网关隔离（账号重新参与选号）",
+    tags=["号池"],
+)
+def release_isolation(
+    request: Request, body: IsolationReleaseRequest
+) -> dict[str, Any]:
+    try:
+        return request.app.state.isolation.release(body.accountId)
+    except LookupError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/activities/deadlines",
+    summary="活动截止雷达：N 天内截止且仍有账号未完成",
+    tags=["活动"],
+)
+def list_activity_deadlines(request: Request, days: int | None = None) -> dict[str, Any]:
+    """只读本地快照；没有 periodEnd 或快照过期的项不会产生告警。"""
+    span = days
+    if span is None:
+        try:
+            span = int(request.app.state.preferences.load().activity_deadline_days)
+        except Exception:  # noqa: BLE001 - 读偏好失败就用默认 3 天
+            span = 3
+    return activity_deadlines(request.app.state.conn, days=span)
 
 
 # ---------- 健康中心：异常事件流与处置 ----------
@@ -1470,6 +1529,11 @@ def list_activities(
     try:
         accounts = _activities_accounts(request, accountIds)
         detected = drop_ended(request.app.state.activities.detect(accounts, force=refresh))
+        try:
+            # 顺带留一份截止快照：只存状态与周期，失败不影响本次检测结果。
+            record_snapshots(request.app.state.conn, detected)
+        except Exception:  # noqa: BLE001
+            logger.exception("活动截止快照写入失败")
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
     return {
@@ -2550,6 +2614,20 @@ def put_preferences(request: Request, body: PreferencesRequest) -> dict[str, Any
         ),
         health_auto_refresh=pick(body.healthAutoRefresh, current.health_auto_refresh),
         health_auto_rerun=pick(body.healthAutoRerun, current.health_auto_rerun),
+        isolation_enabled=pick(body.isolationEnabled, current.isolation_enabled),
+        isolation_threshold=(
+            current.isolation_threshold
+            if body.isolationThreshold is None
+            else body.isolationThreshold
+        ),
+        isolation_hours=(
+            current.isolation_hours if body.isolationHours is None else body.isolationHours
+        ),
+        activity_deadline_days=(
+            current.activity_deadline_days
+            if body.activityDeadlineDays is None
+            else body.activityDeadlineDays
+        ),
     )
     try:
         saved = request.app.state.preferences.save(updated)

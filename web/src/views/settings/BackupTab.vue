@@ -17,7 +17,7 @@ import {
 } from "../../api";
 import { desktop } from "../../lib/desktop";
 import { t } from "../../lib/i18n";
-
+import { runTask } from "../../stores/tasks";
 // ---------- 全局备份（本工具自己的数据，按分区勾选） ----------
 //
 // 客户端数据快照（切换前 / 每日自动）与客户端设置备份点这两块已经从界面下线：
@@ -241,11 +241,13 @@ async function createGlobal(): Promise<void> {
   globalMessage.value = null;
   globalFailed.value = false;
   try {
-    const snapshot = await api.createGlobalBackup(
-      selectedParts.value,
-      t("settings.backup.noteManual"),
-      true,
-    );
+    const snapshot = await runTask({
+      kind: "backup-global",
+      title: t("tasks.backup"),
+      run: () =>
+        api.createGlobalBackup(selectedParts.value, t("settings.backup.noteManual"), true),
+      message: t("tasks.receiptBackup"),
+    });
     globalMessage.value = t("settings.backup.backupDone", {
       count: snapshot.fileCount,
       size: formatBytes(snapshot.totalBytes),

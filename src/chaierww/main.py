@@ -47,6 +47,7 @@ from chaierww.domain.credits import CreditsService
 from chaierww.domain.gateway import CatalogRefresher, GatewayRuntime, GatewayStore
 from chaierww.domain.gateway_relay import GatewayRelay
 from chaierww.domain.health_center import HealthCenterService
+from chaierww.domain.isolation import IsolationService
 from chaierww.domain.login_health import LoginProbeService
 from chaierww.domain.metrics import MetricsStore
 from chaierww.domain.oauth import build_oauth
@@ -71,6 +72,7 @@ from chaierww.domain.rotation import (
 )
 from chaierww.domain.scheduler import Scheduler
 from chaierww.domain.scopes import all_scopes
+from chaierww.domain.stability import StabilityService
 from chaierww.domain.switching import SwitchEngine, build_adapters, encode_payload
 from chaierww.domain.sync import SyncEngine
 from chaierww.domain.sync.repository import SyncRepository
@@ -138,6 +140,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 额度网关：配置/Key/日志落盘，真正的转发由 gateway_relay + api/gateway 完成。
     # 选号器同时接两个只读数据源：排除集（持久化）与积分缓存（判断「积分耗尽」）。
     gateway = GatewayStore(resolved.home)
+    # 网关自动隔离：连续 401/403 才触发，只影响网关候选，不影响切号与数据。
+    isolation = IsolationService(conn, preferences, lock=repository.lock)
     # 每次查到新余额就记一笔快照：用量预测靠它算「每天掉多少积分」。
     credits = CreditsService(repository, on_snapshot=gateway.record_credit_snapshot)
 
@@ -154,18 +158,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         entry = gateway.exclusion(account_id)
         if entry is not None and entry.get("reason") != "manual":
             gateway.include(account_id)
+        # 成功一次也说明账号没坏：隔离计数清零。
+        isolation.record_success(account_id)
 
     gateway_relay = GatewayRelay(
         repository,
-        excluded=gateway.excluded_accounts,
+        excluded=lambda: gateway.excluded_accounts() | isolation.active_ids(),
         credits=credits.cached,
         on_failure=_pool_on_failure,
         on_success=_pool_on_success,
+        on_auth_failure=isolation.record_failure,
     )
     gateway_runtime = GatewayRuntime(gateway)
     # 号池供给：纯本地聚合（登录态 / 到期 / 熔断 / 冷却 / 积分账本 / 网关日志）。
     pool_health = PoolHealthService(
-        repository, gateway, relay=gateway_relay, preferences=preferences
+        repository,
+        gateway,
+        relay=gateway_relay,
+        preferences=preferences,
+        isolation=isolation,
+    )
+    # 账号稳定度：只看本地已落盘的切换 / 登录 / 续期 / 网关记录。
+    stability = StabilityService(
+        repository,
+        gateway,
+        conn,
+        scopes=tuple(item.key for item in all_scopes() if item.implemented),
+        lock=repository.lock,
     )
 
     activities = ActivitiesService(repository, growth_runner=GrowthTaskRunner())
@@ -436,6 +455,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifecycle=lifecycle,
         activities=activities,
         scheduler=scheduler,
+        isolation=isolation,
         preferences=preferences,
         scopes=tuple(item.key for item in all_scopes() if item.implemented),
         lock=repository.lock,
@@ -697,6 +717,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.compat = compat
     app.state.login_probes = login_probes
     app.state.pool_health = pool_health
+    app.state.stability = stability
+    app.state.isolation = isolation
     app.state.health = runtime["health"]
     app.state.engine = engine
     app.state.gateway = gateway

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
-import { Moon, Sun } from "lucide-vue-next";
+import { ListChecks, Moon, Sun } from "lucide-vue-next";
 import { t } from "../lib/i18n";
 import { NAV_DESTINATIONS, SETTINGS_DESTINATION } from "../lib/nav";
 import {
@@ -14,6 +14,11 @@ import {
   setTheme,
 } from "../stores/app";
 import { updateBadge, updateState } from "../stores/update";
+import {
+  failedCount as taskFailed,
+  runningCount as taskRunning,
+  taskDrawerOpen,
+} from "../stores/tasks";
 
 const props = defineProps<{ collapsed: boolean }>();
 const emit = defineEmits<{ "update:collapsed": [value: boolean] }>();
@@ -64,6 +69,16 @@ function toggleTheme(): void {
 function toggleCollapsed(): void {
   emit("update:collapsed", !props.collapsed);
 }
+
+/** 任务中心角标：进行中优先；没有进行中时提醒失败数。 */
+const taskBadge = computed(() => taskRunning.value + taskFailed.value);
+const taskBadgeTitle = computed(() =>
+  taskRunning.value
+    ? t("tasks.badgeRunning", { count: taskRunning.value })
+    : taskFailed.value
+      ? t("tasks.badgeFailed", { count: taskFailed.value })
+      : t("tasks.title"),
+);
 
 /** 更新小圆点的 title：给一个比「有新版本」更具体的提示。 */
 const updateBadgeTitle = computed(() => {
@@ -189,6 +204,23 @@ const updateBadgeTitle = computed(() => {
           />
         </button>
       </RouterLink>
+
+      <button
+        type="button"
+        class="relative grid size-9 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+        :title="taskBadgeTitle"
+        :aria-label="taskBadgeTitle"
+        @click="taskDrawerOpen = true"
+      >
+        <ListChecks :size="16" :stroke-width="1.9" />
+        <span
+          v-if="taskBadge"
+          class="absolute -right-0.5 -top-0.5 grid min-w-[15px] place-items-center rounded-full px-1 py-[1px] text-[9px] font-semibold leading-none text-white"
+          :class="taskFailed && !taskRunning ? 'bg-danger' : 'bg-brand'"
+        >
+          {{ taskBadge }}
+        </span>
+      </button>
 
       <button
         type="button"

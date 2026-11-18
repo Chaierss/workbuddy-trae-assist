@@ -83,6 +83,8 @@ jobs:
       - run: node keel/preflight-scan.mjs --strict --include-dist
         working-directory: .
       - run: npm test
+      # 语义色对比度门禁：浅色 / 深色都按 WCAG AA 4.5:1 校验。
+      - run: npm run check:contrast
 
   keel:
     name: Keel gates (four-pillar + preflight)

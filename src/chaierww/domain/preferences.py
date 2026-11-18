@@ -86,6 +86,14 @@ DEFAULTS: dict[str, Any] = {
     "healthAutoRefresh": False,
     #: 当天失败的活动是否在下一轮自动补跑一次。默认关：重跑会再次打上游。
     "healthAutoRerun": False,
+    # ---------- 1.9.0：网关自动隔离与截止雷达 ----------
+    #: 网关连续认证失败达到阈值后，是否自动把这个号从候选里拿掉一段时间。
+    #: 只影响网关路由，不影响切号与数据；网络错误 / 429 / 5xx 不计数。
+    "isolationEnabled": True,
+    "isolationThreshold": 3,
+    "isolationHours": 24,
+    #: 活动截止雷达：周期结束前多少天开始提示。
+    "activityDeadlineDays": 3,
 }
 
 
@@ -115,6 +123,12 @@ class Preferences:
     health_auto_refresh: bool = False
     #: 健康中心：当天失败的活动自动补跑一次。
     health_auto_rerun: bool = False
+    #: 网关自动隔离：只影响网关候选，不影响切号与数据。
+    isolation_enabled: bool = True
+    isolation_threshold: int = 3
+    isolation_hours: int = 24
+    #: 活动截止雷达：周期结束前多少天开始提示。
+    activity_deadline_days: int = 3
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -138,6 +152,10 @@ class Preferences:
             "minCreditsDays": self.min_credits_days,
             "healthAutoRefresh": self.health_auto_refresh,
             "healthAutoRerun": self.health_auto_rerun,
+            "isolationEnabled": self.isolation_enabled,
+            "isolationThreshold": self.isolation_threshold,
+            "isolationHours": self.isolation_hours,
+            "activityDeadlineDays": self.activity_deadline_days,
         }
 
 
@@ -178,6 +196,16 @@ class PreferencesStore:
             min_credits_days=clean_positive_float(data.get("minCreditsDays"), 3.0),
             health_auto_refresh=flag("healthAutoRefresh"),
             health_auto_rerun=flag("healthAutoRerun"),
+            isolation_enabled=flag("isolationEnabled"),
+            isolation_threshold=max(
+                1, clean_positive_int(data.get("isolationThreshold"), 3, maximum=10)
+            ),
+            isolation_hours=max(
+                1, clean_positive_int(data.get("isolationHours"), 24, maximum=168)
+            ),
+            activity_deadline_days=max(
+                1, clean_positive_int(data.get("activityDeadlineDays"), 3, maximum=14)
+            ),
         )
 
     def mark_first_switch(self, at: str | None = None) -> bool:

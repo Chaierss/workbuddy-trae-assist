@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -105,12 +106,14 @@ class PoolHealthService:
         *,
         relay: Any | None = None,
         preferences: Any | None = None,
+        isolation: Any | None = None,
         scopes: tuple[str, ...] = ("workbuddy-cn", "trae-cn"),
     ) -> None:
         self._repo = repository
         self._gateway = gateway
         self._relay = relay
         self._preferences = preferences
+        self._isolation = isolation
         self._scopes = scopes
 
     def thresholds(self) -> SupplyThresholds:
@@ -219,9 +222,14 @@ class PoolHealthService:
 
     def _excluded(self) -> set[str]:
         try:
-            return set(self._gateway.excluded_accounts())
+            excluded = set(self._gateway.excluded_accounts())
         except Exception:  # noqa: BLE001
-            return set()
+            excluded = set()
+        if self._isolation is not None:
+            # 网关隔离中的号不算健康：它们仍可切号，但当前不参与转发。
+            with contextlib.suppress(Exception):
+                excluded |= self._isolation.active_ids()
+        return excluded
 
     def _cooling(self, account_id: str) -> bool:
         if self._relay is None:

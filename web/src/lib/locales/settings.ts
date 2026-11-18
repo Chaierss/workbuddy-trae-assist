@@ -351,6 +351,19 @@ export const settingsZh = {
   "settings.supply.minCreditsDays": "库存天数下限",
   "settings.supply.hint":
     "健康 = 登录有效 + 凭据未过期 + 未熔断 + 未冷却。库存天数按近 7 天消耗推算，数据不足时不告警。填 0 表示不按这项告警。",
+  // 1.9.0：网关自动隔离与截止雷达
+  "settings.isolation.title": "网关自动隔离",
+  "settings.isolation.desc": "连续认证失败时暂时把这个号移出网关候选；只影响网关，不影响切号与数据。",
+  "settings.isolation.toggle": "启用自动隔离",
+  "settings.isolation.toggleDesc": "只在网关返回 401/403 时计数，网络错误、429、5xx 不计。",
+  "settings.isolation.threshold": "连续失败次数",
+  "settings.isolation.hours": "隔离时长（小时）",
+  "settings.isolation.deadlineDays": "截止提前天数",
+  "settings.isolation.hint": "达到阈值后自动隔离，到点自动回归；也可在号池稳定度抽屉里手动解除。",
+  "settings.components.summary.taskCenterDrawer":
+    "全局任务中心抽屉：跟踪复检 / 续期 / 备份 / 跑活动的回执，失败可重试。",
+  "settings.components.summary.stabilityDrawer":
+    "号池稳定度抽屉：切换成功率、登录失效、续期失败、网关失败与隔离解除。",
 };
 
 export const settingsEn = {
@@ -718,4 +731,16 @@ export const settingsEn = {
   "settings.supply.minCreditsDays": "Minimum days of credits",
   "settings.supply.hint":
     "Healthy = login valid + credential not expired + not tripped + not cooling. Days are estimated from the last 7 days of usage; no alert when there isn't enough data. 0 disables that alert.",
+  "settings.isolation.title": "Gateway auto-isolation",
+  "settings.isolation.desc": "Temporarily removes an account from gateway candidates after repeated auth failures — gateway only, switching and data are untouched.",
+  "settings.isolation.toggle": "Enable auto-isolation",
+  "settings.isolation.toggleDesc": "Counts only gateway 401/403; network errors, 429 and 5xx don't count.",
+  "settings.isolation.threshold": "Consecutive failures",
+  "settings.isolation.hours": "Isolation hours",
+  "settings.isolation.deadlineDays": "Deadline lead days",
+  "settings.isolation.hint": "Isolates at the threshold and auto-recovers after the window; you can also release it from the stability drawer.",
+  "settings.components.summary.taskCenterDrawer":
+    "Global task drawer: receipts for checks, refreshes, backups and activity runs, with retry on failure.",
+  "settings.components.summary.stabilityDrawer":
+    "Pool stability drawer: switch success rate, invalid logins, refresh failures, gateway failures and isolation release.",
 };

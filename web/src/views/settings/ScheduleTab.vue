@@ -21,6 +21,7 @@ import SelectMenu from "../../components/SelectMenu.vue";
 import ToggleSwitch from "../../components/ToggleSwitch.vue";
 import AccountScopePicker, { type ScopeAccount } from "./AccountScopePicker.vue";
 import { localeTag, t, type MessageKey } from "../../lib/i18n";
+import { runTask } from "../../stores/tasks";
 import { refreshOnboardingSignals } from "../../lib/onboarding";
 import { api, type ActivityCatalogEntry, type RotationPolicy, type RotationState, type ScheduleSpec } from "../../api";
 
@@ -387,7 +388,12 @@ async function runNow(task: ScheduleSpec): Promise<void> {
   busy.value = task.key;
   flash.value = null;
   try {
-    const result = await api.runScheduleNow(task.key);
+    const result = await runTask({
+      kind: `schedule-${task.key}`,
+      title: t("tasks.scheduleRun"),
+      run: () => api.runScheduleNow(task.key),
+      message: t("tasks.receiptSchedule"),
+    });
     if (result.task) replaceTask(result.task);
     flash.value = { key: task.key, text: result.result, tone: "ok" };
   } catch (cause) {
