@@ -49,6 +49,7 @@ from chaierww.domain.sync.canonical import (
     localize,
     stable_key,
 )
+from chaierww.domain.sync.merge import merge_timeline
 from chaierww.domain.sync.repository import (
     SYNC_APPLIED,
     SYNC_BLOCKED,
@@ -242,6 +243,8 @@ class SyncEngine:
                 "captured": 0,
                 "changed": 0,
                 "unchanged": 0,
+                "merged": 0,
+                "diverged": 0,
                 "skippedClaw": 0,
                 "tombstones": 0,
                 "failed": 0,
@@ -297,6 +300,23 @@ class SyncEngine:
                 previous = existing_map.get(item["stable_key"])
                 if (
                     previous is not None
+                    and previous["content_sha256"] != item["content_sha256"]
+                ):
+                    converged = self._converge_capture(previous, item)
+                    if converged is None:
+                        report.counts["diverged"] += 1
+                        report.errors.append(
+                            {
+                                "stableKey": item["stable_key"],
+                                "error": "本地与镜像已分叉，无法按时间线合并",
+                            }
+                        )
+                        continue
+                    if converged["content_sha256"] != item["content_sha256"]:
+                        report.counts["merged"] += 1
+                    item = converged
+                if (
+                    previous is not None
                     and previous["content_sha256"] == item["content_sha256"]
                     and previous["deleted_at"] == item["deleted_at"]
                 ):
@@ -333,6 +353,18 @@ class SyncEngine:
             )
             if report.counts["skippedClaw"]:
                 report.add("Claw 工作区", "skipped", f"{report.counts['skippedClaw']} 条不支持复制")
+            if report.counts["merged"]:
+                report.add(
+                    "时间线合并",
+                    "ok",
+                    f"{report.counts['merged']} 条分叉已按时间线并入镜像",
+                )
+            if report.counts["diverged"]:
+                report.add(
+                    "待处理分叉",
+                    "warn",
+                    f"{report.counts['diverged']} 条无法自动合并，镜像保持原样",
+                )
             if report.counts["failed"]:
                 report.add("失败条目", "warn", f"{report.counts['failed']} 条采集失败")
 
@@ -356,6 +388,33 @@ class SyncEngine:
                 report.state = "ok"
                 self._finish_job(job_id, "succeeded", report)
             return report
+
+    def _converge_capture(
+        self, previous: dict[str, Any], item: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """采集到与镜像不同的正文时，先尝试按时间线合并，避免回灌旧分支。
+
+        返回 ``None`` 表示两边是真正的分叉（同节点内容不同 / 缺父链等），
+        此时保留镜像不动，等落地阶段走冲突副本。
+        """
+        mirror = self._blobs.get(previous.get("content_sha256") or "")
+        local = self._blobs.get(item.get("content_sha256") or "")
+        if local is None:
+            return None
+        if mirror is None:
+            return item
+        attempt = merge_timeline(local, mirror)
+        if not attempt.ok:
+            return None
+        if attempt.text == local:
+            return item
+        sha, size = self._blobs.put(attempt.text)
+        return {
+            **item,
+            "content_sha256": sha,
+            "content_bytes": size,
+            "content_lines": line_count(attempt.text),
+        }
 
     def _capture_one(
         self, scope: str, account: Any, row: dict[str, Any], cid: str
@@ -443,6 +502,8 @@ class SyncEngine:
                 "created": 0,
                 "reapplied": 0,
                 "appended": 0,
+                "merged": 0,
+                "forwarded": 0,
                 "conflicts": 0,
                 "removed": 0,
                 "failed": 0,
@@ -495,13 +556,17 @@ class SyncEngine:
                 return report
 
             try:
-                reapply, conflicts, appends = self._reconcile_landed(
+                reapply, conflicts, appends, merges, forwards = self._reconcile_landed(
                     conn, account, landed, report
                 )
                 for item in reapply:
                     report.plan.append(_plan_entry("reapply", item))
                 for item, _tail in appends:
                     report.plan.append(_plan_entry("append", item))
+                for item, _text in merges:
+                    report.plan.append(_plan_entry("merge", item))
+                for item, _text in forwards:
+                    report.plan.append(_plan_entry("forward", item))
                 for item in conflicts:
                     report.plan.append(_plan_entry("conflict", item))
 
@@ -511,7 +576,8 @@ class SyncEngine:
                         "预演",
                         "ok",
                         f"将新增 {len(pending)} 条、重新落地 {len(reapply)} 条、"
-                        f"追加 {len(appends)} 条、保留冲突副本 {len(conflicts)} 条、"
+                        f"追加 {len(appends)} 条、按时间线合并 {len(merges)} 条、"
+                        f"补齐 {len(forwards)} 条、保留冲突副本 {len(conflicts)} 条、"
                         f"软删除 {len(tombstones)} 条",
                     )
                     return report
@@ -539,6 +605,10 @@ class SyncEngine:
                     self._materialize(conn, account, item, report, kind="reapply")
                 for item, tail in appends:
                     self._append_tail(item, tail, report)
+                for item, text in merges:
+                    self._write_timeline(account, item, text, report, merged=True)
+                for item, text in forwards:
+                    self._write_timeline(account, item, text, report, merged=False)
                 for item in conflicts:
                     self._materialize_conflict(conn, account, item, report)
                 for item in tombstones:
@@ -562,7 +632,8 @@ class SyncEngine:
                 "落地会话",
                 "ok" if not failed else "warn",
                 f"新增 {report.counts['created']} 条、重新落地 {report.counts['reapplied']} 条、"
-                f"追加 {report.counts['appended']} 条、"
+                f"追加 {report.counts['appended']} 条、按时间线合并 {report.counts['merged']} 条、"
+                f"补齐 {report.counts['forwarded']} 条、"
                 f"冲突副本 {report.counts['conflicts']} 条、软删除 {report.counts['removed']} 条；"
                 f"镜像共 {total} 条，仍待应用 {pending_count} 条",
             )
@@ -575,21 +646,31 @@ class SyncEngine:
         account: Any,
         landed: list[dict[str, Any]],
         report: SyncReport,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[tuple[dict[str, Any], str]]]:
+    ) -> tuple[
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[tuple[dict[str, Any], str]],
+        list[tuple[dict[str, Any], str]],
+        list[tuple[dict[str, Any], str]],
+    ]:
         """复核「已落地」的会话。
 
-        三种结果，语义刻意分开：
+        五种结果，语义刻意分开：
 
         - **重新落地**：文件或索引行丢了（客户端清理过缓存）；
         - **追加**：本地是镜像的旧前缀（这条会话是别的号在继续写），只补尾段，
           避免把整条会话重新复制成新 id；
-        - **冲突**：两端都改过（分叉），保留本地并把镜像版本另存副本。
+        - **合并**：两端各续写了一段，按时间线把后一段接在前一段后面；
+        - **补齐**：镜像已经是合并后的版本，本地只差一次覆盖；
+        - **冲突**：同节点内容不同 / 缺父链，无法机器判断，保留本地并另存副本。
         """
         reapply: list[dict[str, Any]] = []
         conflicts: list[dict[str, Any]] = []
         appends: list[tuple[dict[str, Any], str]] = []
+        merges: list[tuple[dict[str, Any], str]] = []
+        forwards: list[tuple[dict[str, Any], str]] = []
         if conn is None:
-            return reapply, conflicts, appends
+            return reapply, conflicts, appends, merges, forwards
         uid = account.external_id
         checked = 0
         for item in landed:
@@ -624,8 +705,14 @@ class SyncEngine:
             if local_canonical.startswith(mirror):
                 # 本地比镜像新：这个号在镜像之后继续聊过，等它自己被采集时自然收敛。
                 continue
-            conflicts.append(item)
-        return reapply, conflicts, appends
+            attempt = merge_timeline(local_canonical, mirror)
+            if not attempt.ok:
+                conflicts.append(item)
+            elif attempt.text == mirror:
+                forwards.append((item, mirror))
+            elif attempt.text != local_canonical:
+                merges.append((item, attempt.text))
+        return reapply, conflicts, appends, merges, forwards
 
     def _append_tail(
         self, item: dict[str, Any], tail: str, report: SyncReport
@@ -651,6 +738,59 @@ class SyncEngine:
             )
             return
         report.counts["appended"] += 1
+
+    def _write_timeline(
+        self,
+        account: Any,
+        item: dict[str, Any],
+        text: str,
+        report: SyncReport,
+        *,
+        merged: bool,
+    ) -> None:
+        """把合并/补齐后的正文写回本地；合并结果再发布给同 scope 的其它账号。"""
+        local_cid = item.get("local_cid")
+        if not local_cid:
+            report.counts["failed"] += 1
+            report.errors.append(
+                {"stableKey": item["stable_key"], "error": "本地会话 id 丢失，无法合并"}
+            )
+            return
+        path = find_jsonl(local_cid)
+        if path is None:
+            report.counts["failed"] += 1
+            report.errors.append(
+                {"stableKey": item["stable_key"], "error": "本地正文不存在，无法合并"}
+            )
+            return
+        try:
+            _atomic_write(path, localize(text, item["stable_key"], local_cid))
+        except OSError as exc:
+            report.counts["failed"] += 1
+            report.errors.append(
+                {"stableKey": item["stable_key"], "error": f"写合并结果失败：{exc}"}
+            )
+            return
+
+        sha, size = self._blobs.put(text)
+        if sha != item.get("content_sha256"):
+            publish = {
+                **item,
+                "content_sha256": sha,
+                "content_bytes": size,
+                "content_lines": line_count(text),
+                "local_cid": None,
+                "applied_at": None,
+                "deleted_at": None,
+                "captured_at": now_iso(),
+            }
+            for other in self._repo.list_accounts(account.scope):
+                self._sync.ensure_state(other.id, other.scope, other.external_id)
+                self._sync.upsert_many(other.id, [publish])
+                self._sync.clear_conflict(other.id, item["stable_key"])
+                self._sync.refresh_counts(other.id)
+        self._sync.mark_applied(account.id, item["stable_key"], local_cid)
+        report.counts["merged" if merged else "forwarded"] += 1
 
     def _materialize(
         self,

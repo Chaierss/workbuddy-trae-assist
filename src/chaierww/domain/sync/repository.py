@@ -250,7 +250,8 @@ class SyncRepository:
             self._conn.execute(
                 """
                 UPDATE sync_items
-                   SET local_cid = ?, applied_at = ?, conflict_of = NULL
+                   SET local_cid = ?, applied_at = ?,
+                       conflict_sha256 = NULL, conflict_of = NULL
                  WHERE account_id = ? AND stable_key = ?
                 """,
                 (local_cid, applied_at or now_iso(), account_id, stable_key),

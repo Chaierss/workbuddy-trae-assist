@@ -264,6 +264,161 @@ def test_append_tail_when_source_continues(env):
     assert len(_rows(env["db"], "uid-b")) == 1
 
 
+def test_diverged_branches_merge_on_apply(env):
+    a = env["make"]("uid-a", "账号甲")
+    b = env["make"]("uid-b", "账号乙")
+    cid = "99999999-9999-9999-9999-999999999999"
+    _seed_session(env["db"], cid, "uid-a", "两段续写")
+    _write_jsonl(
+        env["projects"],
+        "ws-1",
+        cid,
+        [{"sessionId": cid, "id": "m1", "timestamp": 100, "type": "message", "message": "起点"}],
+    )
+    env["engine"].capture(SCOPE, a.id)
+    env["engine"].apply(SCOPE, b.id)
+    b_cid = _rows(env["db"], "uid-b")[0][0]
+    b_path = env["projects"] / "ws-1" / f"{b_cid}.jsonl"
+
+    # A 先续一段，B 在另一台时间线上也续一段；两边共享 m1。
+    _write_jsonl(
+        env["projects"],
+        "ws-1",
+        cid,
+        [
+            {"sessionId": cid, "id": "m1", "timestamp": 100, "type": "message", "message": "起点"},
+            {
+                "sessionId": cid,
+                "id": "m2a",
+                "parentId": "m1",
+                "timestamp": 200,
+                "type": "message",
+                "message": "A",
+            },
+            {
+                "sessionId": cid,
+                "id": "m3a",
+                "parentId": "m2a",
+                "timestamp": 300,
+                "type": "message",
+                "message": "A2",
+            },
+        ],
+    )
+    _write_jsonl(
+        env["projects"],
+        "ws-1",
+        b_cid,
+        [
+            {
+                "sessionId": b_cid,
+                "id": "m1",
+                "timestamp": 100,
+                "type": "message",
+                "message": "起点",
+            },
+            {
+                "sessionId": b_cid,
+                "id": "m2b",
+                "parentId": "m1",
+                "timestamp": 250,
+                "type": "message",
+                "message": "B",
+            },
+        ],
+    )
+
+    env["engine"].capture(SCOPE, a.id)
+    report = env["engine"].apply(SCOPE, b.id)
+
+    assert report.counts["merged"] == 1
+    assert report.counts["conflicts"] == 0
+    lines = [json.loads(line) for line in b_path.read_text(encoding="utf-8").splitlines()]
+    assert [line["id"] for line in lines] == ["m1", "m2a", "m3a", "m2b"]
+    assert lines[-1]["parentId"] == "m3a"
+    assert len(_rows(env["db"], "uid-b")) == 1
+
+
+def test_capture_merges_branch_then_apply_forwards(env):
+    a = env["make"]("uid-a", "账号甲")
+    b = env["make"]("uid-b", "账号乙")
+    cid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    _seed_session(env["db"], cid, "uid-a", "采集合并")
+    _write_jsonl(
+        env["projects"],
+        "ws-1",
+        cid,
+        [
+            {
+                "sessionId": cid,
+                "id": "m1",
+                "timestamp": 100,
+                "type": "message",
+                "message": "起点",
+            }
+        ],
+    )
+    env["engine"].capture(SCOPE, a.id)
+    env["engine"].apply(SCOPE, b.id)
+    b_cid = _rows(env["db"], "uid-b")[0][0]
+    b_path = env["projects"] / "ws-1" / f"{b_cid}.jsonl"
+
+    _write_jsonl(
+        env["projects"],
+        "ws-1",
+        cid,
+        [
+            {
+                "sessionId": cid,
+                "id": "m1",
+                "timestamp": 100,
+                "type": "message",
+                "message": "起点",
+            },
+            {
+                "sessionId": cid,
+                "id": "m2a",
+                "parentId": "m1",
+                "timestamp": 200,
+                "type": "message",
+            },
+        ],
+    )
+    _write_jsonl(
+        env["projects"],
+        "ws-1",
+        b_cid,
+        [
+            {
+                "sessionId": b_cid,
+                "id": "m1",
+                "timestamp": 100,
+                "type": "message",
+                "message": "起点",
+            },
+            {
+                "sessionId": b_cid,
+                "id": "m2b",
+                "parentId": "m1",
+                "timestamp": 250,
+                "type": "message",
+            },
+        ],
+    )
+
+    merged = env["engine"].capture(SCOPE, a.id)
+    assert merged.counts["merged"] == 0
+
+    merged = env["engine"].capture(SCOPE, b.id)
+    assert merged.counts["merged"] == 1
+
+    applied = env["engine"].apply(SCOPE, b.id)
+    assert applied.counts["forwarded"] == 1
+    lines = [json.loads(line) for line in b_path.read_text(encoding="utf-8").splitlines()]
+    assert [line["id"] for line in lines] == ["m1", "m2a", "m2b"]
+    assert lines[-1]["parentId"] == "m2a"
+
+
 def test_conflict_keeps_local_and_creates_copy(env):
     a = env["make"]("uid-a", "账号甲")
     b = env["make"]("uid-b", "账号乙")

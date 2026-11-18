@@ -9,6 +9,7 @@
 - :mod:`canonical`：血统稳定键、正文规范化（把 cid 换成稳定键）、sha256；
 - :mod:`store`：内容寻址（CAS）的 blob 存取与 GC；
 - :mod:`repository`：``sync_state`` / ``sync_items`` / ``sync_jobs`` 的读写；
+- :mod:`merge`：两端各续写一段时按时间线合并，保留父子链；
 - :mod:`engine`：采集 / 应用 / 冲突 / 报告。
 """
 
