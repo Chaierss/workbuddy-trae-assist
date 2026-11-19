@@ -7,9 +7,10 @@
 ;      跳过协议页与安装目录页，只显示一页「升级/修复」信息（customWelcomePage）。
 ;      「已安装」以卸载注册表的 DisplayVersion 为准，不能用 InstallLocation——
 ;      它会被上次安装位置回填，卸载后仍非空，会把重装误判成升级
-;   3. 卸载页由用户决定要不要删除我的资料（customUnWelcomePage 的勾选框），
+;   3. 卸载页由用户决定要不要删除我的资料（customUnWelcomePage 的单选：
+;      「保留我的资料」/「删除程序，同时删除我的资料」），
 ;      customUnInstall 按选择删 $PROFILE\.chaierww 与 $APPDATA\chaierww；静默卸载永不删
-;   4. 定各个向导页的文案（欢迎页 / 目录页 / 完成页），并把欢迎页补回来
+;   4. 定各个向导页的文案与纸本配色（欢迎页 / 目录页 / 完成页），并把欢迎页补回来
 ;   5. 跳过「为所有用户 / 仅为我安装」那一页（customInstallMode）
 ;   6. 记住上次安装位置，卸载后重装仍默认落在原目录，但仍走完整向导、可以改路径
 ;      （customInstall / preInit）
@@ -35,6 +36,17 @@
 
 !include nsDialogs.nsh
 
+; —— 纸本账簿主题 ——
+;
+; 这些是 MUI2 的「默认值」：必须在 !include MUI2.nsh 之前定义。本文件被
+; electron-builder 前插在模板之前，所以放在顶层正好生效。
+;
+; 侧栏图（installerSidebar.bmp）与这里的纸色来自同一个色值，两边必须一致，
+; 否则欢迎页 / 完成页会看到一块 164×314 的色块边界。
+!define MUI_BGCOLOR "FAF7F0"
+; 进度条走 Windows 主题色，替掉 NSIS 默认的经典绿色块。
+!define MUI_INSTFILESPAGE_PROGRESSBAR colored
+
 ; 宏体内共享的全局变量（顶层 Var 不依赖模板 define）。
 ;
 ; 变量必须按编译阶段声明：BUILD_UNINSTALLER 那一次只编译卸载器代码，
@@ -46,7 +58,8 @@
 
 !ifdef BUILD_UNINSTALLER
   Var /GLOBAL cwDeleteUserData  ; 卸载时是否删除资料：1 = 删除，0 = 保留
-  Var /GLOBAL cwDeleteCheckbox  ; 卸载页勾选框句柄
+  Var /GLOBAL cwKeepRadio       ; 卸载页「保留我的资料」单选句柄
+  Var /GLOBAL cwDeleteRadio     ; 卸载页「删除程序并删除资料」单选句柄
 !endif
 
 ; ——— 向导各页文案 ———
@@ -62,7 +75,7 @@
   ; 欢迎页：一次说清「装什么 / 装在哪 / 数据在哪 / 要不要管理员」。
   ; 只在首次安装显示；重装走 --updated 升级流程，改由下方的升级信息页接管。
   !define MUI_WELCOMEPAGE_TITLE "安装 chaierww"
-  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的多个账号收在一处：一键切号、签到积分、账号体检、用量统计。$\r$\n$\r$\n只为当前用户安装，不需要管理员权限，也不写系统目录。$\r$\n账号、凭据、备份与日志都在 $PROFILE\.chaierww —— 升级和卸载都不会动它。"
+  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的多个账号收在一处。$\r$\n$\r$\n一键切号 · 签到积分 · 账号体检 · 用量看板$\r$\n$\r$\n只为当前用户安装，不需要管理员权限。$\r$\n账号与凭据只留在本机：$PROFILE\.chaierww$\r$\n覆盖安装与卸载都不会删除它。"
 
   ; 目录页：用户最容易把「安装目录」当成「数据目录」，这里当场分开讲。
   ; 「默认沿用上次位置」由下方 customInstall / preInit 的 LastInstallDir 保证。
@@ -71,7 +84,7 @@
 
   ; 完成页：默认文本区只有 40u（约 3 行），长文案会被裁掉，所以打开 TEXT_LARGE（60u）。
   !define MUI_FINISHPAGE_TEXT_LARGE
-  !define MUI_FINISHPAGE_TEXT "chaierww 已安装，并常驻系统托盘。$\r$\n关闭窗口只是收进托盘，退出请用托盘右键 →「退出」。$\r$\n$\r$\n账号与凭据保存在 $PROFILE\.chaierww，覆盖安装不会删除。$\r$\n详见安装目录下的 INSTALL.txt 与 DISCLAIMER.md。"
+  !define MUI_FINISHPAGE_TEXT "chaierww 已就绪，常驻系统托盘。$\r$\n程序：$INSTDIR$\r$\n资料：$PROFILE\.chaierww$\r$\n$\r$\n关闭窗口只是收进托盘；退出请用托盘右键 →「退出」。"
   !define MUI_FINISHPAGE_RUN_TEXT "立即运行 chaierww"
   ; 完成页底部的小链接（点击时按运行期展开，所以 $INSTDIR 指向真实安装位置）。
   !define MUI_FINISHPAGE_LINK "打开使用说明（INSTALL.txt）"
@@ -81,10 +94,10 @@
   !define MUI_ABORTWARNING
 
   ; —— 卸载向导 ——
-  ; 欢迎页已被 customUnWelcomePage 的自绘页替换（含「是否删除资料」勾选框），
+  ; 欢迎页已被 customUnWelcomePage 的自绘页替换（含「保留资料 / 彻底删除」单选），
   ; 所以不再需要 MUI_UNWELCOMEPAGE_* 文案。
   !define MUI_UNABORTWARNING
-  !define MUI_UNFINISHPAGE_TEXT "chaierww 已卸载。$\r$\n$\r$\n账号与资料已按上一步的选择处理：未勾选「同时删除我的资料」时，内容仍保留在 $PROFILE\.chaierww，重装后会自动回来。"
+  !define MUI_UNFINISHPAGE_TEXT "chaierww 已卸载。$\r$\n$\r$\n程序文件与快捷方式已删除；资料按上一步的选择处理。$\r$\n选择「保留我的资料」时，账号与备份仍在 $PROFILE\.chaierww，重装后会自动回来。"
 !endif
 
 ; 跳过「Choose Installation Options / 为所有用户还是仅为我」这一页。
@@ -284,16 +297,16 @@
   ${EndIf}
 !macroend
 
-; 卸载欢迎页替换成「资料处置」勾选页。
+; 卸载欢迎页替换成「资料处置」单选页。
 ;
 ; 模板里这是官方钩子：定义了 customUnWelcomePage 就不再插默认的 MUI_UNPAGE_WELCOME。
 ; 先补一次 MUI_UNPAGE_INIT，保证 MUI 卸载器前缀与界面变量在本页编译时就已就位。
-; 页面顺序仍是「勾选页 → 卸载中 → 完成」，页数不变。
+; 页面顺序仍是「资料处置 → 卸载中 → 完成」，页数不变。
 !macro customUnWelcomePage
   !insertmacro MUI_UNPAGE_INIT
 
   Function un.cwUnDataPageCreate
-    !insertmacro MUI_HEADER_TEXT "卸载 chaierww" "先确认资料的处置方式，再开始卸载。"
+    !insertmacro MUI_HEADER_TEXT "卸载 chaierww" "先选择资料的处理方式，再开始卸载。"
 
     nsDialogs::Create 1018
     Pop $0
@@ -303,16 +316,26 @@
 
     ${NSD_CreateLabel} 0 0 100% 18u "将删除程序文件、桌面快捷方式和开始菜单项。"
     Pop $0
-    ${NSD_CreateLabel} 0 22u 100% 42u "你的资料默认保留在 $PROFILE\.chaierww：$\r$\n账号、凭据、备份、日志与网页版登录态都在这里，重装后会自动回来。"
+    ${NSD_CreateLabel} 0 24u 100% 30u "账号、凭据、备份、日志与网页版登录态保存在 $PROFILE\.chaierww。请选择处理方式："
     Pop $0
-    ${NSD_CreateCheckbox} 0 70u 100% 16u "同时删除我的资料（含 $APPDATA\chaierww 的更新偏好；不可恢复）"
-    Pop $cwDeleteCheckbox
 
-    ; 按 $cwDeleteUserData 恢复勾选状态（默认 "0" = 不勾）。
+    ; 第一项默认选中：卸载不该顺手带走账号，误删的代价远高于多点一次。
+    ${NSD_CreateRadioButton} 0 60u 100% 16u "保留我的资料（推荐）"
+    Pop $cwKeepRadio
+    ${NSD_AddStyle} $cwKeepRadio ${WS_GROUP}
+    ${NSD_CreateLabel} 0 78u 100% 28u "    账号、凭据、备份与网页版登录态原样保留；重装后自动回来。"
+    Pop $0
+
+    ${NSD_CreateRadioButton} 0 110u 100% 16u "删除程序，同时删除我的资料"
+    Pop $cwDeleteRadio
+    ${NSD_CreateLabel} 0 128u 100% 34u "    含账号、凭据、备份与 $APPDATA\chaierww 的更新偏好；删除后不可恢复。"
+    Pop $0
+
+    ; 按 $cwDeleteUserData 恢复选择（默认 "0" = 保留）。静默卸载不会进这一页。
     ${If} $cwDeleteUserData == "1"
-      ${NSD_Check} $cwDeleteCheckbox
+      ${NSD_Check} $cwDeleteRadio
     ${Else}
-      ${NSD_Uncheck} $cwDeleteCheckbox
+      ${NSD_Check} $cwKeepRadio
     ${EndIf}
 
     ; 「下一步」按钮改成「卸载」，避免用户以为只是翻页。
@@ -323,7 +346,7 @@
   FunctionEnd
 
   Function un.cwUnDataPageLeave
-    ${NSD_GetState} $cwDeleteCheckbox $0
+    ${NSD_GetState} $cwDeleteRadio $0
     ${If} $0 == ${BST_CHECKED}
       StrCpy $cwDeleteUserData "1"
     ${Else}

@@ -49,7 +49,7 @@ import sys
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 
 def _use_utf8_console() -> None:
@@ -160,6 +160,12 @@ def compose_tray(size: int, color: tuple[int, int, int]) -> Image.Image:
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 
+# 安装器「纸本账簿」配色：与应用内米白纸面 + 墨绿字标一致。
+# MUI_BGCOLOR 同时作用于页眉条、欢迎页与完成页，页眉 / 侧栏位图必须用同一个纸色。
+PAPER = (250, 247, 240)  # #FAF7F0
+INK = (31, 58, 51)  # #1F3A33
+HAIRLINE = (231, 224, 210)  # #E7E0D2
+
 
 def compose_app(size: int, glyph: Image.Image, pad_ratio: float = 0.1) -> Image.Image:
     """应用图标：透明底 + 原字形（保持与 Web 端 favicon 完全一致）。"""
@@ -177,28 +183,65 @@ def flatten_bmp(img: Image.Image, background: tuple[int, int, int]) -> Image.Ima
     return canvas
 
 
+def _wordmark_font(size: int) -> ImageFont.FreeTypeFont | None:
+    """找一个可用的半粗西文字体画字标；找不到就退回纯 logo，不硬塞默认点阵字。"""
+    candidates = (
+        Path(r"C:\Windows\Fonts\seguisb.ttf"),
+        Path(r"C:\Windows\Fonts\segoeuib.ttf"),
+        Path(r"C:\Windows\Fonts\segoeui.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+    )
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            return ImageFont.truetype(str(path), size)
+        except OSError:
+            continue
+    return None
+
+
 def installer_header_bmp(glyph: Image.Image) -> Image.Image:
-    """安装器内页页眉图（150×57）：品牌深底 + logo 靠右。"""
-    canvas = Image.new("RGB", (150, 57), (11, 11, 14))  # 与窗口 backgroundColor #0B0B0E 同源
-    logo = int(57 * 0.56)  # logo 高度约 32px，居中偏右
-    mark = glyph.resize((logo, logo), Image.LANCZOS)
-    # logo 是黑色字形，深底上看不见，先染白再贴
-    white = tint(mark, WHITE)
-    x = 150 - logo - 14
-    y = (57 - logo) // 2
-    canvas.paste(white, (x, y), mask=white.getchannel("A"))
+    """安装器内页页眉图（150×57）：纸面底 + 墨绿 logo 与字标。
+
+    MUI_BGCOLOR 同时作用于页眉条底色，所以这里必须用同一个纸色；
+    纯黑底会像一块贴上去的补丁，纯白底又会在纸色页眉上露出矩形边界。
+    """
+    canvas = Image.new("RGB", (150, 57), PAPER)
+    font = _wordmark_font(15)
+    if font is None:
+        logo = 32
+        mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
+        canvas.paste(mark, ((150 - logo) // 2, (57 - logo) // 2), mask=mark.getchannel("A"))
+        return canvas
+
+    logo = 28
+    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
+    canvas.paste(mark, (14, (57 - logo) // 2), mask=mark.getchannel("A"))
+
+    draw = ImageDraw.Draw(canvas)
+    # anchor=lm：以左侧垂直中点对齐，避免不同字体基线差异把字标顶偏。
+    draw.text((50, 29), "chaierww", font=font, fill=INK, anchor="lm")
     return canvas
 
 
 def installer_sidebar_bmp(glyph: Image.Image) -> Image.Image:
-    """安装器欢迎/完成页侧栏图（164×314）：品牌深底 + logo 居中偏上。"""
-    canvas = Image.new("RGB", (164, 314), (11, 11, 14))
-    logo = int(164 * 0.5)  # ~82px
-    mark = glyph.resize((logo, logo), Image.LANCZOS)
-    white = tint(mark, WHITE)
-    x = (164 - logo) // 2
-    y = int(314 * 0.22)
-    canvas.paste(white, (x, y), mask=white.getchannel("A"))
+    """安装器欢迎/完成页侧栏图（164×314）：纸面底 + 墨绿 logo + 账簿细线。
+
+    侧栏在欢迎页与完成页出现，底色必须与 MUI_BGCOLOR 的纸色一致，
+    否则会看到一块 164×314 的矩形边界。
+    """
+    canvas = Image.new("RGB", (164, 314), PAPER)
+    logo = 76
+    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
+    canvas.paste(mark, ((164 - logo) // 2, 52), mask=mark.getchannel("A"))
+
+    draw = ImageDraw.Draw(canvas)
+    # 一条墨绿短横 + 三条浅色账簿线：克制，不在位图里塞文字。
+    draw.line([(42, 154), (122, 154)], fill=INK, width=1)
+    for y in (188, 206, 224):
+        draw.line([(32, y), (132, y)], fill=HAIRLINE, width=1)
     return canvas
 
 

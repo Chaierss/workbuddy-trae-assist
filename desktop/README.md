@@ -195,11 +195,16 @@ NSIS 自带的全套语言编进去再按系统区域挑，英文系统上又会
   可以用，但里面的 `Function` 必须定义在**宏体内**（宏在页面插入点展开，此时 MUI2 / LogicLib
   已就位）；顶层只能放 `!include` / `!define` / `Var`。
   完成页文本区默认只有 40u（约 3 行），长文案要加 `MUI_FINISHPAGE_TEXT_LARGE` 才不被裁。
+- **纸本账簿配色**（顶层 `MUI_BGCOLOR` / `MUI_INSTFILESPAGE_PROGRESSBAR`）：页眉条、
+  欢迎页与完成页统一用 `#FAF7F0` 纸色；`build/installerHeader.bmp` 与
+  `build/installerSidebar.bmp` 必须用同一个纸色，否则会露出位图边界。
+  安装进度条走 Windows 主题色，不再用 NSIS 经典的绿色块。
 - **卸载时由用户决定是否删资料**（`customUnWelcomePage`）：替换默认卸载欢迎页，自绘一页
-  「同时删除我的资料（不可恢复）」勾选框，**默认不勾**、显示位置为 `~/.chaierww`。
-  `customUnInit` 先把 `$cwDeleteUserData` 置 `0`，因此静默卸载（自动更新 / `/S`）永不删除；
-  只有用户在页面上勾选才会在 `customUnInstall` 里 `RMDir /r "$PROFILE\.chaierww"` 与
-  `RMDir /r "$APPDATA\chaierww"`（`HKCU\Software\Chaierss\chaierww` 的路径记忆保留）。
+  「保留我的资料（推荐）/ 删除程序，同时删除我的资料」单选，**默认保留**、显示位置为
+  `~/.chaierww`。`customUnInit` 先把 `$cwDeleteUserData` 置 `0`，因此静默卸载
+  （自动更新 / `/S`）永不删除；只有用户选「删除」才会在 `customUnInstall` 里
+  `RMDir /r "$PROFILE\.chaierww"` 与 `RMDir /r "$APPDATA\chaierww"`
+  （`HKCU\Software\Chaierss\chaierww` 的路径记忆保留）。
 
 
 ## 开发模式运行
