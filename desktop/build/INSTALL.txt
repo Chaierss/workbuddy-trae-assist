@@ -15,4 +15,7 @@
     勾选   → %USERPROFILE%\.chaierww 与 %APPDATA%\chaierww 一并删除，不可恢复。
 静默卸载（自动更新）不会删除任何资料。想事后清理也可以手动删除上面两个目录。
 
+【重装 / 换安装位置】覆盖安装不会删除资料。想换安装目录：先卸载（资料默认保留），
+再运行安装包；会重新走完整向导，目录页预填上次的位置，直接改成新目录即可。
+
 【许可】PolyForm Noncommercial License 1.0.0，全文见本目录 LICENSE.txt；免责声明见 DISCLAIMER.md。

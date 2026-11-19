@@ -154,11 +154,14 @@ NSIS 安装器（`oneClick: false`，辅助向导）比「一键装」多了几�
 向导页数分两种：
 
 - **首次安装五页**：欢迎 → 协议 → 安装目录 → 安装中 → 完成。
-- **已装过 chaierww 再运行安装包（重装）**：自动切到升级流程，**三页**：升级信息 →
-  安装中 → 完成。协议页与安装目录页由模板的 `skipPageIfUpdated` 跳过，升级信息页显示
-  「已安装版本 → 本次版本、安装位置、资料不动」。
+- **已安装状态下运行安装包（覆盖安装 / 自动更新）**：自动切到升级流程，**三页**：
+  升级信息 → 安装中 → 完成。协议页与安装目录页由模板的 `skipPageIfUpdated` 跳过，
+  升级信息页显示「已安装版本 → 本次版本、安装位置、资料不动」。
 
-代价是重装向导里不再能改安装位置：确实要换目录，请先卸载再安装。
+已安装状态下不能改安装位置。要换目录：先卸载（资料默认保留），再运行安装包——
+卸载会删掉「已安装」登记，重装回到完整五页向导；目录页仍会预填上次装过的位置，
+直接下一步即可，也可以当场改成新目录。上次位置记在
+`HKCU\Software\Chaierss\chaierww` 的 `LastInstallDir`，卸载不会清掉。
 
 界面语言在 `package.json` 的 `build.nsis` 里定：`language: "2052"` +
 `installerLanguages: ["zh_CN"]`。不设的话 electron-builder 默认 `1033`（英文），
@@ -172,10 +175,16 @@ NSIS 自带的全套语言编进去再按系统区域挑，英文系统上又会
   用户打开安装包第一屏直接是协议要点。这里插入两页：标准欢迎页（首次安装显示，
   `--updated` 时由 PRE 回调 `Abort` 跳过）+ 一页自绘的「升级/修复」信息页
   （只在 `--updated` 显示，首次安装时在 create 里 `Abort`）。
-- **重装自动切升级流程**（`preInit`）：读 `HKCU ${INSTALL_REGISTRY_KEY}` 的
-  `InstallLocation` 判断是否已安装；已安装且非静默时，用 `Exec "$EXEPATH" --updated"`
+- **重装自动切升级流程**（`preInit`）：读 `HKCU ${UNINSTALL_REGISTRY_KEY}` 的
+  `DisplayVersion` 判断是否已安装。**不要改用 `InstallLocation` 判断**——它会被
+  「上次安装位置」回填（卸载后仍非空），用错会把「卸载 → 重装」误判成升级，
+  跳过目录页、锁死安装路径。已安装且非静默时，用 `Exec "$EXEPATH" --updated"`
   重启自己，命中模板的 `skipPageIfUpdated`。`${isUpdated}` 防止自重启死循环，
   `${Silent}`（`/S`）不重启，`Exec` 失败则继续走完整五页，不阻断安装。
+- **记住上次安装位置**（`customInstall` + `preInit`）：安装成功后把 `$INSTDIR` 写进
+  `HKCU\Software\Chaierss\chaierww` 的 `LastInstallDir`（卸载不动它）；重装时若官方
+  `InstallLocation` 已不存在，就回填它，让目录页默认落在原位置。回填只影响默认值，
+  不参与「是否已安装」判断。
 - **跳过「为所有用户 / 仅为我安装」**（`customInstallMode`）：模板里的安装范围页
   （`multiUserUi.nsh`）对本软件没用——只写 HKCU、装当前用户目录，留着只会多一次 UAC 提权。
   置 `$isForceCurrentInstall=1` 后该页在 PRE 回调里 `Abort`，等于跳过。

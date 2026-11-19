@@ -3,13 +3,16 @@
 ;
 ; 干什么：
 ;   1. 把 chaierww-backend.exe 也收掉（见下方 preInit / customUnInit 的说明）
-;   2. 重装（已装过）自动切到精简升级流程：以官方 --updated 模式重启自己，
-;      跳过协议页与安装目录页，只显示一页「升级/修复」信息（customWelcomePage）
+;   2. 已安装状态下重装自动切到精简升级流程：以官方 --updated 模式重启自己，
+;      跳过协议页与安装目录页，只显示一页「升级/修复」信息（customWelcomePage）。
+;      「已安装」以卸载注册表的 DisplayVersion 为准，不能用 InstallLocation——
+;      它会被上次安装位置回填，卸载后仍非空，会把重装误判成升级
 ;   3. 卸载页由用户决定要不要删除我的资料（customUnWelcomePage 的勾选框），
 ;      customUnInstall 按选择删 $PROFILE\.chaierww 与 $APPDATA\chaierww；静默卸载永不删
 ;   4. 定各个向导页的文案（欢迎页 / 目录页 / 完成页），并把欢迎页补回来
 ;   5. 跳过「为所有用户 / 仅为我安装」那一页（customInstallMode）
-;   6. 记住上次安装位置，卸载后重装仍默认落在原目录（customInstall / preInit）
+;   6. 记住上次安装位置，卸载后重装仍默认落在原目录，但仍走完整向导、可以改路径
+;      （customInstall / preInit）
 ;
 ; 注意：本文件被前插在 !include MUI2.nsh 之前。顶层的 !include / !define / Var 会被立刻处理，
 ; 所以顶层代码不要引用模板 define（${INSTALL_REGISTRY_KEY} 等）或 MUI / LogicLib 宏；
@@ -166,7 +169,18 @@
 !macroend
 
 !macro preInit
-  ; —— 重装沿用上次安装位置 ——
+  ; —— 先判「是否真的处于已安装状态」 ——
+  ;
+  ; 只看卸载注册表的 DisplayVersion：它由安装成功后的卸载器登记，
+  ; 卸载时随卸载键一起删除。InstallLocation 不能用来判断 —— 下面会把它用
+  ; 「上次安装位置」回填，卸载后依然非空；拿它判断会把「卸载 → 重装」
+  ; 误当成升级，跳过欢迎页与安装目录页，用户就再也改不了安装路径。
+  !ifndef BUILD_UNINSTALLER
+    ReadRegStr $R1 HKCU "${UNINSTALL_REGISTRY_KEY}" DisplayVersion
+    StrCpy $cwOldVersion $R1
+  !endif
+
+  ; —— 目录页默认沿用上次安装位置 ——
   ;
   ; 必须在这里（早于 initMultiUser 和安装范围页的 PRE 回调）回填官方键：
   ; 安装范围页虽然被 customInstallMode 跳过，PRE 回调里仍会再调一次
@@ -174,6 +188,9 @@
   ;
   ; 只回填 InstallLocation，不写 UninstallString —— 否则安装器会去找一个
   ; 已经不存在的旧卸载器。BUILD_UNINSTALLER 那次编译不执行，避免污染构建机。
+  ;
+  ; 回填只影响目录页默认值：是否走升级流程由上面的 DisplayVersion 决定，
+  ; 所以卸载后重装仍是完整五页向导，路径可改。
   !ifndef BUILD_UNINSTALLER
     ReadRegStr $R0 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
     StrCmp $R0 "" 0 cw_preinit_path_ready
@@ -183,6 +200,9 @@
     cw_preinit_path_write:
       WriteRegStr HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation "$R0"
     cw_preinit_path_ready:
+
+    ReadRegStr $R2 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
+    StrCpy $cwOldInstallDir $R2
   !endif
 
   ; —— 已安装 → 自动切到官方「升级」流程 ——
@@ -191,20 +211,18 @@
   ; 手动双击安装包不带这个参数，所以在这里检测到已安装就带着 --updated 重启自己：
   ; 新实例看到 ${isUpdated} 就不会再重启，形成「升级信息 → 安装中 → 完成」三页。
   ;
+  ; 判定用 DisplayVersion（$R1）而不是 InstallLocation（$R2）：后者在卸载后
+  ; 会被上面的路径记忆回填，非空并不代表还装着。用错就会把重装锁进升级流程。
+  ;
   ; 静默安装（/S）不重启，保持无人值守语义；Exec 失败（被安全软件拦截等）也不阻断，
   ; 继续走完整五页向导，避免用户卡在「什么都没发生」。
   ;
   ; 只回填/重启，不在这里杀进程：主程序开着时交给 NSIS 默认的「请关闭」流程，
   ; 孤儿后端的清理在下面处理。
   !ifndef BUILD_UNINSTALLER
-    ReadRegStr $R1 HKCU "${UNINSTALL_REGISTRY_KEY}" DisplayVersion
-    StrCpy $cwOldVersion $R1
-    ReadRegStr $R2 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
-    StrCpy $cwOldInstallDir $R2
-
     ${IfNot} ${isUpdated}
       ${AndIfNot} ${Silent}
-        ${If} $R2 != ""
+        ${If} $R1 != ""
           ClearErrors
           Exec '"$EXEPATH" --updated'
           ${IfNot} ${Errors}
