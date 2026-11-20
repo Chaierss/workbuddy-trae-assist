@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 
 from chaierww.domain.client_settings import (
@@ -232,6 +234,36 @@ def test_restore_puts_backup_content_back(service):
 def test_restore_rejects_unknown_backup(service):
     with pytest.raises(ClientSettingsError, match="不存在"):
         service.restore("settings-nope")
+
+
+def test_backup_ids_stay_unique_when_clock_is_frozen(service, monkeypatch):
+    """Windows 时钟粒度粗时，两次写入可能拿到同一个时间戳。
+
+    备份文件名如果不做唯一化，后一份会覆盖前一份，恢复出来的就是后一次写入。
+    CI（Windows）上曾因此失败，这里把时钟冻住复现同一时序。
+    """
+    import chaierww.domain.client_settings as module
+
+    frozen = datetime(2026, 11, 20, 3, 0, 0)
+    real_datetime = module.datetime
+
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls):
+            return frozen
+
+    monkeypatch.setattr(module, "datetime", FrozenDatetime)
+    seed(service)
+
+    first = service.write({"autoLaunchDesired": True}, fingerprint(RAW))
+    service.write({"autoLaunchDesired": False}, first["fingerprint"])
+
+    ids = [point.id for point in service.backups()]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2
+
+    service.restore(first["backupId"])
+    assert read_raw(service._file) == RAW
 
 
 def test_backups_are_pruned(service):

@@ -34,6 +34,7 @@ import json
 import os
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -527,11 +528,19 @@ class ClientSettingsService:
 
     def _backup(self, text: str) -> str:
         self._backups.mkdir(parents=True, exist_ok=True)
-        stamp = _stamp()
-        backup_id = f"{BACKUP_PREFIX}{stamp}"
-        (self._backups / f"{backup_id}.json").write_bytes(text.encode("utf-8"))
-        self._prune()
-        return backup_id
+        # Windows 的时钟粒度可能粗到毫秒，连续两次写入会拿到同一个时间戳，
+        # 后一份备份就会覆盖前一份（CI 上表现为「恢复出来的是后一次写入」）。
+        # 文件名冲突时把时间戳往后推 1 微秒重试，格式保持不变，前端仍能解析。
+        moment = datetime.now()
+        for _ in range(1000):
+            backup_id = f"{BACKUP_PREFIX}{moment.strftime('%Y%m%d-%H%M%S-%f')}"
+            target = self._backups / f"{backup_id}.json"
+            if not target.exists():
+                target.write_bytes(text.encode("utf-8"))
+                self._prune()
+                return backup_id
+            moment += timedelta(microseconds=1)
+        raise ClientSettingsError("备份失败：备份文件名持续冲突")
 
     def backups(self) -> list[BackupPoint]:
         if not self._backups.is_dir():
@@ -577,15 +586,7 @@ class ClientSettingsService:
             return self.snapshot(message=f"已从备份点 {backup_id} 恢复")
 
 
-def _stamp() -> str:
-    from datetime import datetime
-
-    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-
-
 def _stamp_to_iso(backup_id: str) -> str:
-    from datetime import datetime
-
     raw = backup_id[len(BACKUP_PREFIX) :]
     for fmt in ("%Y%m%d-%H%M%S-%f", "%Y%m%d-%H%M%S"):
         try:
