@@ -86,10 +86,10 @@ SHOTS: list[dict[str, object]] = [
     {"name": "gateway-overview", "path": "/gateway?tab=overview", "height": 940},
     {"name": "gateway-keys", "path": "/gateway?tab=keys", "height": 760},
     {"name": "gateway-models", "path": "/gateway?tab=models", "height": 860},
-    {"name": "settings-schedule", "path": "/settings?tab=schedule", "height": 980},
-    {"name": "settings-backup", "path": "/settings?tab=backup", "height": 830},
-    {"name": "settings-env", "path": "/settings?tab=env", "height": 1140},
-    {"name": "settings-general", "path": "/settings?tab=general", "height": 1360},
+    {"name": "settings-schedule", "path": "/settings?tab=automation", "height": 980},
+    {"name": "settings-backup", "path": "/settings?tab=data", "height": 830},
+    {"name": "settings-env", "path": "/settings?tab=client", "height": 1140},
+    {"name": "settings-general", "path": "/settings?tab=appearance", "height": 1360},
 ]
 
 # 脱敏脚本：在页面里跑，把敏感文本换成圆点、把首字母头像糊掉。

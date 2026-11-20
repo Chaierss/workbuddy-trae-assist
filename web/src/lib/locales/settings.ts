@@ -4,6 +4,18 @@
  */
 
 export const settingsZh = {
+  "settings.appearance.label": "外观与语言",
+  "settings.appearance.hint": "主题、界面语言、版本更新与新手引导",
+  "settings.accounts.label": "账号与切换",
+  "settings.accounts.hint": "切换后行为、迁移范围、网页版登录态与登录态同步",
+  "settings.automation.label": "自动化",
+  "settings.automation.hint": "计划任务、自动轮换、健康中心自动处置与告警阈值",
+  "settings.data.label": "数据与备份",
+  "settings.data.hint": "备份 / 恢复与运行日志，出问题时才打开",
+  "settings.clientEnv.label": "客户端与环境",
+  "settings.clientEnv.hint": "客户端 settings.json 登记键、本机路径与凭据加密方式",
+  "settings.docs.label": "规则与文档",
+  "settings.docs.hint": "规则、组件、接口文档与 Wiki，四个只读资料页",
   "settings.general.label": "常规",
   "settings.general.hint": "外观、界面语言、切换时的数据迁移范围与换号体验",
   "settings.general.switchTitle": "换号体验",
@@ -370,6 +382,21 @@ export const settingsZh = {
 };
 
 export const settingsEn = {
+  "settings.appearance.label": "Appearance & language",
+  "settings.appearance.hint": "Theme, language, updates and the onboarding guide",
+  "settings.accounts.label": "Accounts & switching",
+  "settings.accounts.hint":
+    "Switch behaviour, migration scope, webview login state and session sync",
+  "settings.automation.label": "Automation",
+  "settings.automation.hint":
+    "Scheduled tasks, auto rotation, health auto-handling and alert thresholds",
+  "settings.data.label": "Data & backup",
+  "settings.data.hint": "Backup / restore and runtime logs — only needed when something breaks",
+  "settings.clientEnv.label": "Client & environment",
+  "settings.clientEnv.hint":
+    "Client settings.json keys, local paths and credential encryption",
+  "settings.docs.label": "Rules & docs",
+  "settings.docs.hint": "Rules, components, API docs and Wiki — four read-only references",
   "settings.general.label": "General",
   "settings.general.hint": "Appearance, language, what to migrate on switch, and switch behaviour",
   "settings.general.switchTitle": "Switch experience",

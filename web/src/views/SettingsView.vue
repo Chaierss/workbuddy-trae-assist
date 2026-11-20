@@ -28,7 +28,8 @@ const activeTab = computed(() => findSettingsTab(activeKey.value) ?? tabs[0]);
 const selfScroll = computed(() => activeTab.value.selfScroll === true);
 
 // 非法 ?tab= 归一成默认项，别让地址栏留着一个查无此项的值。
-// 桌面端把 ?tab=api 也当成非法项处理（那个分栏在桌面端不存在）。
+// 旧分栏名（如 ?tab=general）由 `resolveSettingsKey` 映射到新分栏，再归一写回地址栏。
+// 桌面端把 ?tab=docs 也当成非法项处理（那个分栏在桌面端不存在）。
 watch(
   activeKey,
   (key) => {

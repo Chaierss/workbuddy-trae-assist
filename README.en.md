@@ -145,7 +145,7 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 - **Problems surface on their own**: the overview "needs attention" card shows the top 3 groups
   as a read-only summary and sends all handling to Health; expiring or 24h-due credentials renew
   automatically (up to 3 per round) and the day's failed activities rerun automatically (up to
-  20 pairs), each switchable in Settings → General
+  20 pairs), each switchable in Settings → Automation
 - **One-click pool checkup**: login recheck, credential liveness, supply and isolation in one
   pass, with a next step per finding (re-sign-in / renew / diagnose / release isolation / open
   Health) — no scoring or recommendations
@@ -193,9 +193,9 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 - **Desktop notifications**: when accounts need a re-login the tray shows "N accounts need re-login" and sends one system notification per account per day, linking straight to credential health
 - **Backups travel back in time**: snapshots can be verified and restored; restore applies before the database opens on next launch, and rolls back on failure
 - **Sessions follow the account**: chat sessions and web-login state are mirrored between accounts on the same machine, so you can keep chatting after a switch; bodies are content-hashed and stored once, appends follow the source, deletions follow too, conflicts stay local and are resolved one by one; platforms without a local session store (Trae) are marked "unsupported" — sessions never cross machines
-- **Self-diagnosis**: Settings → Environment offers a health panel and "export diagnostic bundle" containing versions, counts and redacted logs only
+- **Self-diagnosis**: Settings → Client & environment offers a health panel and "export diagnostic bundle" containing versions, counts and redacted logs only
 - **Onboarding that does not nag**: five steps on first launch (install the client → scan to add an account → first switch → keep it → run activities daily), skippable and collapsible; existing users are treated as done
-- **Local experience data**: anonymous counters such as first-switch success rate and TTFV are written locally only, and can be disabled, exported or cleared under Settings → Environment → Experience data ([details](docs/policies/TELEMETRY.md), Chinese) — never uploaded
+- **Local experience data**: anonymous counters such as first-switch success rate and TTFV are written locally only, and can be disabled, exported or cleared under Settings → Client & environment → Experience data ([details](docs/policies/TELEMETRY.md), Chinese) — never uploaded
 
 </details>
 
@@ -253,8 +253,8 @@ sign of a bad package.
 
 **Upgrades take care of themselves.** The app checks and downloads updates silently at
 startup; only when the download finishes does it show a note in the sidebar, the tray and
-Settings → General, without interrupting you. "Restart and install" applies it immediately;
-"Later" installs it the next time you quit. Turn automatic checks off under Settings → General,
+Settings → Appearance & language, without interrupting you. "Restart and install" applies it immediately;
+"Later" installs it the next time you quit. Turn automatic checks off under Settings → Appearance & language,
 where manual checks also live. If you do not want a particular version, choose "skip this version".
 
 ### Platforms
@@ -302,10 +302,10 @@ See **[SECURITY.md](SECURITY.md)** (Chinese) for the threat model.
 **The client doesn't start after a switch, or exits immediately?**
 Check "Overview → Client" for the install state. Switching uses the same system call as
 double-clicking the icon; if it still fails, the path is usually wrong or the client is
-updating — verify the login directory under Settings → Environment.
+updating — verify the login directory under Settings → Client & environment.
 
 **How do I stop the client from launching after a switch?**
-Turn off "restart client after switching" under Settings → General → Switch experience. Only
+Turn off "restart client after switching" under Settings → Accounts & switching. Only
 the login state is changed; the client stays closed until you open it.
 
 **Will I get banned?**
@@ -324,7 +324,7 @@ Only locally. The app records 7 anonymous events (app opened, client detected, a
 step completed, account added, preview, successful switch, gateway key issued) with enum-only
 attributes such as language, platform and step; no account names, account IDs, credentials,
 conversation text or paths. Data stays in `~/.chaierww/metrics/events.ndjson`, is never
-uploaded, and can be disabled, exported or cleared under Settings → Environment → Experience
+uploaded, and can be disabled, exported or cleared under Settings → Client & environment → Experience
 data. See the **[local experience data note](docs/policies/TELEMETRY.md)** (Chinese).
 
 **Will upgrading lose my data?**

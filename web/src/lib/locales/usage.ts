@@ -218,6 +218,8 @@ export const usageZh = {
   "overview.client.loggedIn": "已登录",
   "overview.client.loggedOut": "未登录",
   "overview.client.stateDir": "登录态目录",
+  "overview.today.title": "今日近况",
+  "overview.today.hint": "收益、用量与客户端状态；备份明细在「设置 → 数据与备份」",
   "overview.pulse.title": "今日速览",
   "overview.pulse.subtitle": "取自各页已有缓存的汇总，打开概览不会额外请求上游",
   "overview.pulse.loading": "正在汇总…",
@@ -509,6 +511,9 @@ export const usageEn = {
   "overview.client.loggedIn": "Signed in",
   "overview.client.loggedOut": "Signed out",
   "overview.client.stateDir": "Session directory",
+  "overview.today.title": "Today",
+  "overview.today.hint":
+    "Rewards, usage and client status; backup details live in Settings → Data & backup",
   "overview.pulse.title": "Today at a glance",
   "overview.pulse.subtitle":
     "Aggregated from what each page has already cached, so opening Overview never hits upstream",

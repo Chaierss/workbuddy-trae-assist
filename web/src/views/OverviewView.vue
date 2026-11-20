@@ -12,7 +12,6 @@ import {
   Loader2,
   MonitorSmartphone,
   Network,
-  Repeat2,
   ShieldCheck,
   Users,
 } from "lucide-vue-next";
@@ -23,7 +22,7 @@ import StatusPill from "../components/StatusPill.vue";
 import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
-import { api, formatAmount, formatBytes, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type CompatItem, type CompatOverview, type OverviewPulse, type PoolHealth, type Snapshot } from "../api";
+import { api, formatAmount, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type CompatItem, type CompatOverview, type OverviewPulse, type PoolHealth, type Snapshot } from "../api";
 import { t, type MessageKey } from "../lib/i18n";
 
 import {
@@ -649,8 +648,16 @@ async function loadGlobalBackups(): Promise<void> {
 
     <OfficialActivityStrip v-if="pulse" class="mt-4" :campaigns="campaigns" />
 
+    <!-- 第四个内容块：今日近况。收益 / 用量 / 客户端都在这里，明细到对应页面看。 -->
+    <div class="mb-2 mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <h3 class="text-title font-semibold tracking-tight text-ink">
+        {{ t("overview.today.title") }}
+      </h3>
+      <p class="text-caption text-muted">{{ t("overview.today.hint") }}</p>
+    </div>
+
     <!-- 活动收益：口径只含本工具代做记录，手动领取不计，卡片上写明避免当成账号总收益 -->
-    <SectionCard class="mt-4" :title="t('overview.rewards.title')" :subtitle="t('overview.rewards.hint')">
+    <SectionCard class="mt-2" :title="t('overview.rewards.title')" :subtitle="t('overview.rewards.hint')">
       <div v-if="rewardsLoading" class="space-y-1">
         <Skeleton variant="row" :lines="2" />
       </div>
@@ -710,7 +717,7 @@ async function loadGlobalBackups(): Promise<void> {
       </div>
     </SectionCard>
 
-    <div class="mt-4 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+    <div class="mt-3 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
       <SectionCard
         :title="t('overview.client.title')"
         :subtitle="
@@ -824,55 +831,6 @@ async function loadGlobalBackups(): Promise<void> {
             </span>
           </RouterLink>
         </div>
-      </SectionCard>
-    </div>
-
-    <div class="mt-4">
-      <SectionCard :title="t('overview.snapshots.title')" :subtitle="t('overview.snapshots.subtitle')" flush>
-        <template #actions>
-          <RouterLink :to="navTo('/settings?tab=backup')" class="text-body-sm text-muted transition-colors hover:text-ink">
-            {{ t("overview.snapshots.viewAll") }}
-          </RouterLink>
-        </template>
-        <div v-if="backupsError" class="flex flex-wrap items-center gap-2 px-5 py-3.5 text-body-sm text-danger">
-          <span class="min-w-0 flex-1">{{ t("overview.backups.error", { message: backupsError }) }}</span>
-          <button
-            type="button"
-            class="inline-flex shrink-0 items-center rounded-badge border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-            @click="loadGlobalBackups"
-          >
-            {{ t("common.retry") }}
-          </button>
-        </div>
-        <div v-else-if="backupsLoading" class="space-y-1 px-5 py-2">
-          <Skeleton variant="row" :lines="2" />
-        </div>
-        <div v-else-if="!globalSnapshots.length" class="px-5 py-8 text-center text-body text-muted">
-          {{ t("overview.snapshots.empty") }}
-        </div>
-        <ul v-else class="divide-y divide-line-soft">
-          <li
-            v-for="snapshot in globalSnapshots.slice(0, 2)"
-            :key="snapshot.id"
-            class="flex items-center gap-4 px-5 py-3 text-body-sm"
-          >
-            <Repeat2 :size="14" class="shrink-0 text-muted" />
-            <span class="w-20 shrink-0 text-ink-soft">
-              {{
-                snapshot.reason === "manual"
-                  ? t("overview.snapshots.manual")
-                  : t("overview.snapshots.auto")
-              }}
-            </span>
-            <span class="min-w-0 flex-1 text-muted">{{ formatTime(snapshot.createdAt) }}</span>
-            <span class="shrink-0 text-muted">
-              {{ t("overview.snapshots.files", { count: snapshot.fileCount }) }} · {{ formatBytes(snapshot.totalBytes) }}
-            </span>
-            <StatusPill :tone="snapshot.verified ? 'brand' : 'warn'">
-              {{ snapshot.verified ? t("overview.snapshots.verified") : t("overview.snapshots.unverified") }}
-            </StatusPill>
-          </li>
-        </ul>
       </SectionCard>
     </div>
   </div>

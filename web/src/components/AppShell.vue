@@ -99,10 +99,10 @@ function goTo(path: string): void {
 }
 
 /**
- * `Ctrl+K` 打开跳转面板，`Ctrl+1..6` 直达侧栏第 n 个目的地。
+ * `Ctrl+K` 打开跳转面板，`Ctrl+,` 打开设置，`Ctrl+1..6` 直达侧栏第 n 个目的地。
  *
  * 浏览器把 Ctrl+K（聚焦地址栏）与 Ctrl+1..8（切标签页）留给了自己，
- * 所以同时接受一组备用键 `Alt+K` / `Alt+1..6` —— 浏览器形态下用 Alt，
+ * 所以同时接受一组备用键 `Alt+K` / `Alt+,` / `Alt+1..6` —— 浏览器形态下用 Alt，
  * 桌面壳（PWA / 套壳）里 Ctrl 组合也不受限。
  */
 function onShortcut(event: KeyboardEvent): void {
@@ -115,6 +115,11 @@ function onShortcut(event: KeyboardEvent): void {
   if (key === "k") {
     event.preventDefault();
     paletteOpen.value = true;
+    return;
+  }
+  if (key === ",") {
+    event.preventDefault();
+    goTo("/settings");
     return;
   }
   const matched = /^([1-6])$/.exec(key);

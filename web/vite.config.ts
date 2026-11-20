@@ -108,12 +108,24 @@ export default defineConfig({
     rollupOptions: {
       output: {
         /**
-         * 第三方库单独成块（1.3.0）：路由懒加载后，Vue 运行时与 markdown-it
-         * 仍是多页共用的，抽出来避免被复制进每个路由分块。
+         * 第三方库与公共代码单独成块：路由懒加载后，Vue 运行时、图标库、
+         * 多页共用的组件与语言包如果都留在入口块，主包会超过 500KB。
+         * 按模块路径分块，入口只留启动必需的壳层。
          */
-        manualChunks: {
-          "vendor-vue": ["vue", "vue-router"],
-          "vendor-markdown": ["markdown-it"],
+        manualChunks(id: string) {
+          if (id.includes("node_modules")) {
+            if (id.includes("lucide-vue-next")) return "vendor-icons";
+            if (id.includes("markdown-it") || id.includes("linkify-it") || id.includes("mdurl")) {
+              return "vendor-markdown";
+            }
+            if (id.includes("/vue/") || id.includes("vue-router") || id.includes("/@vue/")) {
+              return "vendor-vue";
+            }
+            return;
+          }
+          if (id.includes("/src/lib/locales/")) return "app-locales";
+          if (id.includes("/src/components/")) return "app-components";
+          return;
         },
       },
     },

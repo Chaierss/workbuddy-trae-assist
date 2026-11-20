@@ -44,7 +44,7 @@ import ActivityRunsPanel from "../components/activity/ActivityRunsPanel.vue";
 import { safeActivityUrl } from "../lib/activity";
 import { normalizeActivityReport } from "../lib/runReport";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
-import { runTask } from "../stores/tasks";
+import { runTask, taskDrawerOpen } from "../stores/tasks";
 import { t, type MessageKey } from "../lib/i18n";
 import { refreshOnboardingSignals } from "../lib/onboarding";
 import {
@@ -1133,6 +1133,13 @@ const runReportView = computed(() =>
 
     <template v-else-if="tab === 'runs'">
       <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          @click="taskDrawerOpen = true"
+        >
+          {{ t("tasks.title") }}
+        </button>
         <button
           type="button"
           class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
