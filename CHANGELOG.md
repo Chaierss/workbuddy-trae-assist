@@ -6,7 +6,7 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
-## [未发布]
+## [2.0.1] - 2026-11-20
 
 ### 修复
 
