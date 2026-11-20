@@ -102,7 +102,7 @@ function dayLabel(value: string): string {
         <div class="text-caption text-muted">
           {{ t(`activity.today.${cell.key}` as MessageKey) }}
         </div>
-        <div class="mt-0.5 text-metric font-semibold tabular-nums" :class="cell.tone">
+        <div class="mt-0.5 font-ledger text-metric font-semibold tabular-nums" :class="cell.tone">
           {{ cell.value }}
         </div>
       </div>

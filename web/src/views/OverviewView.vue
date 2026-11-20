@@ -226,6 +226,67 @@ function autoHandled(group: ActionGroup): boolean {
 }
 const autoGroupCount = computed(() => groups.value.filter(autoHandled).length);
 
+/**
+ * 工作台的核心动作：把所有「可自动处理」的组一次跑完（续期 + 补跑）。
+ *
+ * 1.12 时概览刻意只读、把执行交给健康中心，避免两个入口各写一份策略。
+ * 2.0 把概览定位成工作台：这里只做**执行**，策略仍只在「设置 → 自动化」里改，
+ * 所以不构成第二个可写入口。启动客户端不参与批量——它一次只能起一个。
+ */
+const runnableGroups = computed(() => groups.value.filter(autoHandled));
+const runnableAccounts = computed(() => {
+  const ids = new Set<string>();
+  for (const group of runnableGroups.value) {
+    if (group.action.type === "run") for (const id of group.action.accountIds) ids.add(id);
+  }
+  return ids.size;
+});
+
+const batchBusy = ref(false);
+const runSummary = ref("");
+
+/** 跑一组可自动项，返回「已处理 / 需人工」两个计数。 */
+async function runOne(group: ActionGroup): Promise<{ ok: number; failed: number }> {
+  if (group.action.type !== "run") return { ok: 0, failed: 0 };
+  if (group.action.endpoint === "/credentials/refresh") {
+    const mode =
+      group.action.mode === "force" ? "force" : group.action.mode === "check" ? "check" : "due";
+    const report = await api.refreshCredentials(mode, group.action.accountIds);
+    return {
+      ok: report.summary.refreshed + report.summary.ok,
+      failed: report.summary.failed + report.summary.reloginRequired,
+    };
+  }
+  if (group.action.endpoint === "/activities/run") {
+    const report = await api.runActivities(group.action.accountIds);
+    return { ok: report.summary.ok, failed: report.summary.failed };
+  }
+  return { ok: 0, failed: 0 };
+}
+
+/** 一键处理全部可自动项：顺序执行，避免同时打上游触发限流。 */
+async function handleAll(): Promise<void> {
+  if (batchBusy.value || !runnableGroups.value.length) return;
+  batchBusy.value = true;
+  runError.value = "";
+  runSummary.value = "";
+  let ok = 0;
+  let failed = 0;
+  try {
+    for (const group of runnableGroups.value) {
+      const result = await runOne(group);
+      ok += result.ok;
+      failed += result.failed;
+    }
+    runSummary.value = t("overview.actionables.batchDone", { ok, failed });
+    await load();
+  } catch (cause) {
+    runError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
 /** 自动处置默认开启后的首次告知：只出现一次，点「知道了」后不再打扰。 */
 const AUTO_NOTICE_KEY = "chaierww.health.autoNotice.v1";
 const autoNoticeSeen = ref(localStorage.getItem(AUTO_NOTICE_KEY) === "1");
@@ -292,10 +353,28 @@ function busyFor(group: ActionGroup): boolean {
   return busy.value === group.kind;
 }
 
-/** 概览只保留两类就地动作：跳页与启动客户端；续期 / 补跑统一交给健康中心。 */
+/** 工作台就地动作：跳页、启动客户端、续期 / 补跑（可自动项）。 */
 async function trigger(group: ActionGroup): Promise<void> {
   if (group.action.type === "navigate") {
     await router.push(navTo(group.action.to));
+    return;
+  }
+  if (group.action.type === "run" && autoHandled(group)) {
+    busy.value = group.kind;
+    runError.value = "";
+    runSummary.value = "";
+    try {
+      const result = await runOne(group);
+      runSummary.value = t("overview.actionables.batchDone", {
+        ok: result.ok,
+        failed: result.failed,
+      });
+      await load();
+    } catch (cause) {
+      runError.value = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      busy.value = null;
+    }
     return;
   }
   if (group.action.endpoint !== "/clients/launch" || !group.action.scope) return;
@@ -315,6 +394,14 @@ async function trigger(group: ActionGroup): Promise<void> {
   } finally {
     busy.value = null;
   }
+}
+
+/** 组内动作的按钮文案：续期 / 补跑 / 启动，按端点区分。 */
+function actionLabel(group: ActionGroup): string {
+  if (group.action.type !== "run") return t("overview.action.handle");
+  if (group.action.endpoint === "/credentials/refresh") return t("overview.action.refresh");
+  if (group.action.endpoint === "/activities/run") return t("overview.action.runActivity");
+  return t("overview.action.launch");
 }
 
 function toggleClient(scope: string): void {
@@ -523,6 +610,12 @@ async function loadGlobalBackups(): Promise<void> {
     <p v-if="runError" class="mt-3 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm text-danger">
       {{ runError }}
     </p>
+    <p
+      v-else-if="runSummary"
+      class="mt-3 rounded-card border border-brand/30 bg-brand-soft px-4 py-2.5 text-body-sm text-brand-dark"
+    >
+      {{ runSummary }}
+    </p>
 
     <SectionCard
       class="mt-4"
@@ -540,6 +633,22 @@ async function loadGlobalBackups(): Promise<void> {
       "
       flush
     >
+      <template #actions>
+        <button
+          v-if="runnableAccounts"
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control bg-brand px-3 py-1.5 text-body-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+          :disabled="batchBusy"
+          @click="handleAll"
+        >
+          <Loader2 v-if="batchBusy" :size="12" class="animate-spin" />
+          {{
+            batchBusy
+              ? t("overview.actionables.batching")
+              : t("overview.actionables.batch", { count: runnableAccounts })
+          }}
+        </button>
+      </template>
       <p v-if="loadError" class="px-5 py-3.5 text-body-sm text-danger">
         {{ t("overview.actionables.error", { message: loadError }) }}
       </p>
@@ -606,14 +715,17 @@ async function loadGlobalBackups(): Promise<void> {
               {{ severityLabel(group.severity) }}
             </StatusPill>
             <button
-              v-if="group.action.type === 'run' && group.action.endpoint === '/clients/launch'"
+              v-if="
+                group.action.type === 'run' &&
+                (autoHandled(group) || group.action.endpoint === '/clients/launch')
+              "
               type="button"
               class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
-              :disabled="busyFor(group)"
+              :disabled="busyFor(group) || batchBusy"
               @click="trigger(group)"
             >
               <Loader2 v-if="busyFor(group)" :size="11" class="animate-spin" />
-              <template v-else>{{ t("overview.action.launch") }} <ArrowRight :size="11" /></template>
+              <template v-else>{{ actionLabel(group) }} <ArrowRight :size="11" /></template>
             </button>
             <button
               v-else-if="group.action.type === 'navigate'"
@@ -680,7 +792,7 @@ async function loadGlobalBackups(): Promise<void> {
       <div v-else class="flex flex-wrap items-end gap-x-6 gap-y-3">
         <div>
           <div class="text-caption text-muted">{{ t("overview.rewards.today") }}</div>
-          <div class="mt-0.5 text-metric font-semibold leading-none text-ink">
+          <div class="mt-0.5 font-ledger text-metric font-semibold leading-none text-ink">
             {{ formatAmount(rewards.today) }}
           </div>
         </div>

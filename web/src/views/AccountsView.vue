@@ -1921,7 +1921,7 @@ const confirmText = computed(() => {
           <AnimatedNumber
             :value="stat.value"
             :delay="index * 20"
-            class="text-metric font-semibold leading-none"
+            class="font-ledger font-ledger text-metric font-semibold leading-none"
             :class="TONE_TEXT[stat.tone]"
           />
           <span v-if="riskFilter === stat.risk" class="text-micro text-brand-dark">
@@ -2566,7 +2566,7 @@ const confirmText = computed(() => {
             <div class="rounded-control border border-line px-3 py-2">
               <div class="text-caption text-muted">{{ t("accounts.checkup.login") }}</div>
               <div
-                class="mt-0.5 text-metric font-semibold leading-none"
+                class="mt-0.5 font-ledger text-metric font-semibold leading-none"
                 :class="checkupCounts.login ? 'text-warn' : 'text-ink'"
               >
                 {{ checkupCounts.login }}
@@ -2575,7 +2575,7 @@ const confirmText = computed(() => {
             <div class="rounded-control border border-line px-3 py-2">
               <div class="text-caption text-muted">{{ t("accounts.checkup.credential") }}</div>
               <div
-                class="mt-0.5 text-metric font-semibold leading-none"
+                class="mt-0.5 font-ledger text-metric font-semibold leading-none"
                 :class="checkupCounts.credential ? 'text-warn' : 'text-ink'"
               >
                 {{ checkupCounts.credential }}
@@ -2584,7 +2584,7 @@ const confirmText = computed(() => {
             <div class="rounded-control border border-line px-3 py-2">
               <div class="text-caption text-muted">{{ t("accounts.checkup.isolation") }}</div>
               <div
-                class="mt-0.5 text-metric font-semibold leading-none"
+                class="mt-0.5 font-ledger text-metric font-semibold leading-none"
                 :class="checkupCounts.isolation ? 'text-warn' : 'text-ink'"
               >
                 {{ checkupCounts.isolation }}
@@ -2593,7 +2593,7 @@ const confirmText = computed(() => {
             <div class="rounded-control border border-line px-3 py-2">
               <div class="text-caption text-muted">{{ t("accounts.checkup.supply") }}</div>
               <div
-                class="mt-0.5 text-metric font-semibold leading-none"
+                class="mt-0.5 font-ledger text-metric font-semibold leading-none"
                 :class="checkupCounts.supply ? 'text-warn' : 'text-ink'"
               >
                 {{ checkupCounts.supply }}

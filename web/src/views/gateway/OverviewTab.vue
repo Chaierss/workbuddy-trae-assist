@@ -422,7 +422,7 @@ function bucketLabel(bucket: string): string {
       <div class="grid gap-4 lg:grid-cols-3">
         <div class="rounded-control border border-line-soft px-3.5 py-3">
           <div class="text-body-sm font-medium text-ink">{{ t("gateway.board.successRate") }}</div>
-          <div class="mt-1 text-metric font-semibold text-ink">{{ successText }}</div>
+          <div class="mt-1 font-ledger text-metric font-semibold text-ink">{{ successText }}</div>
           <div class="mt-0.5 text-caption text-muted">
             {{
               t("gateway.board.hops", {

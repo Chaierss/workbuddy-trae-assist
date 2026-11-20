@@ -20,7 +20,9 @@ withDefaults(
 </script>
 
 <template>
-  <header class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+  <header
+    class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 border-b border-line-soft pb-3.5"
+  >
     <div class="min-w-0">
       <RouterLink
         v-if="backTo"
@@ -29,11 +31,11 @@ withDefaults(
       >
         ← {{ backLabel }}
       </RouterLink>
-      <h1 class="text-display font-semibold tracking-[-0.02em] text-ink">{{ title }}</h1>
-      <div v-if="$slots.subtitle" class="mt-1.5 max-w-[68ch] text-body leading-relaxed text-muted">
+      <h1 class="text-display font-semibold tracking-[-0.03em] text-ink">{{ title }}</h1>
+      <div v-if="$slots.subtitle" class="mt-1 max-w-[68ch] text-body leading-relaxed text-muted">
         <slot name="subtitle" />
       </div>
-      <p v-else-if="subtitle" class="mt-1.5 max-w-[68ch] text-body leading-relaxed text-muted">
+      <p v-else-if="subtitle" class="mt-1 max-w-[68ch] text-body leading-relaxed text-muted">
         {{ subtitle }}
       </p>
     </div>

@@ -5,18 +5,19 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  --color-canvas: #f6f7f6;
-  --color-surface: #ffffff;
-  --color-line: #e5e7e4;
-  --color-line-soft: #f0f1ef;
+  /* 纸本账簿 2.0：画布与卡片都偏暖，像纸而不是屏幕；层次只靠描边与留白。 */
+  --color-canvas: #f3f1ea;
+  --color-surface: #fffdf7;
+  --color-line: #e3ddd0;
+  --color-line-soft: #efeade;
   /* 可交互控件（输入框、卡片）的 hover / focus 描边，比 line 深一档。 */
-  --color-line-strong: #d5d8d3;
-  --color-ink: #1c1e1c;
-  --color-ink-soft: #4b4f4a;
-  --color-muted: #6e736c;
+  --color-line-strong: #cfc7b6;
+  --color-ink: #20231e;
+  --color-ink-soft: #4c5047;
+  --color-muted: #6a6e61;
   --color-brand: #16a34a;
   --color-brand-dark: #117c39;
-  --color-brand-soft: #e9f7ef;
+  --color-brand-soft: #e8f3ea;
   --color-warn: #9a6206;
   --color-warn-soft: #fdf3e2;
   --color-danger: #b0322f;
@@ -25,7 +26,7 @@
   --color-info: #1f6fb2;
   --color-info-soft: #eaf2fb;
   /* 代码块底色与文本选区：深色值在下面主题覆盖里同步。 */
-  --color-code-surface: #fbfcfb;
+  --color-code-surface: #faf7ef;
   --color-selection: #cdebd9;
   /* 账号头像底色：按账号 id 哈希取色，只在这里定义，组件里引用变量。 */
   --color-avatar-1: #16a34a;
@@ -38,6 +39,9 @@
   --color-avatar-8: #4d7c0f;
 
   --font-sans: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  /* 账簿数字：只用衬线体排大数字，像账本上的金额；正文仍用无衬线，保证中文可读性。 */
+  --font-ledger: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, "Songti SC",
+    "Noto Serif CJK SC", serif;
 
   /* 字号阶梯：页面与组件只允许用这六档（见 设置 → 规则 → 设计令牌唯一来源）。
      不带 line-height，行高由各处的 leading-* 决定，替换后渲染尺寸不变。 */
@@ -46,8 +50,8 @@
   --text-body-sm: 12.5px;
   --text-body: 13px;
   --text-title: 15px;
-  --text-metric: 18px;
-  --text-display: 24px;
+  --text-metric: 20px;
+  --text-display: 26px;
 
   /* 长文阅读字号：只用于 .doc-prose（Wiki / 文档正文），与 UI 字号阶梯分开，
      长文按阅读节奏走自己的四档，避免 UI 档位把正文压小。 */
@@ -60,14 +64,15 @@
   /* 图表数据色块（图例、柱条）只用这一档极小圆角。 */
   --radius-mark: 2px;
 
-  --radius-badge: 6px;
-  --radius-card: 14px;
-  --radius-control: 9px;
+  /* 纸本账簿：圆角收小一档，卡片更像裁好的纸，而不是气泡。 */
+  --radius-badge: 5px;
+  --radius-card: 10px;
+  --radius-control: 8px;
   --radius-chip: 999px;
   /* 卡片与浮层的阴影统一走这两档，避免各页写不同的一长串 rgba。 */
-  --shadow-card: 0 1px 2px rgba(28, 30, 28, 0.04);
-  --shadow-card-hover: 0 6px 20px -12px rgba(28, 30, 28, 0.28);
-  --shadow-float: 0 16px 48px -12px rgba(28, 30, 28, 0.28);
+  --shadow-card: 0 1px 2px rgba(46, 42, 32, 0.04);
+  --shadow-card-hover: 0 8px 24px -18px rgba(46, 42, 32, 0.4);
+  --shadow-float: 0 16px 48px -12px rgba(46, 42, 32, 0.28);
 }
 
 html,
@@ -100,19 +105,20 @@ body,
 html[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-canvas: #121413;
-  --color-surface: #1a1e1b;
-  --color-line: #2c322d;
-  --color-line-soft: #232824;
-  --color-line-strong: #3a413b;
-  --color-ink: #e7eae6;
-  --color-ink-soft: #b3bab1;
-  --color-muted: #838b80;
+  /* 夜间账簿：墨绿偏暖的深色，不用纯黑，长时间看不刺眼。 */
+  --color-canvas: #141511;
+  --color-surface: #1c1e19;
+  --color-line: #2f3229;
+  --color-line-soft: #262920;
+  --color-line-strong: #3e4237;
+  --color-ink: #e9ebe3;
+  --color-ink-soft: #b5b9ad;
+  --color-muted: #8a8f82;
   --color-brand: #23a85c;
   /* 深色下 brand-dark 同时充当「浅底上的强调文字」和「按钮 hover 底色」，
      取值偏亮：前者保证对比度，后者是深色界面常见的「悬停变亮」反馈。 */
   --color-brand-dark: #4fd18a;
-  --color-brand-soft: #16311f;
+  --color-brand-soft: #172f1f;
   --color-warn: #dda43c;
   --color-warn-soft: #32280f;
   --color-danger: #e07b74;
@@ -120,7 +126,7 @@ html[data-theme="dark"] {
   --color-danger-soft: #3a1e1c;
   --color-info: #63aee0;
   --color-info-soft: #16293a;
-  --color-code-surface: #1e2320;
+  --color-code-surface: #1e211b;
   --color-selection: #2c5a3d;
 }
 
@@ -137,6 +143,13 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* 账簿数字：衬线 + 等宽数字，只给大号指标用；不要套在正文或按钮上。 */
+.font-ledger {
+  font-family: var(--font-ledger);
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 /* 页面底色：纸墨极简，整屏只用画布底色，不做背景渐变与光晕；

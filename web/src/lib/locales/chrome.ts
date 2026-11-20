@@ -4,7 +4,7 @@
  */
 
 export const chromeZh = {
-  "nav.overview": "概览",
+  "nav.overview": "工作台",
   "nav.accounts": "号池",
   "nav.activity": "活动",
   "shell.activityBadge": "{count} 个活动可执行",
@@ -203,7 +203,7 @@ export const chromeZh = {
 };
 
 export const chromeEn = {
-  "nav.overview": "Overview",
+  "nav.overview": "Workbench",
   "nav.accounts": "Accounts",
   "nav.activity": "Activity",
   "shell.activityBadge": "{count} activities runnable",

@@ -972,14 +972,14 @@ const runReportView = computed(() =>
       class="mt-4 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-card border border-line bg-surface px-5 py-3 shadow-card"
     >
       <div class="flex items-baseline gap-1.5">
-        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
+        <span class="font-ledger text-metric font-semibold leading-none tabular-nums text-ink">
           {{ summary?.detectable ?? 0 }}/{{ summary?.accounts ?? 0 }}
         </span>
         <span class="text-caption text-muted">{{ t("activity.statAccounts") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
         <span
-          class="text-metric font-semibold leading-none tabular-nums"
+          class="font-ledger text-metric font-semibold leading-none tabular-nums"
           :class="actionable ? 'text-warn' : 'text-ink'"
         >
           {{ actionable }}
@@ -987,19 +987,19 @@ const runReportView = computed(() =>
         <span class="text-caption text-muted">{{ t("activity.statActionable") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
-        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
+        <span class="font-ledger text-metric font-semibold leading-none tabular-nums text-ink">
           {{ summary?.done ?? 0 }}
         </span>
         <span class="text-caption text-muted">{{ t("activity.stateDone") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
-        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
+        <span class="font-ledger text-metric font-semibold leading-none tabular-nums text-ink">
           {{ completion.done }}/{{ completion.total }}
         </span>
         <span class="text-caption text-muted">{{ t("activity.statCompletion") }}</span>
       </div>
       <div class="flex items-baseline gap-1.5">
-        <span class="text-metric font-semibold leading-none tabular-nums text-ink">
+        <span class="font-ledger text-metric font-semibold leading-none tabular-nums text-ink">
           {{ summary?.manual ?? 0 }}
         </span>
         <span class="text-caption text-muted">{{ t("activity.statManual") }}</span>

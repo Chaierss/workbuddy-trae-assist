@@ -22,8 +22,19 @@ defineProps<{
   <component
     :is="to ? RouterLink : 'div'"
     :to="to"
-    class="group block rounded-card border border-line bg-surface px-5 py-4 shadow-card transition-all duration-200"
-    :class="to ? 'hover:-translate-y-px hover:border-line-strong hover:shadow-card-hover' : 'hover:border-line-strong'"
+    class="group block rounded-card border border-line bg-surface px-4 py-3.5 shadow-card transition-all duration-200"
+    :class="[
+      to
+        ? 'hover:-translate-y-px hover:border-line-strong hover:shadow-card-hover'
+        : 'hover:border-line-strong',
+      tone === 'warn'
+        ? 'border-l-2 border-l-warn/70'
+        : tone === 'danger'
+          ? 'border-l-2 border-l-danger/70'
+          : tone === 'brand'
+            ? 'border-l-2 border-l-brand/70'
+            : '',
+    ]"
   >
     <div class="flex items-center gap-2">
       <span
@@ -41,9 +52,9 @@ defineProps<{
       >
         <component :is="icon" :size="13" :stroke-width="1.9" />
       </span>
-      <span class="truncate text-caption font-medium tracking-wide text-muted">{{ label }}</span>
+      <span class="truncate text-caption font-medium tracking-[0.08em] text-muted">{{ label }}</span>
     </div>
-    <div class="mt-2.5 text-display leading-none font-semibold tracking-tight tabular-nums text-ink">
+    <div class="font-ledger mt-2 text-display leading-none font-semibold text-ink">
       <AnimatedNumber v-if="number !== undefined" :value="number" />
       <template v-else>{{ value }}</template>
     </div>

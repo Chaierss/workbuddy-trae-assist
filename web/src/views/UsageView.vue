@@ -1321,13 +1321,13 @@ onMounted(() => {
             <div class="flex items-baseline gap-6">
               <div>
                 <div class="text-caption text-muted">{{ t("usage.trae.consumed") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">
                   {{ creditText(account.creditsConsumed) }}
                 </div>
               </div>
               <div>
                 <div class="text-caption text-muted">{{ t("usage.trae.total") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink-soft">
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink-soft">
                   {{ creditText(account.creditsTotal) }}
                 </div>
               </div>
@@ -1361,21 +1361,21 @@ onMounted(() => {
             <div class="grid grid-cols-3 gap-2">
               <div>
                 <div class="text-caption text-muted">{{ t("usage.period.today") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">{{ account.todayRequests }}</div>
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">{{ account.todayRequests }}</div>
                 <div class="text-caption text-ink-soft">
                   {{ creditText(account.todayCredit) }} {{ t("usage.unitCredit") }}
                 </div>
               </div>
               <div>
                 <div class="text-caption text-muted">{{ t("usage.period.week") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">{{ account.weekRequests }}</div>
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">{{ account.weekRequests }}</div>
                 <div class="text-caption text-ink-soft">
                   {{ creditText(account.weekCredit) }} {{ t("usage.unitCredit") }}
                 </div>
               </div>
               <div>
                 <div class="text-caption text-muted">{{ t("usage.period.month") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">{{ account.monthRequests }}</div>
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">{{ account.monthRequests }}</div>
                 <div class="text-caption text-ink-soft">
                   {{ creditText(account.monthCredit) }} {{ t("usage.unitCredit") }}
                 </div>
@@ -1499,25 +1499,25 @@ onMounted(() => {
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
                 <div class="text-caption text-muted">{{ t("usage.dist.avg") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">
                   {{ creditText(creditStats.mean) }}
                 </div>
               </div>
               <div>
                 <div class="text-caption text-muted">{{ t("usage.dist.median") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">
                   {{ creditText(creditStats.median) }}
                 </div>
               </div>
               <div>
                 <div class="text-caption text-muted">{{ t("usage.dist.p90") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-ink">
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-ink">
                   {{ creditText(creditStats.p90) }}
                 </div>
               </div>
               <div>
                 <div class="text-caption text-muted">{{ t("usage.dist.maxValue") }}</div>
-                <div class="mt-0.5 text-metric font-semibold text-warn">
+                <div class="mt-0.5 font-ledger text-metric font-semibold text-warn">
                   {{ creditText(creditStats.max) }}
                 </div>
               </div>

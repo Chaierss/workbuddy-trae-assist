@@ -300,7 +300,7 @@ See **[SECURITY.md](SECURITY.md)** (Chinese) for the threat model.
 ## FAQ
 
 **The client doesn't start after a switch, or exits immediately?**
-Check "Overview → Client" for the install state. Switching uses the same system call as
+Check "Workbench → Client" for the install state. Switching uses the same system call as
 double-clicking the icon; if it still fails, the path is usually wrong or the client is
 updating — verify the login directory under Settings → Client & environment.
 

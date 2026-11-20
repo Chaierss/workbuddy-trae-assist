@@ -99,7 +99,7 @@ const updateBadgeTitle = computed(() => {
       <!-- 品牌块本身就是折叠按钮：logo 图标即展开/收起入口，不再单独摆一个折叠箭头 -->
       <button
         type="button"
-        class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-control border border-line-soft bg-white transition-opacity hover:opacity-90"
+        class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-control border border-line-soft bg-surface transition-opacity hover:opacity-90"
         :class="collapsed ? 'mx-auto' : ''"
         :title="collapsed ? t('shell.expandRail') : t('shell.collapseRail')"
         @click="toggleCollapsed"
