@@ -27,6 +27,10 @@
 </p>
 
 <p align="center">
+  <sub>深色模式与另外三页截图见 <a href="docs/images-dark">docs/images-dark</a></sub>
+</p>
+
+<p align="center">
   <b>Windows</b>：下载 <code>chaierww-Setup-&lt;版本号&gt;.exe</code> 双击安装（免管理员）　
   <b>Linux x64</b>：下载 <code>chaierww-x86_64.AppImage</code>，<code>chmod +x</code> 后运行
 </p>

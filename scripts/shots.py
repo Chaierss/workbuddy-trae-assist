@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from PIL import Image
 from playwright.sync_api import sync_playwright
@@ -83,6 +86,7 @@ SHOTS: list[dict[str, object]] = [
     {"name": "activity-accounts", "path": "/activity?tab=accounts", "height": 900},
     {"name": "activity-runs", "path": "/activity?tab=runs", "height": 780},
     {"name": "usage", "path": "/usage", "height": 1000},
+    {"name": "health", "path": "/health", "height": 1000},
     {"name": "gateway-overview", "path": "/gateway?tab=overview", "height": 940},
     {"name": "gateway-keys", "path": "/gateway?tab=keys", "height": 760},
     {"name": "gateway-models", "path": "/gateway?tab=models", "height": 860},
@@ -91,6 +95,600 @@ SHOTS: list[dict[str, object]] = [
     {"name": "settings-env", "path": "/settings?tab=client", "height": 1140},
     {"name": "settings-general", "path": "/settings?tab=appearance", "height": 1360},
 ]
+
+
+def _iso(days: int = 0, hours: int = 0) -> str:
+    moment = datetime.now(UTC) + timedelta(days=days, hours=hours)
+    return moment.isoformat(timespec="seconds")
+
+
+def _demo_daily(days: int = 7, base: int = 6) -> list[dict[str, object]]:
+    today = datetime.now(UTC).date()
+    return [
+        {
+            "date": (today - timedelta(days=offset)).isoformat(),
+            "requests": base + (days - offset) * 2,
+            "credit": round((base + (days - offset) * 2) * 0.42, 1),
+            "models": [],
+        }
+        for offset in range(days - 1, -1, -1)
+    ]
+
+
+def _demo_detail(count: int = 42) -> list[dict[str, object]]:
+    """WorkBuddy 的请求明细：用量页的均值、模型占比、对话还原都从这份数据算。"""
+    now = datetime.now(UTC)
+    rows = []
+    for index in range(count):
+        moment = now - timedelta(days=index // 6, hours=index % 6, minutes=index * 3)
+        credit = round(2.4 + (index % 5) * 0.7, 1)
+        rows.append(
+            {
+                "requestId": f"demo-request-{index:03d}",
+                "credit": credit,
+                "model": "claude-sonnet-4.5" if index % 3 else "gpt-5.1",
+                "client": "WorkBuddy",
+                "requestTime": moment.isoformat(timespec="seconds"),
+                "date": moment.date().isoformat(),
+                "conversationId": None,
+            }
+        )
+    return rows
+
+
+def demo_fixtures() -> dict[str, dict[str, object]]:
+    """公开截图用的演示数据。
+
+    只覆盖会露出账号、用量、健康事件与客户端路径的接口；其余请求照常打到
+    空数据实例。这样截图里既没有真实账号，也不会因为空库变成一片「暂无」。
+    """
+    accounts = [
+        {
+            "id": "acc-demo-1",
+            "scope": "workbuddy-cn",
+            "platform": "workbuddy",
+            "externalId": "demo-wb-1",
+            "displayName": "林间",
+            "note": "",
+            "groupName": "主力号",
+            "avatarPath": None,
+            "source": "local_import",
+            "credentialState": "usable",
+            "credentialExpiresAt": _iso(12),
+            "credentialRefreshable": True,
+            "credentialDeviceForeign": False,
+            "credentialCheckedAt": _iso(0, -2),
+            "credentialRefreshedAt": _iso(0, -26),
+            "credentialDetail": "凭据可用",
+            "credentialErrorCode": "",
+            "credentialNextRetryAt": None,
+            "credentialAutoPaused": False,
+            "credentialReconcileAt": None,
+            "credentialReconcileResult": "",
+            "loginState": "logged_in",
+            "lastLoginProbeAt": _iso(0, -1),
+            "loginProbeDetail": "",
+            "lastUsedAt": _iso(0, -2),
+            "createdAt": _iso(-60),
+            "updatedAt": _iso(0, -2),
+        },
+        {
+            "id": "acc-demo-2",
+            "scope": "workbuddy-cn",
+            "platform": "workbuddy",
+            "externalId": "demo-wb-2",
+            "displayName": "阿岚",
+            "note": "",
+            "groupName": "备用号",
+            "avatarPath": None,
+            "source": "local_import",
+            "credentialState": "unverified",
+            "credentialExpiresAt": _iso(1),
+            "credentialRefreshable": True,
+            "credentialDeviceForeign": False,
+            "credentialCheckedAt": _iso(0, -9),
+            "credentialRefreshedAt": _iso(0, -50),
+            "credentialDetail": "凭据将在 1 天后到期",
+            "credentialErrorCode": "",
+            "credentialNextRetryAt": None,
+            "credentialAutoPaused": False,
+            "credentialReconcileAt": None,
+            "credentialReconcileResult": "",
+            "loginState": "logged_in",
+            "lastLoginProbeAt": _iso(0, -9),
+            "loginProbeDetail": "",
+            "lastUsedAt": _iso(-1, -4),
+            "createdAt": _iso(-45),
+            "updatedAt": _iso(0, -9),
+        },
+        {
+            "id": "acc-demo-3",
+            "scope": "trae-cn",
+            "platform": "trae",
+            "externalId": "demo-trae-1",
+            "displayName": "周末",
+            "note": "",
+            "groupName": "主力号",
+            "avatarPath": None,
+            "source": "local_import",
+            "credentialState": "usable",
+            "credentialExpiresAt": _iso(9),
+            "credentialRefreshable": True,
+            "credentialDeviceForeign": False,
+            "credentialCheckedAt": _iso(0, -3),
+            "credentialRefreshedAt": _iso(0, -20),
+            "credentialDetail": "凭据可用",
+            "credentialErrorCode": "",
+            "credentialNextRetryAt": None,
+            "credentialAutoPaused": False,
+            "credentialReconcileAt": None,
+            "credentialReconcileResult": "",
+            "loginState": "logged_in",
+            "lastLoginProbeAt": _iso(0, -3),
+            "loginProbeDetail": "",
+            "lastUsedAt": _iso(0, -5),
+            "createdAt": _iso(-80),
+            "updatedAt": _iso(0, -3),
+        },
+        {
+            "id": "acc-demo-4",
+            "scope": "trae-cn",
+            "platform": "trae",
+            "externalId": "demo-trae-2",
+            "displayName": "文森",
+            "note": "",
+            "groupName": "备用号",
+            "avatarPath": None,
+            "source": "local_import",
+            "credentialState": "relogin_required",
+            "credentialExpiresAt": _iso(-2),
+            "credentialRefreshable": False,
+            "credentialDeviceForeign": False,
+            "credentialCheckedAt": _iso(0, -6),
+            "credentialRefreshedAt": None,
+            "credentialDetail": "登录态已失效，需要重新登录",
+            "credentialErrorCode": "relogin_required",
+            "credentialNextRetryAt": None,
+            "credentialAutoPaused": False,
+            "credentialReconcileAt": None,
+            "credentialReconcileResult": "",
+            "loginState": "logged_out",
+            "lastLoginProbeAt": _iso(0, -6),
+            "loginProbeDetail": "",
+            "lastUsedAt": _iso(-4),
+            "createdAt": _iso(-30),
+            "updatedAt": _iso(0, -6),
+        },
+    ]
+
+    usage_accounts = [
+        {
+            "accountId": "acc-demo-1",
+            "displayName": "林间",
+            "platform": "workbuddy",
+            "scope": "workbuddy-cn",
+            "detectable": True,
+            "requests": 320,
+            "creditConsumed": 134.4,
+            "todayRequests": 18,
+            "todayCredit": 7.6,
+            "weekRequests": 96,
+            "weekCredit": 40.3,
+            "monthRequests": 320,
+            "monthCredit": 134.4,
+            "models": [
+                {"model": "claude-sonnet-4.5", "requests": 190, "credit": 79.8},
+                {"model": "gpt-5.1", "requests": 130, "credit": 54.6},
+            ],
+            "daily": _demo_daily(31, 3),
+            "detail": _demo_detail(42),
+            "detailTruncated": False,
+            "conversations": [],
+            "linkedRequests": 0,
+            "creditsConsumed": 760.5,
+            "creditsTotal": 1200.0,
+            "error": None,
+            "updatedAt": _iso(0, -1),
+        },
+        {
+            "accountId": "acc-demo-3",
+            "displayName": "周末",
+            "platform": "trae",
+            "scope": "trae-cn",
+            "detectable": True,
+            "requests": 420,
+            "creditConsumed": 0.0,
+            "todayRequests": 22,
+            "todayCredit": 0.0,
+            "weekRequests": 128,
+            "weekCredit": 0.0,
+            "monthRequests": 420,
+            "monthCredit": 0.0,
+            "models": [{"model": "claude-sonnet-4.5", "requests": 420, "credit": 0.0}],
+            "daily": _demo_daily(31, 6),
+            "detail": [],
+            "detailTruncated": False,
+            "conversations": [],
+            "linkedRequests": 0,
+            "creditsConsumed": 880.0,
+            "creditsTotal": 2000.0,
+            "error": None,
+            "updatedAt": _iso(0, -1),
+        },
+    ]
+
+    health_items = [
+        {
+            "id": "demo-health-1",
+            "kind": "credential_expiring",
+            "severity": "warn",
+            "state": "open",
+            "scope": "workbuddy-cn",
+            "accountId": "acc-demo-2",
+            "title": "凭据即将到期",
+            "detail": "阿岚（WorkBuddy）：凭据将在 1 天后到期",
+            "evidence": {"expiresAt": _iso(1)},
+            "actions": [
+                {"id": "refresh", "kind": "navigate", "label": "去号池处理", "to": "/accounts"}
+            ],
+            "firstSeenAt": _iso(0, -9),
+            "lastSeenAt": _iso(0, -1),
+            "stateChangedAt": _iso(0, -9),
+            "snoozedUntil": None,
+            "resolvedAt": None,
+        },
+        {
+            "id": "demo-health-2",
+            "kind": "activity_failed",
+            "severity": "warn",
+            "state": "open",
+            "scope": "workbuddy-cn",
+            "accountId": "acc-demo-1",
+            "title": "活动执行失败",
+            "detail": "林间（WorkBuddy）：每日签到未完成",
+            "evidence": {"activityKey": "workbuddy.daily_checkin"},
+            "actions": [
+                {"id": "rerun", "kind": "navigate", "label": "去活动页", "to": "/activity"}
+            ],
+            "firstSeenAt": _iso(0, -5),
+            "lastSeenAt": _iso(0, -1),
+            "stateChangedAt": _iso(0, -5),
+            "snoozedUntil": None,
+            "resolvedAt": None,
+        },
+    ]
+
+    overview_items = [
+        {
+            "kind": "credential_expiring",
+            "severity": "warn",
+            "title": "凭据即将到期",
+            "detail": "阿岚（WorkBuddy）：凭据将在 1 天后到期",
+            "accountId": "acc-demo-2",
+            "action": {
+                "type": "run",
+                "endpoint": "/credentials/refresh",
+                "accountIds": ["acc-demo-2"],
+                "mode": "due",
+                "scope": "workbuddy-cn",
+            },
+        },
+        {
+            "kind": "activity_failed",
+            "severity": "warn",
+            "title": "活动执行失败",
+            "detail": "林间（WorkBuddy）：每日签到未完成",
+            "accountId": "acc-demo-1",
+            "action": {
+                "type": "run",
+                "endpoint": "/activities/run",
+                "accountIds": ["acc-demo-1", "acc-demo-3"],
+                "mode": "due",
+                "scope": "workbuddy-cn",
+            },
+        },
+    ]
+
+    detection = {
+        "clients": [
+            {
+                "scope": "workbuddy-cn",
+                "platform": "workbuddy",
+                "label": "WorkBuddy 国内版",
+                "installed": True,
+                "running": True,
+                "loggedIn": True,
+                "stateDir": r"C:\Users\demo\AppData\Local\CodeBuddyExtension\Data\Public\auth",
+                "appPath": r"C:\Program Files\WorkBuddy\WorkBuddy.exe",
+                "message": "",
+                "currentAccountId": "demo-wb-1",
+                "downloadUrl": "https://www.workbuddy.cn/",
+                "slots": [
+                    {
+                        "key": "desktop",
+                        "label": "桌面端",
+                        "writable": True,
+                        "installed": True,
+                        "stateFile": r"C:\Users\demo\AppData\Local\CodeBuddyExtension"
+                        r"\Data\Public\auth\workbuddy-desktop.info",
+                        "appPath": r"C:\Program Files\WorkBuddy\WorkBuddy.exe",
+                        "reason": "",
+                    }
+                ],
+                "localPorts": {"available": True, "ports": [], "reason": ""},
+            },
+            {
+                "scope": "trae-cn",
+                "platform": "trae",
+                "label": "Trae 国内版",
+                "installed": True,
+                "running": True,
+                "loggedIn": True,
+                "stateDir": r"C:\Users\demo\AppData\Roaming\Trae CN\User\globalStorage",
+                "appPath": r"C:\Program Files\Trae CN\Trae CN.exe",
+                "message": "",
+                "currentAccountId": "demo-trae-1",
+                "downloadUrl": "https://www.trae.cn/",
+                "slots": [
+                    {
+                        "key": "ide",
+                        "label": "Trae IDE",
+                        "writable": True,
+                        "installed": True,
+                        "stateFile": r"C:\Users\demo\AppData\Roaming\Trae CN"
+                        r"\User\globalStorage\storage.json",
+                        "appPath": r"C:\Program Files\Trae CN\Trae CN.exe",
+                        "reason": "",
+                    }
+                ],
+                "localPorts": {"available": True, "ports": [], "reason": ""},
+            },
+        ]
+    }
+
+    now_iso = _iso(0, -1)
+    today = datetime.now(UTC).date()
+    reward_series = [
+        {"day": (today - timedelta(days=offset)).isoformat(), "reward": reward}
+        for offset, reward in zip(
+            range(6, -1, -1), (8.0, 14.0, 9.5, 16.0, 11.0, 18.0, 12.0), strict=True
+        )
+    ]
+    return {
+        "/api/accounts/merged": {"accounts": accounts},
+        # /api/detect 返回单个客户端，/api/detection 返回 {clients}，两者不能共用同一份结构。
+        "/api/detect": detection["clients"][0],
+        "/api/detection": detection,
+        "/api/preferences": {
+            "migrateMemory": True,
+            "migrateConnectors": True,
+            "migrateSessions": True,
+            "migrateProfile": True,
+            "migrateWorkspaces": True,
+            "migrateWebview": True,
+            "sessionSyncEnabled": True,
+            "autoBackup": True,
+            "autoGlobalBackup": True,
+            "autoGlobalParts": ["config"],
+            "onboardingVersion": 3,
+            "onboardingCompleted": [
+                "install",
+                "signin",
+                "first_switch",
+                "retention",
+                "daily_run",
+            ],
+            "onboardingDismissedAt": now_iso,
+            "firstSwitchAt": _iso(-20),
+            "relaunchAfterSwitch": True,
+            "localMetricsEnabled": False,
+            "minHealthyAccounts": 2,
+            "minCreditsDays": 3.0,
+            "healthAutoRefresh": True,
+            "healthAutoRerun": True,
+            "isolationEnabled": True,
+            "isolationThreshold": 3,
+            "isolationHours": 24,
+            "activityDeadlineDays": 3,
+        },
+        "/api/accounts/credits": {
+            "credits": {
+                "acc-demo-1": {
+                    "available": True,
+                    "credits": 760.5,
+                    "total": 1200.0,
+                    "expiresAt": None,
+                    "expiringSoon": False,
+                    "error": None,
+                    "updatedAt": now_iso,
+                    "subscription": "会员 Pro 连续包月",
+                    "isPaid": True,
+                    "packages": [],
+                },
+                "acc-demo-2": {
+                    "available": True,
+                    "credits": 86.0,
+                    "total": 200.0,
+                    "expiresAt": None,
+                    "expiringSoon": True,
+                    "error": None,
+                    "updatedAt": now_iso,
+                    "subscription": "体验版",
+                    "isPaid": False,
+                    "packages": [],
+                },
+                "acc-demo-3": {
+                    "available": True,
+                    "credits": 880.0,
+                    "total": 2000.0,
+                    "expiresAt": None,
+                    "expiringSoon": False,
+                    "error": None,
+                    "updatedAt": now_iso,
+                    "subscription": "会员 Pro 连续包月",
+                    "isPaid": True,
+                    "packages": [],
+                },
+                "acc-demo-4": {
+                    "available": False,
+                    "credits": None,
+                    "total": None,
+                    "expiresAt": None,
+                    "expiringSoon": False,
+                    "error": "登录态已失效，查不到积分",
+                    "updatedAt": now_iso,
+                    "subscription": None,
+                    "isPaid": None,
+                    "packages": [],
+                },
+            }
+        },
+        "/api/usage": {
+            "summary": {
+                "accounts": 4,
+                "detectable": 2,
+                "totalRequests": 740,
+                "totalCreditConsumed": 1640.5,
+                "workbuddyCreditConsumed": 760.5,
+                "traeCreditsConsumed": 880.0,
+            },
+            "accounts": usage_accounts,
+            "daily": _demo_daily(31, 12),
+            "models": [
+                {"model": "claude-sonnet-4.5", "requests": 610, "credit": 79.8},
+                {"model": "gpt-5.1", "requests": 130, "credit": 54.6},
+            ],
+            "detail": [],
+            "detailTruncated": False,
+            "updatedAt": now_iso,
+        },
+        "/api/health/events": {
+            "items": health_items,
+            "summary": {
+                "open": 2,
+                "acked": 0,
+                "snoozed": 0,
+                "resolved": 0,
+                "high": 0,
+                "warn": 2,
+                "info": 0,
+                "unhandled": 2,
+                "auto": {"ok24h": 5, "failed24h": 0, "lastAt": now_iso},
+            },
+            "checkedAt": now_iso,
+        },
+        "/api/overview/actionables": {
+            "items": overview_items,
+            "pulse": {
+                "accounts": 4,
+                "detectable": 2,
+                "activityActionable": 2,
+                "activityActionableAccounts": 2,
+                "activityDone": 8,
+                "activityTotal": 10,
+                "credits": 1640,
+                "creditsExpiring": 1,
+                "credentialExpired": 1,
+                "credentialExpiring": 1,
+                "clientsRunning": 2,
+                "gateway": {"requests": 1280, "errors": 3, "tokens": 42, "activeKeys": 2},
+            },
+            "campaigns": [],
+        },
+        "/api/activities/rewards": {
+            "since": _iso(-7),
+            "until": _iso(0),
+            "days": 7,
+            "total": 128.5,
+            "today": 12.0,
+            "daysSeries": reward_series,
+            "byAccount": [
+                {"accountId": "acc-demo-1", "displayName": "林间", "reward": 56.0},
+                {"accountId": "acc-demo-3", "displayName": "周末", "reward": 44.5},
+                {"accountId": "acc-demo-2", "displayName": "阿岚", "reward": 28.0},
+            ],
+            "byKey": [
+                {"key": "workbuddy.daily_checkin", "title": "每日签到", "reward": 48.0},
+                {"key": "workbuddy.travel", "title": "派猫猫旅行", "reward": 42.5},
+                {"key": "trae.daily_checkin", "title": "每日签到", "reward": 38.0},
+            ],
+        },
+        "/api/pool/health": {
+            "healthyAccounts": 3,
+            "accounts": 4,
+            "expiring24h": 1,
+            "cooling": 1,
+            "creditsDays": 12.5,
+            "successRate24h": 0.98,
+            "thresholds": {"minHealthyAccounts": 2, "minCreditsDays": 3.0},
+            "alerts": [],
+            "checkedAt": now_iso,
+        },
+        "/api/compat": {
+            "items": [
+                {
+                    "platform": "workbuddy",
+                    "scope": "workbuddy-cn",
+                    "state": "compatible",
+                    "detail": "",
+                    "current": None,
+                    "latest": {
+                        "platform": "workbuddy",
+                        "scope": "workbuddy-cn",
+                        "clientVersion": "2.0.0-demo",
+                        "fingerprint": "a1b2c3d4e5f60718",
+                        "statePathsOk": True,
+                        "missingPaths": [],
+                        "firstSeenAt": now_iso,
+                        "lastSeenAt": now_iso,
+                        "confirmedAt": now_iso,
+                    },
+                    "history": [],
+                },
+                {
+                    "platform": "trae",
+                    "scope": "trae-cn",
+                    "state": "compatible",
+                    "detail": "",
+                    "current": None,
+                    "latest": {
+                        "platform": "trae",
+                        "scope": "trae-cn",
+                        "clientVersion": "2.0.0-demo",
+                        "fingerprint": "b1c2d3e4f5061728",
+                        "statePathsOk": True,
+                        "missingPaths": [],
+                        "firstSeenAt": now_iso,
+                        "lastSeenAt": now_iso,
+                        "confirmedAt": now_iso,
+                    },
+                    "history": [],
+                },
+            ],
+            "probed": True,
+            "deduped": False,
+            "checkedAt": now_iso,
+            "changed": [],
+        },
+    }
+
+
+def install_demo_routes(page, fixtures: dict[str, dict[str, object]]) -> None:
+    """把演示数据挂到页面上；未覆盖的接口继续走真实后端（空数据实例）。"""
+
+    def handler(route) -> None:
+        payload = fixtures.get(urlparse(route.request.url).path)
+        if payload is None:
+            route.continue_()
+            return
+        route.fulfill(
+            status=200,
+            content_type="application/json; charset=utf-8",
+            body=json.dumps(payload, ensure_ascii=False),
+        )
+
+    page.route("**/api/**", handler)
+
 
 # 脱敏脚本：在页面里跑，把敏感文本换成圆点、把首字母头像糊掉。
 REDACT_JS = r"""
@@ -263,6 +861,11 @@ def main() -> int:
     parser.add_argument("--only", default="", help="只截这些（逗号分隔的 name）")
     parser.add_argument("--width", type=int, default=1600, help="最终图片宽度")
     parser.add_argument("--chrome", default="", help="指定浏览器可执行文件（默认自动探测）")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="用内置演示数据替换账号 / 用量 / 健康 / 客户端接口（公开截图用）",
+    )
     args = parser.parse_args()
 
     only = {s.strip() for s in args.only.split(",") if s.strip()}
@@ -300,11 +903,15 @@ def main() -> int:
                     init += f"sessionStorage.setItem('{key}', '{value}');"
                 page.add_init_script(init)
 
+                if args.demo:
+                    install_demo_routes(page, demo_fixtures())
+
                 url = f"{args.base.rstrip('/')}{shot['path']}"
                 page.goto(url, wait_until="networkidle", timeout=45000)
-                page.wait_for_timeout(1400)  # 等图表动画 / 骨架屏结束
+                page.wait_for_timeout(2400)  # 等图表动画 / 骨架屏 / 积分查询结束
 
-                secrets = collect_secrets(page) + local_secrets()
+                # 演示数据本身是假的，不再从页面反采敏感词；本机路径仍要脱敏。
+                secrets = ([] if args.demo else collect_secrets(page)) + local_secrets()
                 stats = page.evaluate(REDACT_JS, {"explicit": secrets})
                 page.wait_for_timeout(120)
 

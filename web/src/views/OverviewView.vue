@@ -758,7 +758,7 @@ async function loadGlobalBackups(): Promise<void> {
       </div>
     </SectionCard>
 
-    <OfficialActivityStrip v-if="pulse" class="mt-4" :campaigns="campaigns" />
+    <OfficialActivityStrip v-if="pulse && campaigns.length" class="mt-4" :campaigns="campaigns" />
 
     <!-- 第四个内容块：今日近况。收益 / 用量 / 客户端都在这里，明细到对应页面看。 -->
     <div class="mb-2 mt-6 flex flex-wrap items-baseline gap-x-2 gap-y-1">

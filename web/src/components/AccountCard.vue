@@ -360,7 +360,8 @@ const credentialExpiryLabel = computed(() => {
   if (Number.isNaN(at.getTime())) return "";
   // 已过期就不再说「几号到期」，直接说下一步该怎么办。
   if (at.getTime() <= Date.now()) return t("accounts.credential.expired");
-  return t("accounts.credential.expiry", { time: formatTime(iso) });
+  // 这是**未来**时间：不能复用 formatTime（它按「多久以前」算，未来会显示成「刚刚」）。
+  return t("accounts.credential.expiry", { time: at.toLocaleDateString() });
 });
 
 const credentialExpired = computed(() => {

@@ -27,6 +27,10 @@
 </p>
 
 <p align="center">
+  <sub>Dark mode and the other three pages: <a href="docs/images-dark">docs/images-dark</a></sub>
+</p>
+
+<p align="center">
   <b>Windows</b>: download <code>chaierww-Setup-&lt;version&gt;.exe</code> and run it (no admin rights)　
   <b>Linux x64</b>: download <code>chaierww-x86_64.AppImage</code>, <code>chmod +x</code>, run
 </p>
