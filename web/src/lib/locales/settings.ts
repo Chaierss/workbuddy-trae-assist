@@ -146,6 +146,9 @@ export const settingsZh = {
   "settings.rules.items.releaseNotesSubstance.title": "发版说明必须有实质内容",
   "settings.rules.items.releaseNotesSubstance.detail":
     "GitHub Release 正文要直接写清本版改了什么、对用户有什么影响，覆盖实际发生的「新增 / 改进 / 修复」；禁止只写「详见 CHANGELOG.md」或留空。正文由 CI 从 CHANGELOG 对应版本段落抽取，段落缺失或过短直接让流水线失败。",
+  "settings.rules.items.releaseDocsSync.title": "发版顺手更新对外文档",
+  "settings.rules.items.releaseDocsSync.detail":
+    "提交或打 tag 前，先对照本版实际变化检查 README、docs/QUICKSTART、docs/LINUX 与 CHANGELOG：命令、产物名、功能入口、测试数量有变化就同步改，截图明显过期就重拍。文档没跟上不打 tag。",
   "settings.rules.items.namingProject.title": "项目命名与署名",
   "settings.rules.items.namingProject.detail":
     "项目统一为 workbuddy-trae-assist，内部引用旧名 trae-workbuddy-switch 的地方全部改掉；LICENSE 里的上游署名行与外部项目引用保持原样。",
@@ -516,6 +519,9 @@ export const settingsEn = {
   "settings.rules.items.releaseNotesSubstance.title": "Release notes must say what changed",
   "settings.rules.items.releaseNotesSubstance.detail":
     "GitHub Release notes must state what changed and what it means for users, covering the actual New / Improved / Fixed items; “see CHANGELOG.md” or an empty body is forbidden. CI extracts the matching CHANGELOG section and fails the pipeline when it is missing or too short.",
+  "settings.rules.items.releaseDocsSync.title": "Update public docs when releasing",
+  "settings.rules.items.releaseDocsSync.detail":
+    "Before committing or tagging, review README, docs/QUICKSTART, docs/LINUX and CHANGELOG against what actually changed: commands, artifact names, feature entry points and test counts must match, and visibly stale screenshots must be retaken. Do not tag with docs out of date.",
   "settings.rules.items.namingProject.title": "Project name and attribution",
   "settings.rules.items.namingProject.detail":
     "The project is workbuddy-trae-assist; replace internal references to the old name trae-workbuddy-switch, but leave the LICENSE upstream attribution and external project references untouched.",

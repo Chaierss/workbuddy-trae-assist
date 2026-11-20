@@ -78,7 +78,7 @@ release notes、也没有进度条。现在由 `web/src/components/UpdateDialog.
 | 平台 | 产物 | 更新 |
 | --- | --- | --- |
 | Windows 10 / 11 x64 | `chaierww-Setup-<版本号>.exe`（NSIS，默认仅当前用户、免管理员） | ✅ 支持 |
-| Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+） | `chaierww-x64.AppImage`、`chaierww-x64.deb` | ✅ 支持（CentOS 见下） |
+| Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+） | `chaierww-x86_64.AppImage`、`chaierww-amd64.deb` | ✅ 支持（CentOS 见下） |
 | macOS | — | ❌ 不发 |
 
 **Linux 上的三个实现差异**（不是配置文件，是代码里的平台分支）：
@@ -239,7 +239,7 @@ npm run dist:win
 产物在 `desktop/release/` 下。
 
 `package.json` 里 `dist:linux` 的脚本可以直接用（**必须在 Linux 机器上跑**，PyInstaller
-不能交叉编译），产物是 `chaierww-x64.AppImage` 与 `chaierww-x64.deb`；`dist:mac` 仍不可用，
+不能交叉编译），产物是 `chaierww-x86_64.AppImage` 与 `chaierww-amd64.deb`；`dist:mac` 仍不可用，
 见上面的[平台](#平台)一节。
 
 ### 国内网络 / 非管理员账户的两个坑（Windows）

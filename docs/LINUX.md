@@ -20,18 +20,18 @@ chaierww 在 Linux 上有两条路：**装桌面包**，或**源码跑后端用�
 ### A1. 安装
 
 到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新的
-`chaierww-x64.AppImage` 或 `chaierww-x64.deb`。
+`chaierww-x86_64.AppImage` 或 `chaierww-amd64.deb`。
 
 ```bash
 # AppImage（免安装，单文件）
-chmod +x chaierww-x64.AppImage
-./chaierww-x64.AppImage
+chmod +x chaierww-x86_64.AppImage
+./chaierww-x86_64.AppImage
 
 # 没有 FUSE（容器、精简系统、CentOS 常见）：解包运行，不依赖 FUSE
-APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x86_64.AppImage
 
 # deb（Debian / Ubuntu）
-sudo apt install ./chaierww-x64.deb
+sudo apt install ./chaierww-amd64.deb
 ```
 
 **CentOS / RHEL / openEuler 不要用 deb**，那是 Debian 系的格式；用 AppImage。
@@ -66,7 +66,7 @@ sudo dnf install nss atk at-spi2-atk cups-libs libdrm libxkbcommon \
 - **deb**：不能应用内更新，点检查更新会明确告诉你这一点。到 Releases 下载新 deb 覆盖装：
 
 ```bash
-sudo apt install ./chaierww-x64.deb
+sudo apt install ./chaierww-amd64.deb
 ```
 
 数据在 `~/.chaierww`，覆盖安装不碰它。
@@ -312,7 +312,7 @@ Linux 用 AES-256-GCM，密钥由 `/etc/machine-id` + 当前 uid 派生，**不�
 | 现象 | 原因 | 处理 |
 | :-- | :-- | :-- |
 | `GLIBC_2.28 not found` / 双击无反应 | 系统 glibc 太老（CentOS 7 等） | 走路径 B；不要在老系统上装桌面包 |
-| 提示 `dlopen: libfuse.so.2` / FUSE 缺失 | AppImage 需要 FUSE | `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x64.AppImage` |
+| 提示 `dlopen: libfuse.so.2` / FUSE 缺失 | AppImage 需要 FUSE | `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x86_64.AppImage` |
 | 托盘没有图标 | 缺 `libappindicator` | 装 `libappindicator3-1`（Debian 系）/ `libappindicator-gtk3`（RHEL 系） |
 | 页面空白，只有 API | 缺 `web/dist` | 见 [B3](#b3-前端产物怎么来)；启动日志会有明确 warning |
 | 打开就 403「仅允许本机访问」 | 从别的机器直连，或改了监听地址 | 用 [SSH 隧道](#5-远程访问服务器场景) |

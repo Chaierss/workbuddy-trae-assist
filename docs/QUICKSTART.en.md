@@ -26,9 +26,9 @@ From download to your first successful account switch. No terminal, no admin rig
    [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases):
    - Windows: `chaierww-Setup-<version>.exe` — run it. It installs per-user without admin
      rights and shows the licence highlights and disclaimer first.
-   - Linux: `chaierww-x64.AppImage` or `chaierww-x64.deb`. `chmod +x` the AppImage first;
-     without FUSE run it as `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x64.AppImage`. On
-     Debian / Ubuntu install the deb with `sudo apt install ./chaierww-x64.deb`.
+   - Linux: `chaierww-x86_64.AppImage` or `chaierww-amd64.deb`. `chmod +x` the AppImage first;
+     without FUSE run it as `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x86_64.AppImage`. On
+     Debian / Ubuntu install the deb with `sudo apt install ./chaierww-amd64.deb`.
 2. Windows SmartScreen warns once (the installer is not code-signed): click
    "More info → Run anyway".
 

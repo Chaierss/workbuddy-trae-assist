@@ -28,7 +28,7 @@
 
 <p align="center">
   <b>Windows</b>: download <code>chaierww-Setup-&lt;version&gt;.exe</code> and run it (no admin rights)　
-  <b>Linux x64</b>: download <code>chaierww-x64.AppImage</code>, <code>chmod +x</code>, run
+  <b>Linux x64</b>: download <code>chaierww-x86_64.AppImage</code>, <code>chmod +x</code>, run
 </p>
 
 ## The numbers
@@ -142,9 +142,13 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 - **Credentials renew themselves**: renewal starts early based on token lifetime (30 minutes to
   6 hours); failures back off at 1h / 6h, and three consecutive auth failures trip a circuit
   breaker with a one-click "resume auto-renew"
-- **Problems surface on their own**: the overview "needs attention" list shows expired and
-  near-expiry credentials (within 7 days) and links straight to the pool; what can be renewed
-  is renewed, what cannot says "scan again" plainly
+- **Problems surface on their own**: the overview "needs attention" card shows the top 3 groups
+  as a read-only summary and sends all handling to Health; expiring or 24h-due credentials renew
+  automatically (up to 3 per round) and the day's failed activities rerun automatically (up to
+  20 pairs), each switchable in Settings → General
+- **One-click pool checkup**: login recheck, credential liveness, supply and isolation in one
+  pass, with a next step per finding (re-sign-in / renew / diagnose / release isolation / open
+  Health) — no scoring or recommendations
 - **Diagnose before guessing**: a six-step read-only check (credential readable, renewable,
   device matches, remaining lifetime, backoff/breaker, read-only liveness) with a verdict and
   advice for each step — it writes nothing and rotates nothing
@@ -237,8 +241,8 @@ Download the latest build from [Releases](https://github.com/Chaierss/workbuddy-
 - **Windows**: `chaierww-Setup-<version>.exe`. Double-click. Installs per-user by default,
   no admin rights, into your user directory; the wizard shows the license highlights and
   disclaimer first.
-- **Linux x64**: `chaierww-x64.AppImage` (`chmod +x`, and add
-  `APPIMAGE_EXTRACT_AND_RUN=1` if FUSE is missing) or `chaierww-x64.deb`
+- **Linux x64**: `chaierww-x86_64.AppImage` (`chmod +x`, and add
+  `APPIMAGE_EXTRACT_AND_RUN=1` if FUSE is missing) or `chaierww-amd64.deb`
   (`sudo apt install ./….deb`). **CentOS 7 with glibc 2.17 will not run** — see [The edges](#the-edges).
 
 Then scan a QR code to add an account, and from then on switching is one click.
@@ -341,7 +345,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 python -m chaierww.main               # http://127.0.0.1:57910/
-pytest                                # 786 tests
+pytest                                # full suite must pass
 ruff check src tests
 ```
 
@@ -357,7 +361,7 @@ src/chaierww/
 web/           Vue 3 + TypeScript + Tailwind frontend
 desktop/       Electron shell, tray, auto-update, PyInstaller packaging
 scripts/       build, screenshot redaction, diagnostics
-tests/         pytest suite (786 tests)
+tests/         pytest suite
 ```
 
 To add a client, read the slot contract in `adapters/base.py`: one new adapter is enough,

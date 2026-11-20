@@ -34,12 +34,16 @@ python -m chaierww.main           # 起来后访问 http://127.0.0.1:57910/
 必做的两件：
 
 ```bash
-pytest              # 786 个用例应全绿
+pytest              # 全量用例应全绿
 ruff check src tests
 ```
 
 **改到用户可见行为就更新 `CHANGELOG.md`**，写在 `[未发布]` 下面，按「新增 / 修复 / 变更」
 分类。用使用者的语言写——写「签到失败的账号不再报错」，不要写「重构 `_run_trae` 分支」。
+
+**提交或发版前顺手过一遍对外文档。** README、`docs/QUICKSTART.md`、`docs/LINUX.md`
+里的命令、产物名、功能入口和测试数量要与本版一致；截图明显过期就重拍。
+文档没跟上不要打 tag——这是 `keel/rules.json` 里的 `release-docs-sync`。
 
 如果动到切换引擎或凭据加密，请在 PR 描述里写明测试方式，至少跑过
 `scripts/drill_switch.py`。

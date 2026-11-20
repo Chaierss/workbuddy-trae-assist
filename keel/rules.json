@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-27",
+  "version": "2026-11-20",
   "projectName": "workbuddy-trae-assist",
   "$comment": "规则与术语的唯一真相源。title / summary / detail 存的是 i18n key（中英文案在 web/src/lib/locales/settings.ts），页面按当前语言解析；导出的 Markdown 也在这里解析成可读文本。severity: must = 强制，should = 约定。初始规则必须含 P-01（设计优雅原则）与 S-01（上线前扫描），缺了它们其余规则只是细节堆砌。",
   "pageModes": [
@@ -67,6 +67,15 @@
       "title": "settings.rules.items.releaseNotesSubstance.title",
       "summary": "settings.rules.items.releaseNotesSubstance.title",
       "detail": "settings.rules.items.releaseNotesSubstance.detail",
+      "source": "web/src/lib/locales/settings.ts"
+    },
+    {
+      "id": "release-docs-sync",
+      "category": "release",
+      "severity": "must",
+      "title": "settings.rules.items.releaseDocsSync.title",
+      "summary": "settings.rules.items.releaseDocsSync.title",
+      "detail": "settings.rules.items.releaseDocsSync.detail",
       "source": "web/src/lib/locales/settings.ts"
     },
     {

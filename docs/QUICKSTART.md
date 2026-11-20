@@ -26,10 +26,10 @@
 1. 到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新版：
    - Windows：`chaierww-Setup-<版本号>.exe`，双击安装。默认只装给当前用户、免管理员，
      向导会先展示许可要点与免责声明。
-   - Linux：`chaierww-x64.AppImage` 或 `chaierww-x64.deb`。
+   - Linux：`chaierww-x86_64.AppImage` 或 `chaierww-amd64.deb`。
      AppImage 先 `chmod +x` 再双击 / 运行；缺 FUSE 时用
-     `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x64.AppImage`。
-     deb 用 `sudo apt install ./chaierww-x64.deb`（Debian / Ubuntu）。
+     `APPIMAGE_EXTRACT_AND_RUN=1 ./chaierww-x86_64.AppImage`。
+     deb 用 `sudo apt install ./chaierww-amd64.deb`（Debian / Ubuntu）。
 2. 首次启动 Windows 会拦一次（安装包没有代码签名）：点「更多信息 → 仍要运行」。
    Linux 桌面首次运行 AppImage 可能需要允许「执行」权限。
 

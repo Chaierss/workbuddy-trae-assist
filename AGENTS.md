@@ -27,6 +27,9 @@ node keel/preflight-scan.mjs --strict
 npm run build --prefix web
 ```
 
+改到用户可见行为，顺手更新 README / QUICKSTART / LINUX / CHANGELOG 的受影响段落；
+文档没跟上不打 tag（规则 `release-docs-sync`）。
+
 发布顺序：四件套体检 → 漏洞扫描 → 依赖审计 → 人工五项 → 产物扫描 → 打 tag。
 
 ## 不要做

@@ -28,7 +28,7 @@
 
 <p align="center">
   <b>Windows</b>：下载 <code>chaierww-Setup-&lt;版本号&gt;.exe</code> 双击安装（免管理员）　
-  <b>Linux x64</b>：下载 <code>chaierww-x64.AppImage</code>，<code>chmod +x</code> 后运行
+  <b>Linux x64</b>：下载 <code>chaierww-x86_64.AppImage</code>，<code>chmod +x</code> 后运行
 </p>
 
 ## 数字
@@ -136,8 +136,11 @@
 
 - **凭据会自己续**：按令牌寿命动态提前续期（最短 30 分钟、最长 6 小时）；失败按
   1 小时 / 6 小时退避，连续失败自动熔断，熔断后可一键「恢复自动续期」
-- **该处理的自己冒出来**：概览「待处理」列出已过期与七天内到期的凭据，点进去直达号池；
-  能续的直接续，不能续的如实说明「需要重新扫码」
+- **该处理的自己冒出来**：概览「待处理」只铺最靠前的 3 组只读摘要，处置统一去健康中心；
+  到期或 24 小时内到期的凭据默认自动续期（每轮最多 3 个），当天失败的活动默认自动补跑
+  （最多 20 对），两项都能在「设置 → 常规」关掉
+- **号池一键体检**：登录复检、凭据验活、供给与隔离汇总一次跑完，每条结果给出下一步
+  （重登 / 续期 / 诊断 / 解除隔离 / 去健康中心），不做推荐与评分
 - **出问题先诊断**：六步只读诊断（凭据可读、能否续期、设备是否本机、剩余寿命、退避/熔断、
   只读验活），每步给结论与建议，不写数据、不轮换令牌
 - **分组与回收站**：自由标签按组筛选、批量设组；删除先进回收站保留 30 天，可恢复
@@ -224,8 +227,8 @@ Trae 2026-10 起，续期请求必须带设备签名（`DeviceProof`），令牌
 
 - **Windows**：`chaierww-Setup-<版本号>.exe`，双击安装。默认只为当前用户装、免管理员，
   装进当前用户目录；向导会先展示许可要点与免责声明。
-- **Linux x64**：`chaierww-x64.AppImage`（`chmod +x` 后运行，缺 FUSE 时加
-  `APPIMAGE_EXTRACT_AND_RUN=1`）或 `chaierww-x64.deb`（`sudo apt install ./…deb`）。
+- **Linux x64**：`chaierww-x86_64.AppImage`（`chmod +x` 后运行，缺 FUSE 时加
+  `APPIMAGE_EXTRACT_AND_RUN=1`）或 `chaierww-amd64.deb`（`sudo apt install ./…deb`）。
   **CentOS 7 的 glibc 2.17 跑不起来**，见[边界](#边界)。
 
 打开后扫码加号，之后点一下就能切过去。
@@ -316,7 +319,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 python -m chaierww.main               # http://127.0.0.1:57910/
-pytest                                # 786 个用例
+pytest                                # 全量用例应全绿
 ruff check src tests
 ```
 
@@ -332,7 +335,7 @@ src/chaierww/
 web/           Vue 3 + TypeScript + Tailwind 前端
 desktop/       Electron 壳、托盘、自动更新、PyInstaller 打包
 scripts/       构建、截图脱敏、诊断脚本
-tests/         pytest 用例（786 个）
+tests/         pytest 用例
 ```
 
 想接一个新客户端，看 `adapters/base.py` 的 slot 设计——新增一个 adapter 就够，

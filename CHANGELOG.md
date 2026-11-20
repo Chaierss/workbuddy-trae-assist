@@ -6,6 +6,15 @@
 桌面端会在启动时自动检查更新；也可以看
 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 了解每个版本。
 
+## [未发布]
+
+### 变更
+
+- 发版流程新增 `release-docs-sync`：提交或打 tag 前对照本版变化同步 README / QUICKSTART /
+  LINUX 与 CHANGELOG，文档没跟上不打 tag。
+- 修正公开文档里的 Linux 产物名（`chaierww-x86_64.AppImage` / `chaierww-amd64.deb`），
+  测试数量不再写死，避免每次发版后过期。
+
 ## [1.12.0] - 2026-11-20
 
 本版的题目是「好用优先」：能安全自动做完的异常尽量自动做完，做完之后用户看得见、能接手。
