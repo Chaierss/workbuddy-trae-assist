@@ -51,6 +51,7 @@ from chaierww.domain.isolation import IsolationService
 from chaierww.domain.login_health import LoginProbeService
 from chaierww.domain.metrics import MetricsStore
 from chaierww.domain.oauth import build_oauth
+from chaierww.domain.pool_checkup import PoolCheckupService
 from chaierww.domain.pool_health import PoolHealthService
 from chaierww.domain.preferences import PreferencesStore
 from chaierww.domain.quota_guard import (
@@ -460,6 +461,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scopes=tuple(item.key for item in all_scopes() if item.implemented),
         lock=repository.lock,
     )
+    # 号池一键体检：只做一次快照 + 可选安全修复，不产出推荐。
+    pool_checkup = PoolCheckupService(
+        login_probes=login_probes,
+        lifecycle=lifecycle,
+        pool_health=pool_health,
+        isolation=isolation,
+        health=runtime["health"],
+    )
 
     # 积分到期自动轮换（默认关闭，设置里手动开）：判定走 `domain/rotation.py`，
     # 这里只提供两个回调 —— 取快照（账号库 + 积分 + 客户端状态）与执行切换。
@@ -720,6 +729,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.stability = stability
     app.state.isolation = isolation
     app.state.health = runtime["health"]
+    app.state.pool_checkup = pool_checkup
     app.state.engine = engine
     app.state.gateway = gateway
     app.state.gateway_relay = gateway_relay

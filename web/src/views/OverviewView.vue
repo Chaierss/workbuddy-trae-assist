@@ -13,15 +13,13 @@ import {
   MonitorSmartphone,
   Network,
   Repeat2,
+  ShieldCheck,
   Users,
 } from "lucide-vue-next";
-import ConfirmDialog from "../components/ConfirmDialog.vue";
-import CredentialDiagnoseDialog from "../components/CredentialDiagnoseDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
-import RunReportPanel from "../components/RunReportPanel.vue";
 import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
@@ -34,16 +32,11 @@ import {
   clientDetections,
   credentialIssueCounts,
   detection,
+  healthAutoStats,
   healthUnhandled,
   loadHealthBadge,
   scopedPath,
 } from "../stores/app";
-import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
-import {
-  normalizeActivityReport,
-  normalizeCredentialReport,
-  type RunReportView,
-} from "../lib/runReport";
 const router = useRouter();
 
 /**
@@ -136,8 +129,6 @@ const rewardsError = ref("");
 const loadError = ref("");
 const actionablesLoading = ref(true);
 const busy = ref<string | null>(null);
-/** 执行回执：执行完不只是一句 toast，用户能回看成功 / 跳过 / 失败。 */
-const runReport = ref<RunReportView | null>(null);
 const runError = ref("");
 /** 客户端登录态目录默认收成一行，点开才铺完整路径 —— 它不是常用信息。 */
 const expandedClients = ref<Set<string>>(new Set());
@@ -161,8 +152,6 @@ interface ActionGroup {
   count: number;
   /** 合并后的动作：可执行项收集全部 accountIds，跳页项沿用第一条。 */
   action: ActionableItem["action"];
-  /** 组里只剩一个号时保留它的 id，供「诊断」这类单号入口使用；多号合并后置空。 */
-  singleAccountId: string | null;
 }
 
 const SEVERITY_RANK: Record<ActionableItem["severity"], number> = {
@@ -189,15 +178,12 @@ const groups = computed<ActionGroup[]>(() => {
         names: item.accountId ? [nameOf(item)] : [],
         count: 1,
         action: item.action,
-        singleAccountId: item.accountId,
       });
       continue;
     }
     found.details.push(item.detail);
     if (item.accountId) found.names.push(nameOf(item));
     found.count += 1;
-    // 多号合并后就没有「这一个号」了，单号入口（诊断）自动收起。
-    found.singleAccountId = null;
     if (SEVERITY_RANK[item.severity] < SEVERITY_RANK[found.severity]) {
       found.severity = item.severity;
     }
@@ -223,6 +209,32 @@ const affectedAccounts = computed(() => {
   for (const item of items.value) if (item.accountId) seen.add(item.accountId);
   return seen.size;
 });
+
+/** 概览只放最靠前的 3 组：再长就变成第二张健康中心，主次反而丢了。 */
+const OVERVIEW_GROUP_LIMIT = 3;
+const visibleGroups = computed(() => groups.value.slice(0, OVERVIEW_GROUP_LIMIT));
+const hiddenGroupCount = computed(() =>
+  Math.max(0, groups.value.length - OVERVIEW_GROUP_LIMIT),
+);
+
+/** 续期 / 补跑这两类健康中心能自动处理；跳页与启动类不算。 */
+function autoHandled(group: ActionGroup): boolean {
+  if (group.action.type !== "run") return false;
+  return (
+    group.action.endpoint === "/credentials/refresh" ||
+    group.action.endpoint === "/activities/run"
+  );
+}
+const autoGroupCount = computed(() => groups.value.filter(autoHandled).length);
+
+/** 自动处置默认开启后的首次告知：只出现一次，点「知道了」后不再打扰。 */
+const AUTO_NOTICE_KEY = "chaierww.health.autoNotice.v1";
+const autoNoticeSeen = ref(localStorage.getItem(AUTO_NOTICE_KEY) === "1");
+
+function dismissAutoNotice(): void {
+  localStorage.setItem(AUTO_NOTICE_KEY, "1");
+  autoNoticeSeen.value = true;
+}
 
 async function load(): Promise<void> {
   actionablesLoading.value = true;
@@ -277,102 +289,28 @@ function severityLabel(severity: ActionableItem["severity"]): string {
   return t("overview.severity.info");
 }
 
-function actionLabel(group: ActionGroup): string {
-  if (group.action.type === "run") {
-    if (group.action.endpoint === "/clients/launch") return t("overview.action.launch");
-    return t("overview.action.run");
-  }
-  if (group.kind === "onboarding") return t("overview.action.accounts");
-  return t("overview.action.handle");
-}
-
 function busyFor(group: ActionGroup): boolean {
   return busy.value === group.kind;
 }
 
-/** 「诊断」弹层的目标号：只对单号组开放，不改动组自身的 action。 */
-const diagnoseTarget = ref<{ id: string; name: string } | null>(null);
-
-function diagnoseAccount(id: string): void {
-  const found = accounts.value.find((item) => item.id === id);
-  diagnoseTarget.value = { id, name: found?.displayName ?? id };
-}
-
-/** 待确认的活动执行：成长任务首次执行前先做风险告知（见 `lib/growthNotice`）。 */
-const pendingRun = ref<ActionGroup | null>(null);
-
-/** 按 action.type 分发：跳页交给 router，执行类调用对应接口后静默刷新清单。 */
+/** 概览只保留两类就地动作：跳页与启动客户端；续期 / 补跑统一交给健康中心。 */
 async function trigger(group: ActionGroup): Promise<void> {
   if (group.action.type === "navigate") {
     await router.push(navTo(group.action.to));
     return;
   }
-  if (group.action.endpoint === "/activities/run" && !growthNoticeAcknowledged()) {
-    pendingRun.value = group;
-    return;
-  }
-  await runGroup(group);
-}
-
-function cancelRunNotice(): void {
-  pendingRun.value = null;
-}
-
-async function confirmRunNotice(): Promise<void> {
-  const group = pendingRun.value;
-  pendingRun.value = null;
-  if (!group) return;
-  acknowledgeGrowthNotice();
-  await runGroup(group);
-}
-
-async function runGroup(group: ActionGroup): Promise<void> {
-  const action = group.action;
-  // 跳页类在一开始就分流了，走到这里的只可能是执行类；显式守住类型。
-  if (action.type !== "run") return;
+  if (group.action.endpoint !== "/clients/launch" || !group.action.scope) return;
   busy.value = group.kind;
   runError.value = "";
   try {
-    if (action.endpoint === "/activities/run") {
-      runReport.value = normalizeActivityReport(await api.runActivities(action.accountIds));
-    } else if (action.endpoint === "/credentials/refresh") {
-      const mode = (action.mode as "due" | "force" | "check" | undefined) ?? "due";
-      runReport.value = normalizeCredentialReport(
-        await api.refreshCredentials(mode, action.accountIds),
-      );
-    } else if (action.endpoint === "/clients/launch" && action.scope) {
-      const result = await api.launchClient(action.scope);
-      if (!result.launched && !result.alreadyRunning) {
-        runError.value = result.message;
-      } else {
-        // 启动是异步的：留一点时间让检测结果翻成「运行中」，否则清单还是旧状态。
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-      }
-    }
-    // 代做会改写收益台账，顺手把收益卡片也刷新一次。
-    await Promise.all([load(), loadRewards()]);
-  } catch (cause) {
-    runError.value = cause instanceof Error ? cause.message : String(cause);
-  } finally {
-    busy.value = null;
-  }
-}
-
-/** 回执里的单行重试：沿用原报告的模式，只重跑这一个号。 */
-async function retryRunRow(accountId: string): Promise<void> {
-  const current = runReport.value;
-  if (!current) return;
-  busy.value = "retry";
-  runError.value = "";
-  try {
-    if (current.kind === "activity") {
-      runReport.value = normalizeActivityReport(await api.runActivities([accountId]));
+    const result = await api.launchClient(group.action.scope);
+    if (!result.launched && !result.alreadyRunning) {
+      runError.value = result.message;
     } else {
-      runReport.value = normalizeCredentialReport(
-        await api.refreshCredentials(current.mode ?? "force", [accountId]),
-      );
+      // 启动是异步的：留一点时间让检测结果翻成「运行中」，否则清单还是旧状态。
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
-    await Promise.all([load(), loadRewards()]);
+    await load();
   } catch (cause) {
     runError.value = cause instanceof Error ? cause.message : String(cause);
   } finally {
@@ -442,28 +380,35 @@ async function loadGlobalBackups(): Promise<void> {
 
     <OnboardingChecklist class="mt-4" />
 
-    <!-- 健康中心入口：只在真有未处理事件时出现，避免变成常驻横幅。 -->
-    <RouterLink
-      v-if="healthUnhandled"
-      to="/health"
-      class="mt-4 flex items-center gap-3 rounded-card border border-warn/25 bg-warn-soft px-4 py-3 transition-colors hover:border-warn/40"
+    <!-- 自动处置回执：默认开启后，让用户看到它确实在干活，而不是只在设置里有个开关。 -->
+    <div
+      v-if="healthAutoStats && (healthAutoStats.ok24h || healthAutoStats.failed24h)"
+      class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border border-line bg-surface px-4 py-2.5 text-body-sm text-ink-soft"
     >
-      <span class="grid size-9 shrink-0 place-items-center rounded-control bg-surface text-warn">
-        <HeartPulse :size="17" :stroke-width="1.9" />
-      </span>
+      <ShieldCheck :size="15" :stroke-width="1.9" class="shrink-0 text-brand" />
       <span class="min-w-0 flex-1">
-        <span class="block text-body font-semibold text-ink">
-          {{ t("overview.health.title", { count: healthUnhandled }) }}
-        </span>
-        <span class="mt-0.5 block text-body-sm leading-relaxed text-ink-soft">
-          {{ t("overview.health.desc") }}
-        </span>
+        {{ t("overview.health.auto", {
+          ok: healthAutoStats.ok24h,
+          failed: healthAutoStats.failed24h,
+        }) }}
+        <template v-if="!autoNoticeSeen">
+          {{ t("overview.health.autoNotice") }}
+          <button
+            type="button"
+            class="ml-1 text-brand-dark hover:underline"
+            @click="dismissAutoNotice"
+          >
+            {{ t("switch.nextStep.dismiss") }}
+          </button>
+        </template>
       </span>
-      <span class="flex shrink-0 items-center gap-1 text-body-sm font-medium text-brand-dark">
+      <RouterLink
+        to="/health"
+        class="shrink-0 text-caption text-brand-dark hover:underline"
+      >
         {{ t("overview.health.cta") }}
-        <ArrowRight :size="14" :stroke-width="2" />
-      </span>
-    </RouterLink>
+      </RouterLink>
+    </div>
 
     <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard :label="t('overview.stat.accounts')" :number="accounts.length" :icon="Users" :hint="t('overview.stat.accountsHint')" :to="navTo('/accounts')" />
@@ -576,14 +521,6 @@ async function loadGlobalBackups(): Promise<void> {
         </p>
       </div>
     </div>
-    <RunReportPanel
-      v-if="runReport"
-      :report="runReport"
-      :busy="busy !== null"
-      class="mt-3"
-      @close="runReport = null"
-      @retry="retryRunRow"
-    />
     <p v-if="runError" class="mt-3 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm text-danger">
       {{ runError }}
     </p>
@@ -593,7 +530,13 @@ async function loadGlobalBackups(): Promise<void> {
       :title="t('overview.actionables.title')"
       :subtitle="
         groups.length
-          ? t('overview.actionables.summary', { groups: groups.length, accounts: affectedAccounts })
+          ? autoGroupCount
+            ? t('overview.actionables.summaryAuto', {
+                groups: groups.length,
+                accounts: affectedAccounts,
+                auto: autoGroupCount,
+              })
+            : t('overview.actionables.summary', { groups: groups.length, accounts: affectedAccounts })
           : undefined
       "
       flush
@@ -607,71 +550,101 @@ async function loadGlobalBackups(): Promise<void> {
       </div>
       <div
         v-else-if="!groups.length"
-        class="flex items-center gap-2.5 px-5 py-8 text-body text-ink-soft"
+        class="flex flex-wrap items-center gap-2.5 px-5 py-8 text-body text-ink-soft"
       >
-        <CheckCircle2 :size="16" class="text-brand" />
-        {{ t("overview.actionables.empty") }}
+        <template v-if="healthUnhandled">
+          <HeartPulse :size="16" class="text-warn" />
+          {{ t("overview.health.title", { count: healthUnhandled }) }}
+          <RouterLink :to="navTo('/health')" class="font-medium text-brand-dark hover:underline">
+            {{ t("overview.health.cta") }}
+          </RouterLink>
+        </template>
+        <template v-else>
+          <CheckCircle2 :size="16" class="text-brand" />
+          {{ t("overview.actionables.empty") }}
+        </template>
       </div>
-      <ul v-else class="divide-y divide-line-soft">
-        <li v-for="group in groups" :key="group.kind" class="flex items-start gap-3 px-5 py-3.5">
-          <AlertTriangle
-            :size="15"
-            class="mt-0.5 shrink-0"
-            :class="group.severity === 'info' ? 'text-muted' : 'text-warn'"
-          />
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span class="text-body font-medium text-ink">{{ group.title }}</span>
-              <span v-if="group.count > 1" class="text-caption text-muted">
-                {{ t("overview.actionables.accounts", { count: group.count }) }}
-              </span>
+      <div v-else>
+        <ul class="divide-y divide-line-soft">
+          <li v-for="group in visibleGroups" :key="group.kind" class="flex items-start gap-3 px-5 py-3.5">
+            <AlertTriangle
+              :size="15"
+              class="mt-0.5 shrink-0"
+              :class="group.severity === 'info' ? 'text-muted' : 'text-warn'"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span class="text-body font-medium text-ink">{{ group.title }}</span>
+                <span v-if="group.count > 1" class="text-caption text-muted">
+                  {{ t("overview.actionables.accounts", { count: group.count }) }}
+                </span>
+              </div>
+              <p
+                v-if="group.count === 1"
+                class="mt-0.5 text-body-sm leading-relaxed text-muted"
+              >
+                {{ group.details[0] }}
+              </p>
+              <div v-else class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span
+                  v-for="(name, index) in group.names.slice(0, 6)"
+                  :key="`${group.kind}-${index}`"
+                  class="rounded-full border border-line-soft bg-line-soft px-2 py-[1px] text-caption text-ink-soft"
+                  :title="group.details[index]"
+                >
+                  {{ name }}
+                </span>
+                <span
+                  v-if="group.names.length > 6"
+                  class="px-1 text-caption text-muted"
+                  :title="group.details.slice(6).join('\n')"
+                >
+                  +{{ group.names.length - 6 }}
+                </span>
+              </div>
             </div>
-            <p
-              v-if="group.count === 1"
-              class="mt-0.5 text-body-sm leading-relaxed text-muted"
+            <StatusPill :tone="severityTone(group.severity)" class="mt-0.5 shrink-0">
+              {{ severityLabel(group.severity) }}
+            </StatusPill>
+            <button
+              v-if="group.action.type === 'run' && group.action.endpoint === '/clients/launch'"
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
+              :disabled="busyFor(group)"
+              @click="trigger(group)"
             >
-              {{ group.details[0] }}
-            </p>
-            <div v-else class="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span
-                v-for="(name, index) in group.names.slice(0, 6)"
-                :key="`${group.kind}-${index}`"
-                class="rounded-full border border-line-soft bg-line-soft px-2 py-[1px] text-caption text-ink-soft"
-                :title="group.details[index]"
-              >
-                {{ name }}
-              </span>
-              <span
-                v-if="group.names.length > 6"
-                class="px-1 text-caption text-muted"
-                :title="group.details.slice(6).join('\n')"
-              >
-                +{{ group.names.length - 6 }}
-              </span>
-            </div>
-          </div>
-          <StatusPill :tone="severityTone(group.severity)" class="mt-0.5 shrink-0">
-            {{ severityLabel(group.severity) }}
-          </StatusPill>
-          <button
-            v-if="group.kind === 'credential' && group.singleAccountId"
-            type="button"
-            class="inline-flex shrink-0 items-center rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-            @click="diagnoseAccount(group.singleAccountId)"
-          >
-            {{ t("overview.action.diagnose") }}
-          </button>
-          <button
-            type="button"
-            class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-50"
-            :disabled="busyFor(group)"
-            @click="trigger(group)"
-          >
-            <Loader2 v-if="busyFor(group)" :size="11" class="animate-spin" />
-            <template v-else>{{ actionLabel(group) }} <ArrowRight :size="11" /></template>
-          </button>
-        </li>
-      </ul>
+              <Loader2 v-if="busyFor(group)" :size="11" class="animate-spin" />
+              <template v-else>{{ t("overview.action.launch") }} <ArrowRight :size="11" /></template>
+            </button>
+            <button
+              v-else-if="group.action.type === 'navigate'"
+              type="button"
+              class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+              @click="trigger(group)"
+            >
+              {{ t("overview.action.handle") }} <ArrowRight :size="11" />
+            </button>
+            <RouterLink
+              v-else
+              :to="navTo('/health')"
+              class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2.5 py-1.5 text-body-sm text-brand-dark transition-colors hover:border-brand/50"
+            >
+              {{ t("overview.health.cta") }}
+            </RouterLink>
+          </li>
+        </ul>
+        <RouterLink
+          :to="navTo('/health')"
+          class="flex items-center justify-center gap-1 border-t border-line-soft px-5 py-2.5 text-body-sm text-brand-dark transition-colors hover:bg-line-soft/40"
+        >
+          {{
+            hiddenGroupCount
+              ? t("overview.actionables.viewAll", { count: hiddenGroupCount })
+              : t("overview.health.cta")
+          }}
+          <ArrowRight :size="13" :stroke-width="2" />
+        </RouterLink>
+      </div>
     </SectionCard>
 
     <OfficialActivityStrip v-if="pulse" class="mt-4" :campaigns="campaigns" />
@@ -902,21 +875,5 @@ async function loadGlobalBackups(): Promise<void> {
         </ul>
       </SectionCard>
     </div>
-
-    <CredentialDiagnoseDialog
-      :open="diagnoseTarget !== null"
-      :account-id="diagnoseTarget?.id ?? null"
-      :account-name="diagnoseTarget?.name"
-      @close="diagnoseTarget = null"
-    />
-
-    <ConfirmDialog
-      :open="pendingRun !== null"
-      :title="t('activity.noticeTitle')"
-      :message="t('activity.noticeBody')"
-      :confirm-text="t('activity.noticeConfirm')"
-      @confirm="confirmRunNotice"
-      @cancel="cancelRunNotice"
-    />
   </div>
 </template>

@@ -15,6 +15,20 @@ def test_defaults_include_onboarding_and_metrics_flags(tmp_path):
     assert payload["onboardingDismissedAt"] is None
     assert payload["firstSwitchAt"] is None
     assert payload["localMetricsEnabled"] is True
+    # 1.12.0：安全自动处置默认开启，显式 false 仍尊重用户。
+    assert payload["healthAutoRefresh"] is True
+    assert payload["healthAutoRerun"] is True
+
+
+def test_health_auto_explicit_false_is_kept(tmp_path):
+    assert PreferencesStore(tmp_path).load().health_auto_refresh is True
+    (tmp_path / mod.FILENAME).write_text(
+        json.dumps({"healthAutoRefresh": False, "healthAutoRerun": False}),
+        encoding="utf-8",
+    )
+    prefs = PreferencesStore(tmp_path).load()
+    assert prefs.health_auto_refresh is False
+    assert prefs.health_auto_rerun is False
 
 
 def test_legacy_file_without_new_keys_uses_defaults(tmp_path):

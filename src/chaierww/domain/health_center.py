@@ -7,7 +7,8 @@
 - 事件按 ``dedupe_key`` 去重，同一个异常只更新「最后见到」时间，不刷屏；
 - 信号消失时自动置为「已解决」，不需要用户手动关闭；
 - 处置动作只认事件里登记的白名单，接口不会变成任意命令通道；
-- 自动处置默认关闭，顺序固定为「先续期、再补跑」，每轮续期有数量上限。
+- 自动处置默认开启，顺序固定为「先续期、再补跑」，每轮续期有数量上限；
+  只做续期与补跑，不切号、不删除资料。
 """
 
 from __future__ import annotations
@@ -177,6 +178,8 @@ class HealthCenterService:
         self._clock = clock
         self._now = now or (lambda: datetime.now(UTC))
         self._last_action: dict[str, float] = {}
+        #: 自动处置（计划任务与手动「立即处置」）不能并发写；抢不到就直接返回 busy。
+        self._auto_lock = threading.Lock()
 
     # ---------- 采集 ----------
 
@@ -635,6 +638,7 @@ class HealthCenterService:
         self._persist(signals, degraded)
         items = self.items(state=state, limit=limit)
         summary = self.summary()
+        summary["auto"] = self.auto_stats()
         return {
             "items": items,
             "summary": summary,
@@ -798,6 +802,63 @@ class HealthCenterService:
                 if state == STATE_OPEN:
                     payload["unhandled"] += count
         return payload
+
+    # ---------- 自动处置回执 ----------
+
+    def auto_stats(self) -> dict[str, Any]:
+        """最近 24 小时自动处置概览，供概览页零额外请求展示。"""
+        cutoff = (self._now() - timedelta(hours=24)).replace(microsecond=0).isoformat()
+        row = self._conn.execute(
+            """
+            SELECT COALESCE(SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END), 0) AS ok_count,
+                   COALESCE(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS failed_count,
+                   MAX(at) AS last_at
+              FROM health_actions
+             WHERE action LIKE 'auto:%' AND at >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+        return {
+            "ok24h": int(row["ok_count"] or 0),
+            "failed24h": int(row["failed_count"] or 0),
+            "lastAt": row["last_at"],
+        }
+
+    def auto_actions(self, limit: int = 20) -> dict[str, Any]:
+        """最近的自动处置记录；只读，不重新执行任何动作。"""
+        size = max(1, min(int(limit), 50))
+        rows = self._conn.execute(
+            """
+            SELECT a.seq, a.event_id, a.action, a.ok, a.message, a.at,
+                   e.title AS event_title, e.kind AS event_kind, e.account_id
+              FROM health_actions a
+              LEFT JOIN health_events e ON e.id = a.event_id
+             WHERE a.action LIKE 'auto:%'
+             ORDER BY a.seq DESC
+             LIMIT ?
+            """,
+            (size,),
+        ).fetchall()
+        total_row = self._conn.execute(
+            "SELECT COUNT(*) AS count FROM health_actions WHERE action LIKE 'auto:%'"
+        ).fetchone()
+        return {
+            "items": [
+                {
+                    "eventId": row["event_id"],
+                    "eventTitle": row["event_title"],
+                    "eventKind": row["event_kind"],
+                    "accountId": row["account_id"],
+                    "action": row["action"],
+                    "ok": bool(row["ok"]),
+                    "message": row["message"],
+                    "at": row["at"],
+                }
+                for row in rows
+            ],
+            "total": int(total_row["count"] or 0),
+            "checkedAt": self._stamp(),
+        }
 
     def _event_row(self, event_id: str) -> sqlite3.Row:
         row = self._conn.execute(
@@ -994,13 +1055,34 @@ class HealthCenterService:
 
     # ---------- 自动处置 ----------
 
-    def auto_dispose(self) -> dict[str, Any]:
-        if self._preferences is None:
-            return {"enabled": False, "message": "自动处置未开启"}
-        prefs = self._preferences.load()
-        if not (prefs.health_auto_refresh or prefs.health_auto_rerun):
-            return {"enabled": False, "message": "自动处置未开启"}
+    def auto_dispose(self, *, force: bool = False) -> dict[str, Any]:
+        """执行一轮安全自动处置。
 
+        ``force=True`` 只用于用户显式点击「立即处置 / 体检并修复」：即使设置里
+        关掉了自动开关，也执行这一次；仍然只走白名单，仍然受 3/20 上限约束。
+        """
+        if self._preferences is None:
+            return {"enabled": False, "busy": False, "message": "自动处置未开启"}
+        prefs = self._preferences.load()
+        do_refresh = force or prefs.health_auto_refresh
+        do_rerun = force or prefs.health_auto_rerun
+        if not (do_refresh or do_rerun):
+            return {"enabled": False, "busy": False, "message": "自动处置未开启"}
+        if not self._auto_lock.acquire(blocking=False):
+            return {
+                "enabled": True,
+                "busy": True,
+                "refreshed": 0,
+                "rerunPairs": 0,
+                "rerunSummary": None,
+                "message": "自动处置正在运行，请稍后再试",
+            }
+        try:
+            return self._auto_dispose(do_refresh=do_refresh, do_rerun=do_rerun)
+        finally:
+            self._auto_lock.release()
+
+    def _auto_dispose(self, *, do_refresh: bool, do_rerun: bool) -> dict[str, Any]:
         self.snapshot(state="active")
         rows = self._conn.execute(
             "SELECT * FROM health_events WHERE state IN (?, ?, ?) ORDER BY last_seen_at DESC",
@@ -1012,7 +1094,7 @@ class HealthCenterService:
         for row in rows:
             actions = _json_loads(row["actions"], [])
             kinds = {str(item.get("kind")) for item in actions if isinstance(item, dict)}
-            if prefs.health_auto_refresh and "credential_refresh" in kinds:
+            if do_refresh and "credential_refresh" in kinds:
                 if (
                     refreshed >= AUTO_REFRESH_LIMIT
                     or not row["account_id"]
@@ -1035,7 +1117,7 @@ class HealthCenterService:
                         message=f"{type(exc).__name__}：{exc}",
                     )
             if (
-                prefs.health_auto_rerun
+                do_rerun
                 and row["kind"] == "activity_failed"
                 and not self._recent_auto_action(row["id"], "auto:activity_rerun", hours=24)
             ):
@@ -1070,6 +1152,7 @@ class HealthCenterService:
 
         return {
             "enabled": True,
+            "busy": False,
             "refreshed": refreshed,
             "rerunPairs": len(rerun_pairs),
             "rerunSummary": rerun_result,

@@ -460,6 +460,13 @@ class LoginProbeRequest(BaseModel):
     accountIds: list[str] = Field(default_factory=list)
 
 
+class PoolCheckupRequest(BaseModel):
+    """号池体检：空 = 全部账号；fix 只触发健康中心安全白名单。"""
+
+    accountIds: list[str] | None = None
+    fix: bool = False
+
+
 # ---------- 基础 ----------
 
 
@@ -666,6 +673,33 @@ def pool_isolation(request: Request) -> dict[str, Any]:
 
 
 @router.post(
+    "/pool/checkup",
+    summary="一键号池体检：登录复检 + 凭据验活 + 供给/隔离 + 可选安全修复",
+    tags=["号池"],
+)
+def pool_checkup(request: Request, body: PoolCheckupRequest) -> dict[str, Any]:
+    implemented = [scope.key for scope in all_scopes() if scope.implemented]
+    try:
+        accounts = _service(request).list_merged(implemented)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+    if body.accountIds:
+        wanted = list(dict.fromkeys(str(item) for item in body.accountIds if str(item)))
+        known = {account.id for account in accounts}
+        missing = [item for item in wanted if item not in known]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"号池里没有这些账号：{'、'.join(missing)}",
+            )
+        chosen = set(wanted)
+        accounts = [account for account in accounts if account.id in chosen]
+
+    return request.app.state.pool_checkup.run(accounts, fix=body.fix)
+
+
+@router.post(
     "/pool/isolation/release",
     summary="人工解除网关隔离（账号重新参与选号）",
     tags=["号池"],
@@ -775,6 +809,24 @@ def health_event_actions(request: Request, event_id: str, limit: int = 20) -> di
     return {
         "items": request.app.state.health.actions(event_id, limit=limit),
     }
+
+
+@router.get(
+    "/health/auto-actions",
+    summary="最近的自动处置记录（只读，新的在前）",
+    tags=["基础"],
+)
+def health_auto_actions(request: Request, limit: int = 20) -> dict[str, Any]:
+    return request.app.state.health.auto_actions(limit=limit)
+
+
+@router.post(
+    "/health/auto-dispose",
+    summary="立即执行一轮自动处置（遵循设置开关与安全上限）",
+    tags=["基础"],
+)
+def health_auto_dispose(request: Request) -> dict[str, Any]:
+    return request.app.state.health.auto_dispose()
 
 
 @router.post(

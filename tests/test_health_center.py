@@ -330,6 +330,14 @@ def test_auto_dispose_respects_switches(tmp_path):
         assert lifecycle.calls == ["force"]
         assert activities.pairs == [(account.id, "workbuddy.sign_in")]
 
+        # 自动处置回执：审计可按 auto: 前缀筛出，并带上事件标题。
+        records = service.auto_actions()
+        assert records["items"]
+        assert records["items"][0]["action"].startswith("auto:")
+        assert records["items"][0]["eventTitle"]
+        assert service.auto_stats()["ok24h"] >= 1
+        assert service.snapshot()["summary"]["auto"]["ok24h"] >= 1
+
         # 同一轮事件在窗口内不再重复处置：不会一天续期两次 / 补跑两次。
         again = service.auto_dispose()
         assert again["refreshed"] == 0
@@ -357,7 +365,19 @@ def test_auto_dispose_respects_switches(tmp_path):
             now=lambda: datetime(2026, 11, 16, 9, 0, tzinfo=UTC),
         )
         outcome = service.auto_dispose()
-        assert outcome == {"enabled": False, "message": "自动处置未开启"}
+        assert outcome == {
+            "enabled": False,
+            "busy": False,
+            "message": "自动处置未开启",
+        }
+
+        # 用户显式点「立即处置 / 体检并修复」时 force=True 仍执行一次，
+        # 但不改变偏好；下一次计划任务仍然按关闭处理。
+        forced = service.auto_dispose(force=True)
+        assert forced["enabled"] is True
+        assert forced["busy"] is False
+        assert forced["refreshed"] == 1
+        assert service._preferences.load().health_auto_refresh is False
     finally:
         conn.close()
 

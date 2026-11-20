@@ -54,7 +54,7 @@ interface ToggleItem {
   icon: Component;
 }
 
-/** 健康中心自动处置：两项都会实际打上游，默认关。 */
+/** 健康中心自动处置：默认开；两项都会实际打上游，用户显式关掉就不再执行。 */
 const healthItems: ToggleItem[] = [
   {
     key: "healthAutoRefresh",
@@ -320,7 +320,7 @@ async function saveThreshold(
       <p class="mt-2 text-caption text-muted">{{ t("settings.supply.hint") }}</p>
     </SectionCard>
 
-    <!-- 健康中心自动处置：默认关，两件事都会实际打上游 -->
+    <!-- 健康中心自动处置：默认开，两件事都会实际打上游；关掉即完全不动 -->
     <SectionCard :title="t('settings.health.title')" :subtitle="t('settings.health.desc')">
       <div class="divide-y divide-line-soft">
         <div v-for="item in healthItems" :key="item.key" class="flex items-center gap-3 py-3.5">

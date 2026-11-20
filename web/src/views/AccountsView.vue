@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
   CheckSquare,
@@ -8,7 +8,6 @@ import {
   Coins,
   Download,
   FileUp,
-  Fingerprint,
   History,
   LayoutGrid,
   Loader2,
@@ -48,6 +47,9 @@ import {
   type CredentialRefreshReport,
   type MigrationPreview,
   type OverviewPulse,
+  type PoolCheckupIssue,
+  type PoolCheckupReport,
+  type PoolHealth,
   type RecycleBinAccount,
   type StabilityAccount,
   type IsolationItem,
@@ -63,8 +65,10 @@ import {
   creditsLoading,
   detection,
   loadCredits,
+  loadDetection,
   loading,
   refreshAll,
+  switchBlockedAction,
   switchBlockedReason,
 } from "../stores/app";
 import { track } from "../lib/metrics";
@@ -166,6 +170,7 @@ readViewPrefs();
 // URL 上的 ?risk= 预置筛选优先级高于 localStorage：概览等页面点「凭据异常」跳过来
 // 时带上参数，号池页直接落到对应筛选，不用再手点一次。合法值才认，非法忽略。
 const route = useRoute();
+const router = useRouter();
 const RISK_KEYS: RiskKey[] = ["credential", "expiring", "low", "usable", "today", "renew", "relogin"];
 if (route.query.risk === "relogin") {
   riskFilter.value = "credential";
@@ -382,33 +387,124 @@ async function runCredentialSweep(mode: "check" | "due", accountIds?: string[]):
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
-/** 登录复检：只读探测，不续期；有勾选就只查勾选的，否则查全部。 */
-const loginBusy = ref(false);
+/* ---------- 号池一键体检 ---------- */
 
-async function runLoginProbe(): Promise<void> {
-  if (loginBusy.value) return;
-  const ids = selectedCount.value ? [...selectedIds.value] : accounts.value.map((item) => item.id);
-  if (!ids.length) return;
-  loginBusy.value = true;
+/**
+ * 体检 = 登录复检 + 凭据验活 + 供给/隔离汇总 + 一次安全修复。
+ * 修复只走健康中心白名单（续期到期凭据、补跑当天失败活动），不切号、不删资料。
+ */
+const checkupBusy = ref(false);
+const checkupOpen = ref(false);
+const checkup = ref<PoolCheckupReport | null>(null);
+
+const CHECKUP_KIND_LABEL: Record<PoolCheckupIssue["kind"], MessageKey> = {
+  login_invalid: "accounts.checkup.kind.loginInvalid",
+  login_blocked: "accounts.checkup.kind.loginBlocked",
+  relogin_required: "accounts.checkup.kind.reloginRequired",
+  credential_failed: "accounts.checkup.kind.credentialFailed",
+  isolated: "accounts.checkup.kind.isolated",
+  supply_low: "accounts.checkup.kind.supplyLow",
+};
+
+const CHECKUP_ACTION_LABEL: Record<PoolCheckupIssue["next"], MessageKey> = {
+  relogin: "accounts.checkup.relogin",
+  refresh: "accounts.checkup.refresh",
+  diagnose: "accounts.checkup.diagnose",
+  release_isolation: "accounts.checkup.release",
+  view_health: "accounts.checkup.viewHealth",
+};
+
+const checkupCounts = computed(() => {
+  const report = checkup.value;
+  if (!report) return { login: 0, credential: 0, isolation: 0, supply: 0 };
+  const supply = report.supply as Partial<PoolHealth>;
+  return {
+    login: report.login.invalid + report.login.blocked,
+    credential:
+      (report.credential.summary.reloginRequired ?? 0) +
+      (report.credential.summary.failed ?? 0),
+    isolation: report.isolation.active,
+    supply: Array.isArray(supply.alerts) ? supply.alerts.length : 0,
+  };
+});
+
+const checkupErrorEntries = computed(() =>
+  Object.entries(checkup.value?.errors ?? {}),
+);
+
+const checkupErrorText = computed(() =>
+  checkupErrorEntries.value.map(([key]) => key).join(" / "),
+);
+
+function checkupAccount(issue: PoolCheckupIssue): Account | null {
+  if (!issue.accountId) return null;
+  return accounts.value.find((item) => item.id === issue.accountId) ?? null;
+}
+
+async function runPoolCheckup(): Promise<void> {
+  if (checkupBusy.value || !accounts.value.length) return;
+  checkupBusy.value = true;
   try {
-    const result = await runTask({
-      kind: "login-probe",
-      title: t("tasks.loginProbe"),
-      run: () => api.probeLogin(ids),
-      message: t("tasks.receiptLoginProbe", { count: ids.length }),
+    checkup.value = await runTask({
+      kind: "pool-checkup",
+      title: t("tasks.poolCheckup"),
+      run: () => api.poolCheckup({ fix: true }),
+      message: t("tasks.receiptPoolCheckup", { count: accounts.value.length }),
     });
-    showToast(
-      t("accounts.login.probeDone", {
-        valid: result.valid,
-        bad: result.invalid + result.blocked,
-        total: result.total,
-      }),
-    );
+    checkupOpen.value = true;
     await refreshAll();
+    void loadCredentialHealth();
   } catch (error) {
     showToast((error as Error).message);
   } finally {
-    loginBusy.value = false;
+    checkupBusy.value = false;
+  }
+}
+
+/** 体检结果里的每一条都给下一步：重登 / 诊断 / 解隔离 / 去健康中心。 */
+async function handleCheckupIssue(issue: PoolCheckupIssue): Promise<void> {
+  if (issue.next === "view_health") {
+    checkupOpen.value = false;
+    await router.push("/health");
+    return;
+  }
+  const account = checkupAccount(issue);
+  if (!account) return;
+  if (issue.next === "relogin") {
+    checkupOpen.value = false;
+    openRelogin(account);
+    return;
+  }
+  if (issue.next === "diagnose") {
+    checkupOpen.value = false;
+    openDiagnose(account);
+    return;
+  }
+  if (issue.next === "refresh") {
+    await runCredentialSweep("due", [account.id]);
+    return;
+  }
+  if (issue.next === "release_isolation") {
+    try {
+      await api.releaseIsolation(account.id);
+      showToast(t("accounts.stability.released"));
+      const report = checkup.value;
+      if (report) {
+        checkup.value = {
+          ...report,
+          isolation: {
+            active: Math.max(0, report.isolation.active - 1),
+            items: report.isolation.items.filter(
+              (item) => item.accountId !== account.id,
+            ),
+          },
+          issues: report.issues.filter((item) => item !== issue),
+        };
+      }
+      await refreshAll();
+    } catch (error) {
+      showToast((error as Error).message);
+    }
   }
 }
 
@@ -562,18 +658,6 @@ const reloginAccounts = computed(() =>
   gapAccounts.value.filter((item) => item.credentialState === "relogin_required"),
 );
 
-const reloginNames = computed(() => {
-  const names = reloginAccounts.value.map((item) => item.displayName);
-  if (names.length <= 3) return names.join("、");
-  return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
-});
-
-/** 「去登录」按第一个失效号所属平台打开扫码面板。 */
-const reloginPlatform = computed<"workbuddy" | "trae">(() => {
-  const first = reloginAccounts.value[0];
-  return platformOfAccountId(first?.accountId);
-});
-
 /**
  * 凭据已经过期、又不能自动续期的号：上游不会再认这个令牌，只能重新扫码。
  * 能续期的号会被续期链路救回来，不进这里；这类号 credentialState 可能还是 usable
@@ -594,32 +678,46 @@ const expiredOnlyAccounts = computed(() =>
   ),
 );
 
-const expiredNames = computed(() => {
-  const names = expiredOnlyAccounts.value.map((item) => item.displayName);
-  if (names.length <= 3) return names.join("、");
-  return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
-});
-
-const expiredPlatform = computed<"workbuddy" | "trae">(() =>
-  platformOfAccountId(expiredOnlyAccounts.value[0]?.id),
-);
-
-/** 账号所属平台 → 扫码面板类型；查不到时按国内 WorkBuddy 处理（与旧行为一致）。 */
-function platformOfAccountId(accountId: string | undefined): "workbuddy" | "trae" {
-  const matched = accounts.value.find((item) => item.id === accountId);
-  return matched?.platform === "trae" ? "trae" : "workbuddy";
-}
-
-/** 缺口账号的名字，最多列 3 个，剩下的折成「等 N 个」。 */
+/** 缺口账号：能切号但凭据不完整，过期后只能重登。 */
 const gapOnlyAccounts = computed(() =>
   gapAccounts.value.filter((item) => item.credentialState !== "relogin_required"),
 );
 
-const gapNames = computed(() => {
-  const names = gapOnlyAccounts.value.map((item) => item.displayName);
+/**
+ * 凭据异常只在号池提示一次，处置统一去健康中心：
+ * 概览与号池不再各摆一套续期 / 重登按钮，避免同一个号出现三种叫法。
+ */
+const credentialIssueTotal = computed(
+  () =>
+    reloginAccounts.value.length +
+    expiredOnlyAccounts.value.length +
+    gapOnlyAccounts.value.length,
+);
+
+const credentialIssueBrief = computed(() => {
+  const parts: string[] = [];
+  const relogin = reloginAccounts.value.length;
+  const expired = expiredOnlyAccounts.value.length;
+  const gap = gapOnlyAccounts.value.length;
+  if (relogin) parts.push(t("accounts.credential.summaryRelogin", { count: relogin }));
+  if (expired) parts.push(t("accounts.credential.summaryExpired", { count: expired }));
+  if (gap) parts.push(t("accounts.credential.summaryGap", { count: gap }));
+  return parts.join(" · ");
+});
+
+const credentialIssueNames = computed(() => {
+  const names = [
+    ...reloginAccounts.value,
+    ...expiredOnlyAccounts.value,
+    ...gapOnlyAccounts.value,
+  ].map((item) => item.displayName);
   if (names.length <= 3) return names.join("、");
   return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
 });
+
+function openCredentialHealth(): void {
+  void router.push("/health?group=credential");
+}
 
 /** 选中项里凭据残缺的个数：导出确认里点明它，免得用户以为导出的是完整登录态。 */
 const selectedGapCount = computed(() => {
@@ -1735,60 +1833,35 @@ const confirmText = computed(() => {
       {{ localPortsNote }}
     </p>
 
-    <!-- 登录失效：活动/签到遇 401 已回写到账号状态，续期救不回来，只能重新扫码 -->
+    <!-- 凭据异常只提示一次：续期 / 重登 / 诊断统一去健康中心，号池不再摆第二套处置入口 -->
     <div
-      v-if="reloginAccounts.length"
-      class="mt-4 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm leading-relaxed text-danger-dark"
+      v-if="credentialIssueTotal"
+      class="mt-4 flex items-start gap-2 rounded-card border px-4 py-2.5 text-body-sm leading-relaxed"
+      :class="
+        reloginAccounts.length || expiredOnlyAccounts.length
+          ? 'border-danger/30 bg-danger-soft text-danger-dark'
+          : 'border-warn/30 bg-warn-soft text-warn'
+      "
     >
       <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
       <div class="min-w-0 flex-1">
-        <p>{{ t("accounts.credential.reloginBanner", { count: reloginAccounts.length }) }}</p>
+        <p>{{ credentialIssueBrief }}</p>
         <p class="mt-0.5 text-caption opacity-85">
-          {{ reloginNames }} · {{ t("accounts.credential.reloginBannerHint") }}
+          {{ credentialIssueNames }} · {{ t("accounts.credential.summaryBannerHint") }}
         </p>
       </div>
       <button
         type="button"
-        class="shrink-0 rounded-control border border-danger/40 bg-surface px-2.5 py-1 text-caption text-danger-dark transition-colors hover:border-danger"
-        @click="oauthPlatform = reloginPlatform; oauthOpen = true"
+        class="shrink-0 rounded-control border bg-surface px-2.5 py-1 text-caption transition-colors hover:border-current"
+        :class="
+          reloginAccounts.length || expiredOnlyAccounts.length
+            ? 'border-danger/40 text-danger-dark'
+            : 'border-warn/40 text-warn'
+        "
+        @click="openCredentialHealth"
       >
-        {{ t("accounts.credential.reloginAction") }}
+        {{ t("accounts.credential.summaryAction") }}
       </button>
-    </div>
-
-    <!-- 凭据已过期且不能自动续期的号（例如文件导入、没有 refresh token）：只能重新扫码 -->
-    <div
-      v-if="expiredOnlyAccounts.length"
-      class="mt-3 flex items-start gap-2 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm leading-relaxed text-danger-dark"
-    >
-      <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
-      <div class="min-w-0 flex-1">
-        <p>{{ t("accounts.credential.expiredBanner", { count: expiredOnlyAccounts.length }) }}</p>
-        <p class="mt-0.5 text-caption opacity-85">
-          {{ expiredNames }} · {{ t("accounts.credential.expiredBannerHint") }}
-        </p>
-      </div>
-      <button
-        type="button"
-        class="shrink-0 rounded-control border border-danger/40 bg-surface px-2.5 py-1 text-caption text-danger-dark transition-colors hover:border-danger"
-        @click="oauthPlatform = expiredPlatform; oauthOpen = true"
-      >
-        {{ t("accounts.credential.reloginAction") }}
-      </button>
-    </div>
-
-    <!-- 凭据缺口：能切号但 token 一过期就要重登。早说清楚，别等用户撞上 -->
-    <div
-      v-if="gapOnlyAccounts.length"
-      class="mt-3 flex items-start gap-2 rounded-card border border-warn/30 bg-warn-soft px-4 py-2.5 text-body-sm leading-relaxed text-warn"
-    >
-      <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
-      <div class="min-w-0 flex-1">
-        <p>{{ t("accounts.credential.gapBanner", { count: gapOnlyAccounts.length }) }}</p>
-        <p class="mt-0.5 text-caption opacity-85">
-          {{ gapNames }} · {{ t("accounts.credential.gapBannerHint") }}
-        </p>
-      </div>
     </div>
 
     <!-- 客户端扫描入池：已登录的客户端账号不在号池时提示 -->
@@ -1903,7 +1976,7 @@ const confirmText = computed(() => {
       <button
         type="button"
         class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-        :disabled="Boolean(credentialBusy)"
+        :disabled="Boolean(credentialBusy) || checkupBusy"
         :title="t('accounts.credential.checkHint')"
         @click="runCredentialSweep('check')"
       >
@@ -1923,7 +1996,7 @@ const confirmText = computed(() => {
       <button
         type="button"
         class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-2.5 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-        :disabled="Boolean(credentialBusy)"
+        :disabled="Boolean(credentialBusy) || checkupBusy"
         :title="t('accounts.credential.refreshHint')"
         @click="runCredentialSweep('due')"
       >
@@ -1943,7 +2016,7 @@ const confirmText = computed(() => {
       <button
         type="button"
         class="inline-flex items-center gap-1.5 rounded-control border border-brand/40 bg-surface px-2.5 py-1.5 text-body-sm text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
-        :disabled="activityBusy || Boolean(credentialBusy)"
+        :disabled="activityBusy || Boolean(credentialBusy) || checkupBusy"
         :title="t('accounts.batchRun.hint', { count: selectedActivityItems })"
         @click="runActivitiesFor()"
       >
@@ -2086,19 +2159,17 @@ const confirmText = computed(() => {
         <Rows3 v-else :size="14" :stroke-width="1.9" />
       </button>
 
-      <!-- 登录复检：只读探测登录态，不续期；不勾选 = 全量 -->
+      <!-- 一键体检并修复：登录 + 凭据 + 供给/隔离一次跑完，修复只走安全白名单 -->
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-        :disabled="loginBusy || !accounts.length"
-        :title="t('accounts.login.probeHint')"
-        @click="runLoginProbe"
+        class="inline-flex items-center gap-1.5 rounded-control border border-brand/40 bg-brand-soft/50 px-3 py-2 text-body font-medium text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
+        :disabled="checkupBusy || Boolean(credentialBusy) || activityBusy || !accounts.length"
+        :title="t('accounts.checkup.hint')"
+        @click="runPoolCheckup"
       >
-        <Loader2 v-if="loginBusy" :size="14" :stroke-width="1.9" class="animate-spin" />
-        <Fingerprint v-else :size="14" :stroke-width="1.9" />
-        {{
-          loginBusy ? t("accounts.login.probing") : t("accounts.login.probe")
-        }}
+        <Loader2 v-if="checkupBusy" :size="14" :stroke-width="1.9" class="animate-spin" />
+        <ShieldCheck v-else :size="14" :stroke-width="1.9" />
+        {{ checkupBusy ? t("accounts.checkup.running") : t("accounts.checkup.action") }}
       </button>
 
       <!-- 全选常驻：选中后不搬走，否则按钮会在眼前消失又从别处冒出来 -->
@@ -2294,8 +2365,28 @@ const confirmText = computed(() => {
       @close="groupDialog.open = false"
     />
 
-    <p v-if="switchBlockedReason" class="mt-4 text-body-sm text-muted">
+    <!-- 只报原因不够：同时给出能直接点的下一步，免得用户卡在「然后呢」 -->
+    <p
+      v-if="switchBlockedReason"
+      class="mt-4 flex flex-wrap items-center gap-2 text-body-sm text-muted"
+    >
       {{ t("accounts.hint", { reason: switchBlockedReason }) }}
+      <button
+        v-if="switchBlockedAction === 'redetect'"
+        type="button"
+        class="inline-flex items-center rounded-control border border-line bg-surface px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        @click="loadDetection()"
+      >
+        {{ t("accounts.hint.redetect") }}
+      </button>
+      <button
+        v-else-if="switchBlockedAction === 'settings'"
+        type="button"
+        class="inline-flex items-center rounded-control border border-line bg-surface px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+        @click="router.push('/settings?tab=env')"
+      >
+        {{ t("accounts.hint.settings") }}
+      </button>
     </p>
 
     <CredentialDiagnoseDialog
@@ -2436,6 +2527,144 @@ const confirmText = computed(() => {
               @click="onJsonImport"
             >
               {{ jsonDialog.busy ? t("accounts.importing") : t("accounts.import") }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 号池体检结果：四项数字 + 安全修复回执 + 每条问题的下一步 -->
+    <Teleport to="body">
+      <div
+        v-if="checkupOpen && checkup"
+        class="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/30 p-4 sm:p-6"
+        @click.self="checkupOpen = false"
+      >
+        <div
+          class="max-h-[calc(100vh-2rem)] w-full max-w-[min(640px,calc(100vw-2rem))] overflow-y-auto rounded-card border border-line bg-surface p-5 shadow-float"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-title font-semibold text-ink">{{ t("accounts.checkup.title") }}</h2>
+              <p class="mt-1 text-body-sm leading-relaxed text-muted">
+                {{ t("accounts.checkup.subtitle", {
+                  accounts: checkup.accounts.length,
+                  ms: checkup.durationMs,
+                }) }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="shrink-0 rounded-control p-1 text-muted transition-colors hover:bg-line-soft hover:text-ink"
+              @click="checkupOpen = false"
+            >
+              <X :size="15" :stroke-width="2" />
+            </button>
+          </div>
+
+          <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div class="rounded-control border border-line px-3 py-2">
+              <div class="text-caption text-muted">{{ t("accounts.checkup.login") }}</div>
+              <div
+                class="mt-0.5 text-metric font-semibold leading-none"
+                :class="checkupCounts.login ? 'text-warn' : 'text-ink'"
+              >
+                {{ checkupCounts.login }}
+              </div>
+            </div>
+            <div class="rounded-control border border-line px-3 py-2">
+              <div class="text-caption text-muted">{{ t("accounts.checkup.credential") }}</div>
+              <div
+                class="mt-0.5 text-metric font-semibold leading-none"
+                :class="checkupCounts.credential ? 'text-warn' : 'text-ink'"
+              >
+                {{ checkupCounts.credential }}
+              </div>
+            </div>
+            <div class="rounded-control border border-line px-3 py-2">
+              <div class="text-caption text-muted">{{ t("accounts.checkup.isolation") }}</div>
+              <div
+                class="mt-0.5 text-metric font-semibold leading-none"
+                :class="checkupCounts.isolation ? 'text-warn' : 'text-ink'"
+              >
+                {{ checkupCounts.isolation }}
+              </div>
+            </div>
+            <div class="rounded-control border border-line px-3 py-2">
+              <div class="text-caption text-muted">{{ t("accounts.checkup.supply") }}</div>
+              <div
+                class="mt-0.5 text-metric font-semibold leading-none"
+                :class="checkupCounts.supply ? 'text-warn' : 'text-ink'"
+              >
+                {{ checkupCounts.supply }}
+              </div>
+            </div>
+          </div>
+
+          <p
+            v-if="checkup.fix"
+            class="mt-3 rounded-control px-3 py-2 text-body-sm"
+            :class="
+              checkup.fix.enabled
+                ? 'bg-brand-soft text-brand-dark'
+                : 'bg-line-soft text-muted'
+            "
+          >
+            <template v-if="checkup.fix.enabled">
+              {{ t("accounts.checkup.fixed", {
+                refreshed: checkup.fix.refreshed,
+                rerun: checkup.fix.rerunPairs,
+              }) }}
+            </template>
+            <template v-else>{{ t("accounts.checkup.disabled") }}</template>
+          </p>
+
+          <p v-if="checkupErrorEntries.length" class="mt-2 text-caption text-warn">
+            {{ t("accounts.checkup.errors", { items: checkupErrorText }) }}
+          </p>
+
+          <div
+            v-if="!checkup.issues.length"
+            class="mt-4 rounded-control border border-dashed border-line bg-line-soft/40 px-4 py-8 text-center text-body-sm text-muted"
+          >
+            {{ t("accounts.checkup.noIssues") }}
+          </div>
+          <ul v-else class="mt-4 space-y-1.5">
+            <li
+              v-for="(issue, index) in checkup.issues"
+              :key="`${issue.kind}-${issue.accountId ?? index}`"
+              class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-control border border-line px-3 py-2"
+            >
+              <span class="shrink-0 rounded-badge bg-line-soft px-1.5 py-px text-micro text-ink-soft">
+                {{ t(CHECKUP_KIND_LABEL[issue.kind]) }}
+              </span>
+              <span class="min-w-0 flex-1 truncate text-body-sm text-ink">
+                {{ issue.displayName || issue.accountId || issue.detail }}
+              </span>
+              <span
+                v-if="issue.displayName"
+                class="min-w-0 text-caption text-muted"
+                :title="issue.detail"
+              >
+                {{ issue.detail }}
+              </span>
+              <button
+                type="button"
+                class="shrink-0 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+                @click="handleCheckupIssue(issue)"
+              >
+                {{ t(CHECKUP_ACTION_LABEL[issue.next]) }}
+              </button>
+            </li>
+          </ul>
+
+          <div class="mt-4 flex justify-end">
+            <button
+              type="button"
+              class="rounded-control border border-line px-3.5 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+              @click="checkupOpen = false"
+            >
+              {{ t("accounts.checkup.close") }}
             </button>
           </div>
         </div>

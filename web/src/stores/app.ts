@@ -98,13 +98,25 @@ export const activityActionable = ref(0);
 /** 侧栏健康角标：未确认（open）的事件数。打开健康中心或确认后应立即回落。 */
 export const healthUnhandled = ref(0);
 
+/**
+ * 近 24 小时自动处置次数：和健康角标同一次请求返回，概览横幅直接复用，
+ * 不额外打一次接口。读不到就是 null，横幅不渲染，不编 0。
+ */
+export const healthAutoStats = ref<{
+  ok24h: number;
+  failed24h: number;
+  lastAt: string | null;
+} | null>(null);
+
 export async function loadHealthBadge(): Promise<void> {
   try {
     const data = await api.healthEvents("active", 1);
     healthUnhandled.value = data.summary.unhandled;
+    healthAutoStats.value = data.summary.auto ?? null;
   } catch {
     // 角标取不到就不亮，不影响主界面。
     healthUnhandled.value = 0;
+    healthAutoStats.value = null;
   }
 }
 
@@ -166,6 +178,17 @@ export const clientRunning = computed(() => detection.value?.running === true);
 export const switchBlockedReason = computed(() => {
   if (!detection.value) return t("state.detecting");
   if (!detection.value.installed) return t("state.clientMissing");
+  return null;
+});
+
+/**
+ * 切号被挡时的下一步：只说原因用户也不知道怎么办。
+ * - 检测中：给「重新检测」，重新拉一次客户端状态；
+ * - 未安装：给「去设置 → 环境」，装客户端或改路径。
+ */
+export const switchBlockedAction = computed<"redetect" | "settings" | null>(() => {
+  if (!detection.value) return "redetect";
+  if (!detection.value.installed) return "settings";
   return null;
 });
 

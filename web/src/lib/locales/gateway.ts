@@ -29,7 +29,7 @@ export const gatewayZh = {
   "gateway.pool.creditsRemaining": "积分剩余 {credits} / {total}",
   "gateway.pool.title": "账号池",
   "gateway.pool.subtitle":
-    "排除 / 恢复账号，指定偏好账号，或对单个账号探测；探测成功即解除它的冷却",
+    "手动排除 / 恢复只影响网关选号；自动隔离由设置里的阈值触发，两者互不替代",
   "gateway.pool.probeModelOption": "探测用模型",
   "gateway.pool.preferredSet": "已设偏好",
   "gateway.pool.preferredUnset": "未设偏好",
@@ -42,9 +42,9 @@ export const gatewayZh = {
     "指定账号是偏好不是强制：它不可用时会自动回落到常规择优",
   "gateway.pool.unsetPreferred": "取消偏好",
   "gateway.pool.setPreferred": "设为偏好",
-  "gateway.pool.restore": "恢复",
-  "gateway.pool.exclude": "排除",
-  "gateway.pool.excludeReasonManual": "人工排除，恢复前不会使用",
+  "gateway.pool.restore": "恢复路由",
+  "gateway.pool.exclude": "手动排除",
+  "gateway.pool.excludeReasonManual": "手动排除，恢复前不会用于网关",
   "gateway.pool.excludeReasonCredential": "凭据无法解密，重新导入后自动恢复",
   "gateway.pool.excludeReasonUpstream": "上游连续限流或异常，暂时排除",
   "gateway.pool.excludeUntil": "{reason}（还剩 {minutes} 分钟）",
@@ -420,7 +420,7 @@ export const gatewayEn = {
   "gateway.pool.creditsRemaining": "{credits} / {total} credits left",
   "gateway.pool.title": "Account pool",
   "gateway.pool.subtitle":
-    "Exclude or restore accounts, pick a preferred account, or probe one account; a successful probe clears its cooldown",
+    "Manual exclude / restore only affects gateway routing; auto-isolation is threshold-driven in Settings",
   "gateway.pool.probeModelOption": "Probe model",
   "gateway.pool.preferredSet": "Preferred set",
   "gateway.pool.preferredUnset": "No preferred account",
@@ -433,10 +433,10 @@ export const gatewayEn = {
     "The preferred account is a preference, not a rule: if it's unavailable the gateway falls back to normal selection",
   "gateway.pool.unsetPreferred": "Clear preferred",
   "gateway.pool.setPreferred": "Set preferred",
-  "gateway.pool.restore": "Restore",
-  "gateway.pool.exclude": "Exclude",
+  "gateway.pool.restore": "Restore routing",
+  "gateway.pool.exclude": "Exclude manually",
   "gateway.pool.excludeReasonManual":
-    "Excluded manually — not used until you restore it",
+    "Excluded manually — not used for routing until restored",
   "gateway.pool.excludeReasonCredential":
     "Credential can't be decrypted — recovers after re-import",
   "gateway.pool.excludeReasonUpstream":

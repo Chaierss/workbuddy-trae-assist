@@ -951,9 +951,9 @@ export interface Preferences {
   minHealthyAccounts: number;
   /** 号池供给告警：按近 7 天消耗推算的库存天数低于这个值就提示补给（默认 3）。 */
   minCreditsDays: number;
-  /** 健康中心：快到期 / 已过期的号自动续期一次（默认关，续期属于写操作）。 */
+  /** 健康中心：快到期 / 已过期的号自动续期一次（1.12.0 起默认开，显式关掉即保持关闭）。 */
   healthAutoRefresh: boolean;
-  /** 健康中心：当天失败的活动自动补跑一次（默认关）。 */
+  /** 健康中心：当天失败的活动自动补跑一次（1.12.0 起默认开）。 */
   healthAutoRerun: boolean;
   /** 网关自动隔离：连续认证失败达到阈值后暂时移出网关候选（只影响网关）。 */
   isolationEnabled: boolean;
@@ -1177,6 +1177,12 @@ export interface HealthSummary {
   info: number;
   /** 未确认的 open 事件数；侧栏角标与概览提示都用它。 */
   unhandled: number;
+  /** 最近 24 小时自动处置概览；概览页零额外请求展示。 */
+  auto: {
+    ok24h: number;
+    failed24h: number;
+    lastAt: string | null;
+  };
 }
 
 export interface HealthSnapshot {
@@ -1190,6 +1196,72 @@ export interface HealthActionLog {
   ok: boolean;
   message: string;
   at: string;
+}
+
+export interface HealthAutoAction {
+  eventId: string | null;
+  eventTitle: string | null;
+  eventKind: string | null;
+  accountId: string | null;
+  action: string;
+  ok: boolean;
+  message: string;
+  at: string;
+}
+
+export interface HealthAutoActions {
+  items: HealthAutoAction[];
+  total: number;
+  checkedAt: string;
+}
+
+export interface HealthAutoDisposeResult {
+  enabled: boolean;
+  busy: boolean;
+  refreshed: number;
+  rerunPairs: number;
+  rerunSummary: Record<string, number> | null;
+  message?: string;
+}
+
+export type PoolCheckupIssueKind =
+  | "login_invalid"
+  | "login_blocked"
+  | "relogin_required"
+  | "credential_failed"
+  | "isolated"
+  | "supply_low";
+
+export interface PoolCheckupIssue {
+  kind: PoolCheckupIssueKind;
+  accountId: string | null;
+  displayName: string | null;
+  detail: string;
+  next: "relogin" | "refresh" | "diagnose" | "release_isolation" | "view_health";
+}
+
+export interface PoolCheckupReport {
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  accounts: Array<{
+    accountId: string;
+    displayName: string;
+    scope: string;
+    credentialState: string;
+  }>;
+  login: LoginProbeResult & { error?: string };
+  credential: {
+    mode: string;
+    summary: Record<string, number>;
+    results: Array<Record<string, unknown>>;
+    error?: string;
+  };
+  supply: PoolHealth | Record<string, never>;
+  isolation: { active: number; items: Array<Record<string, unknown>> };
+  fix: HealthAutoDisposeResult | null;
+  issues: PoolCheckupIssue[];
+  errors: Record<string, string>;
 }
 
 /** 活动目录版本对比：changed 只表示「上次执行用的目录与现在不同」。 */
@@ -2134,6 +2206,21 @@ export const api = {
       `/api/health/events/${eventId}/act`,
       { method: "POST", body: JSON.stringify({ action }) },
     ),
+
+  /** 一键号池体检：登录复检 + 凭据验活 + 供给/隔离；fix 只触发安全白名单。 */
+  poolCheckup: (body: { accountIds?: string[]; fix?: boolean } = {}) =>
+    request<PoolCheckupReport>("/api/pool/checkup", {
+      method: "POST",
+      body: JSON.stringify({ fix: false, ...body }),
+    }),
+
+  /** 最近的自动处置记录（只读，新的在前）。 */
+  healthAutoActions: (limit = 20) =>
+    request<HealthAutoActions>(`/api/health/auto-actions?limit=${limit}`),
+
+  /** 立即执行一轮自动处置；遵循设置开关与 3/20 上限。 */
+  healthAutoDispose: () =>
+    request<HealthAutoDisposeResult>("/api/health/auto-dispose", { method: "POST" }),
 
   /** 某个事件的处置审计（新的在前）。 */
   healthEventActions: (eventId: string, limit = 20) =>

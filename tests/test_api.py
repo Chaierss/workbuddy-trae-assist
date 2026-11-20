@@ -548,9 +548,9 @@ def test_preferences_defaults_and_roundtrip(client):
         # 号池供给告警阈值：默认健康 2 个、库存 3 天。
         "minHealthyAccounts": 2,
         "minCreditsDays": 3.0,
-        # 健康中心自动处置：两项都实际打上游，默认关。
-        "healthAutoRefresh": False,
-        "healthAutoRerun": False,
+        # 健康中心自动处置：1.12.0 起默认开，只续期 / 补跑。
+        "healthAutoRefresh": True,
+        "healthAutoRerun": True,
         # 1.9.0：网关自动隔离默认开、阈值 3 次 / 24 小时；截止雷达提前 3 天。
         "isolationEnabled": True,
         "isolationThreshold": 3,
@@ -582,8 +582,8 @@ def test_preferences_defaults_and_roundtrip(client):
         "localMetricsEnabled": True,
         "minHealthyAccounts": 2,
         "minCreditsDays": 3.0,
-        "healthAutoRefresh": False,
-        "healthAutoRerun": False,
+        "healthAutoRefresh": True,
+        "healthAutoRerun": True,
         # 1.9.0：网关自动隔离默认开、阈值 3 次 / 24 小时；截止雷达提前 3 天。
         "isolationEnabled": True,
         "isolationThreshold": 3,
@@ -1080,6 +1080,132 @@ def test_health_events_snapshot_and_ack(client):
         == 400
     )
     assert client.get("/api/health/events?state=bogus").status_code == 400
+
+
+def test_health_auto_actions_and_dispose(client):
+    """自动处置对外只暴露「记录 + 立即执行」两个入口；默认开启，结果结构稳定。"""
+    body = client.get("/api/health/auto-actions?limit=5").json()
+    assert set(body) == {"items", "total", "checkedAt"}
+
+    result = client.post("/api/health/auto-dispose").json()
+    assert {"enabled", "busy", "refreshed", "rerunPairs"} <= set(result)
+    assert result["enabled"] is True
+    assert result["busy"] is False
+
+    # limit 越界由服务端收敛，不返回 400 —— 它只是展示上限，不是用户输入错误。
+    assert client.get("/api/health/auto-actions?limit=0").status_code == 200
+
+
+def test_pool_checkup_contract(client, monkeypatch):
+    """一键体检：分段采集失败互不阻断；fix=true 必须用 force 走显式修复。"""
+    account = _seed(client).account
+    probes = client.app.state.login_probes
+    lifecycle = client.app.state.credential_lifecycle
+    pool_health = client.app.state.pool_health
+    isolation = client.app.state.isolation
+    health = client.app.state.health
+
+    monkeypatch.setattr(
+        probes,
+        "probe",
+        lambda ids: {
+            "items": [
+                {
+                    "accountId": ids[0],
+                    "displayName": "账号甲",
+                    "scope": "workbuddy-cn",
+                    "state": "invalid",
+                    "detail": "登录态已失效",
+                    "checkedAt": "",
+                }
+            ],
+            "total": 1,
+            "valid": 0,
+            "invalid": 1,
+            "blocked": 0,
+        },
+    )
+
+    class _FakeResult:
+        def payload(self):
+            return {
+                "accountId": account.id,
+                "displayName": "账号甲",
+                "scope": "workbuddy-cn",
+                "status": "transient",
+                "detail": "验活失败",
+            }
+
+    monkeypatch.setattr(lifecycle, "sweep", lambda accounts, mode=None: [_FakeResult()])
+    monkeypatch.setattr(
+        lifecycle,
+        "summary",
+        lambda results: {
+            "total": 1,
+            "refreshed": 0,
+            "ok": 0,
+            "noop": 0,
+            "reloginRequired": 0,
+            "unsupported": 0,
+            "failed": 1,
+        },
+    )
+    monkeypatch.setattr(
+        pool_health,
+        "health",
+        lambda: {
+            "accounts": 1,
+            "healthyAccounts": 0,
+            "expiring24h": 0,
+            "cooling": 0,
+            "creditsDays": None,
+            "successRate24h": None,
+            "thresholds": {"minHealthyAccounts": 2, "minCreditsDays": 3},
+            "alerts": [],
+            "checkedAt": "",
+        },
+    )
+    monkeypatch.setattr(isolation, "items", lambda: [])
+
+    called: dict[str, object] = {}
+
+    def _fake_dispose(**kwargs):
+        called["force"] = kwargs.get("force")
+        return {
+            "enabled": True,
+            "busy": False,
+            "refreshed": 0,
+            "rerunPairs": 0,
+            "rerunSummary": None,
+        }
+
+    monkeypatch.setattr(health, "auto_dispose", _fake_dispose)
+
+    report = client.post("/api/pool/checkup", json={"fix": True}).json()
+    assert {
+        "startedAt",
+        "finishedAt",
+        "durationMs",
+        "accounts",
+        "login",
+        "credential",
+        "supply",
+        "isolation",
+        "fix",
+        "issues",
+        "errors",
+    } <= set(report)
+    assert [item["accountId"] for item in report["accounts"]] == [account.id]
+    assert {item["kind"] for item in report["issues"]} == {
+        "login_invalid",
+        "credential_failed",
+    }
+    # 显式点「体检并修复」才允许绕过偏好里的关闭态。
+    assert called["force"] is True
+
+    bad = client.post("/api/pool/checkup", json={"accountIds": ["ghost"]})
+    assert bad.status_code == 400
+    assert "ghost" in bad.json()["detail"]
 
 
 def test_schedules_update_times_and_jitter(client):

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
   Check,
@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  X,
 } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import Skeleton from "../components/Skeleton.vue";
@@ -20,6 +21,7 @@ import {
   formatTime,
   type HealthAction,
   type HealthActionLog,
+  type HealthAutoAction,
   type HealthEvent,
   type HealthEventState,
   type HealthSeverity,
@@ -36,10 +38,14 @@ import { t, type MessageKey } from "../lib/i18n";
  * 登记的动作白名单 —— 前端不拼接口，也不自己判断该续期还是该重登。
  */
 const router = useRouter();
+const route = useRoute();
 
 const snapshot = ref<HealthSnapshot | null>(null);
 const filter = ref<"active" | "resolved" | "all">("active");
 const kindFilter = ref("all");
+const accountFilter = ref("");
+const groupFilter = ref("");
+const autoOnly = ref(false);
 const loading = ref(true);
 const error = ref("");
 const busy = ref<string | null>(null);
@@ -47,6 +53,11 @@ const selected = ref<Set<string>>(new Set());
 const auditOpen = ref<string | null>(null);
 const audits = ref<Record<string, HealthActionLog[]>>({});
 const flash = ref<{ text: string; tone: "ok" | "bad" } | null>(null);
+const autoLog = ref<HealthAutoAction[]>([]);
+const autoLogTotal = ref(0);
+const autoLogOpen = ref(false);
+const autoLogLoading = ref(false);
+const autoRunning = ref(false);
 
 const KIND_LABEL: Record<string, MessageKey> = {
   compat_changed: "health.kind.compat_changed",
@@ -63,6 +74,64 @@ const KIND_LABEL: Record<string, MessageKey> = {
 };
 
 const KIND_OPTIONS = Object.keys(KIND_LABEL);
+
+/**
+ * 深链分组：概览 / 号池只负责「指路」，不再就地提供第二套处置按钮。
+ * 地址形如 `/health?group=credential` 或 `/health?account=<id>`。
+ */
+const GROUP_KINDS: Record<string, string[]> = {
+  credential: [
+    "login_invalid",
+    "login_blocked",
+    "login_expiring",
+    "credential_expired",
+    "credential_expiring",
+    "credential_stalled",
+    "credential_relogin",
+  ],
+  activity: ["activity_failed"],
+  supply: ["pool_supply"],
+  compat: ["compat_changed"],
+  schedule: ["schedule_failed"],
+};
+
+const GROUP_LABEL: Record<string, MessageKey> = {
+  credential: "health.filter.group.credential",
+  activity: "health.filter.group.activity",
+  supply: "health.filter.group.supply",
+  compat: "health.filter.group.compat",
+  schedule: "health.filter.group.schedule",
+};
+
+function applyRouteFilters(): void {
+  const group = typeof route.query.group === "string" ? route.query.group : "";
+  groupFilter.value = GROUP_KINDS[group] ? group : "";
+  const kind = typeof route.query.kind === "string" ? route.query.kind : "";
+  kindFilter.value = KIND_OPTIONS.includes(kind) ? kind : "all";
+  accountFilter.value = typeof route.query.account === "string" ? route.query.account : "";
+}
+
+applyRouteFilters();
+watch(() => [route.query.group, route.query.kind, route.query.account], applyRouteFilters);
+
+/** 用户改筛选时同步回地址栏：刷新、收藏、分享都能带回同一个视图。 */
+watch([kindFilter, accountFilter, groupFilter], () => {
+  const query = { ...route.query };
+  if (groupFilter.value) query.group = groupFilter.value;
+  else delete query.group;
+  if (kindFilter.value !== "all") query.kind = kindFilter.value;
+  else delete query.kind;
+  if (accountFilter.value) query.account = accountFilter.value;
+  else delete query.account;
+  if (
+    query.group === route.query.group &&
+    query.kind === route.query.kind &&
+    query.account === route.query.account
+  ) {
+    return;
+  }
+  void router.replace({ path: route.path, query });
+});
 
 const SEVERITY_TONE: Record<HealthSeverity, "danger" | "warn" | "info"> = {
   high: "danger",
@@ -91,8 +160,45 @@ const SNOOZE_OPTIONS: Array<{ hours: number; labelKey: MessageKey }> = [
 
 const summary = computed(() => snapshot.value?.summary ?? null);
 const items = computed(() => snapshot.value?.items ?? []);
+/** 事件登记了续期 / 补跑动作，就属于「系统可自动处理」。 */
+function autoActionable(event: HealthEvent): boolean {
+  return event.actions.some(
+    (action) => action.kind === "credential_refresh" || action.kind === "activity_rerun",
+  );
+}
+const autoCount = computed(() => items.value.filter(autoActionable).length);
+
+/** 账号筛选只列当前事件流里出现过的号；名字优先取证据里的 accountName。 */
+const accountOptions = computed(() => {
+  const names = new Map<string, string>();
+  for (const item of items.value) {
+    if (!item.accountId) continue;
+    const raw = item.evidence.accountName;
+    names.set(item.accountId, typeof raw === "string" && raw ? raw : item.title);
+  }
+  return [...names.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+
+const filtering = computed(
+  () => kindFilter.value !== "all" || Boolean(accountFilter.value) || Boolean(groupFilter.value),
+);
+
+function clearFilters(): void {
+  kindFilter.value = "all";
+  accountFilter.value = "";
+  groupFilter.value = "";
+}
+
 const visible = computed(() =>
-  items.value.filter((item) => kindFilter.value === "all" || item.kind === kindFilter.value),
+  items.value.filter(
+    (item) =>
+      (kindFilter.value === "all" || item.kind === kindFilter.value) &&
+      (!groupFilter.value || GROUP_KINDS[groupFilter.value]?.includes(item.kind)) &&
+      (!accountFilter.value || item.accountId === accountFilter.value) &&
+      (!autoOnly.value || autoActionable(item)),
+  ),
 );
 const selectable = computed(() => visible.value.filter((item) => item.state !== "resolved"));
 const allSelected = computed(
@@ -248,17 +354,79 @@ function evidenceRows(event: HealthEvent): Array<{ label: string; value: string 
   return rows;
 }
 
+async function loadAutoLog(): Promise<void> {
+  autoLogLoading.value = true;
+  try {
+    const data = await api.healthAutoActions(5);
+    autoLog.value = data.items;
+    autoLogTotal.value = data.total;
+  } catch {
+    autoLog.value = [];
+    autoLogTotal.value = 0;
+  } finally {
+    autoLogLoading.value = false;
+  }
+}
+
+async function runAutoDispose(): Promise<void> {
+  if (autoRunning.value) return;
+  autoRunning.value = true;
+  flash.value = null;
+  try {
+    const result = await api.healthAutoDispose();
+    if (!result.enabled) {
+      flash.value = { text: t("health.auto.disabled"), tone: "bad" };
+      return;
+    }
+    if (result.busy) {
+      flash.value = { text: t("health.auto.busy"), tone: "bad" };
+      return;
+    }
+    flash.value = {
+      text: t("health.auto.done", { refreshed: result.refreshed, rerun: result.rerunPairs }),
+      tone: "ok",
+    };
+    await load();
+    await loadAutoLog();
+  } catch (exc) {
+    flash.value = {
+      text: t("health.actionError", { error: (exc as Error).message }),
+      tone: "bad",
+    };
+  } finally {
+    autoRunning.value = false;
+  }
+}
+
 function isAuto(log: HealthActionLog): boolean {
   return log.action.startsWith("auto:");
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadAutoLog();
+});
 </script>
 
 <template>
   <div class="space-y-5">
     <PageHeader :title="t('health.title')" :subtitle="t('health.subtitle')">
       <template #actions>
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-control border border-brand/30 bg-brand-soft px-3.5 py-2 text-body-sm font-medium text-brand-dark transition-colors hover:border-brand/50 disabled:opacity-60"
+          :disabled="loading || autoRunning"
+          @click="runAutoDispose"
+        >
+          <Loader2
+            v-if="autoRunning"
+            :size="15"
+            :stroke-width="1.9"
+            class="animate-spin"
+          />
+          <ShieldCheck v-else :size="15" :stroke-width="1.9" />
+          {{ t("health.auto.dispose") }}
+        </button>
         <button
           type="button"
           class="inline-flex items-center gap-2 rounded-control border border-line bg-surface px-3.5 py-2 text-body-sm font-medium text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
@@ -325,6 +493,49 @@ onMounted(load);
       </div>
     </div>
 
+    <!-- 自动处置回执：默认开启后，用户要能看到「系统替我做了什么」。 -->
+    <div v-if="summary" class="rounded-card border border-line bg-surface shadow-card">
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 px-4 py-3 text-left"
+        @click="autoLogOpen = !autoLogOpen"
+      >
+        <History :size="15" :stroke-width="1.9" class="text-brand" />
+        <span class="text-body-sm font-medium text-ink">{{ t("health.auto.title") }}</span>
+        <span class="min-w-0 flex-1 truncate text-caption text-muted">
+          {{ t("health.auto.summary", { ok: summary.auto.ok24h, failed: summary.auto.failed24h }) }}
+        </span>
+        <ChevronDown
+          :size="14"
+          :stroke-width="1.9"
+          class="text-muted transition-transform"
+          :class="autoLogOpen ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-if="autoLogOpen" class="border-t border-line px-4 py-3">
+        <p v-if="autoLogLoading" class="text-body-sm text-muted">{{ t("health.auto.loading") }}</p>
+        <p v-else-if="!autoLog.length" class="text-body-sm text-muted">{{ t("health.auto.empty") }}</p>
+        <ul v-else class="space-y-2">
+          <li
+            v-for="item in autoLog"
+            :key="`${item.eventId}-${item.at}-${item.action}`"
+            class="flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm"
+          >
+            <StatusPill :tone="item.ok ? 'brand' : 'danger'" dot>
+              {{ item.ok ? t("health.auto.ok") : t("health.auto.failed") }}
+            </StatusPill>
+            <span class="min-w-0 flex-1 truncate text-ink-soft" :title="item.eventTitle ?? ''">
+              {{ item.eventTitle ?? t("health.auto.archived") }}
+            </span>
+            <span class="text-caption text-muted">{{ formatTime(item.at) }}</span>
+          </li>
+        </ul>
+        <p v-if="autoLogTotal > autoLog.length" class="mt-2 text-caption text-muted">
+          {{ t("health.auto.more", { total: autoLogTotal }) }}
+        </p>
+      </div>
+    </div>
+
     <!-- 筛选条 -->
     <div class="flex flex-wrap items-center gap-2">
       <div class="inline-flex rounded-control border border-line bg-surface p-0.5">
@@ -344,11 +555,26 @@ onMounted(load);
         </button>
       </div>
 
+      <button
+        v-if="autoCount"
+        type="button"
+        class="rounded-control border px-3 py-2 text-body-sm transition-colors"
+        :class="
+          autoOnly
+            ? 'border-brand/30 bg-brand-soft font-medium text-brand-dark'
+            : 'border-line bg-surface text-ink-soft hover:border-line-strong hover:text-ink'
+        "
+        @click="autoOnly = !autoOnly"
+      >
+        {{ t("health.filter.auto", { count: autoCount }) }}
+      </button>
+
       <div class="relative">
         <select
           v-model="kindFilter"
           class="appearance-none rounded-control border border-line bg-surface py-2 pl-3 pr-8 text-body-sm text-ink-soft outline-none transition-colors hover:border-line-strong focus:border-brand"
           :aria-label="t('health.filter.kind')"
+          @change="groupFilter = ''"
         >
           <option value="all">{{ t("health.filter.allKinds") }}</option>
           <option v-for="kind in KIND_OPTIONS" :key="kind" :value="kind">
@@ -361,6 +587,48 @@ onMounted(load);
           class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted"
         />
       </div>
+
+      <div v-if="accountOptions.length" class="relative">
+        <select
+          v-model="accountFilter"
+          class="appearance-none rounded-control border border-line bg-surface py-2 pl-3 pr-8 text-body-sm text-ink-soft outline-none transition-colors hover:border-line-strong focus:border-brand"
+          :aria-label="t('health.filter.account')"
+        >
+          <option value="">{{ t("health.filter.allAccounts") }}</option>
+          <option v-for="option in accountOptions" :key="option.id" :value="option.id">
+            {{ option.label }}
+          </option>
+        </select>
+        <ChevronDown
+          :size="14"
+          :stroke-width="1.9"
+          class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted"
+        />
+      </div>
+
+      <span
+        v-if="groupFilter"
+        class="inline-flex items-center gap-1 rounded-control border border-brand/30 bg-brand-soft px-2.5 py-2 text-body-sm text-brand-dark"
+      >
+        {{ t(GROUP_LABEL[groupFilter] ?? "health.filter.kind") }}
+        <button
+          type="button"
+          class="rounded p-0.5 hover:bg-surface/70"
+          :aria-label="t('health.filter.clear')"
+          @click="groupFilter = ''"
+        >
+          <X :size="11" :stroke-width="2.4" />
+        </button>
+      </span>
+
+      <button
+        v-if="filtering"
+        type="button"
+        class="text-caption text-muted transition-colors hover:text-ink"
+        @click="clearFilters"
+      >
+        {{ t("health.filter.clear") }}
+      </button>
 
       <button
         v-if="selectable.length"
