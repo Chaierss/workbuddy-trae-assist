@@ -203,45 +203,57 @@ def _wordmark_font(size: int) -> ImageFont.FreeTypeFont | None:
 
 
 def installer_header_bmp(glyph: Image.Image) -> Image.Image:
-    """安装器内页页眉图（150×57）：纸面底 + 墨绿 logo 与字标。
+    """安装器内页页眉图（150×57）：墨绿品牌块 + 反白 logo 与字标。
 
-    MUI_BGCOLOR 同时作用于页眉条底色，所以这里必须用同一个纸色；
-    纯黑底会像一块贴上去的补丁，纯白底又会在纸色页眉上露出矩形边界。
+    位图占据页眉右侧整块，与左侧纸色的标题区形成一条清晰分界。所以要整块
+    铺满墨绿、不留纸色边——留边会变成「贴上去的矩形补丁」。
     """
-    canvas = Image.new("RGB", (150, 57), PAPER)
+    canvas = Image.new("RGB", (150, 57), INK)
     font = _wordmark_font(15)
+
+    logo = 28
+    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), PAPER)
     if font is None:
-        logo = 32
-        mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
         canvas.paste(mark, ((150 - logo) // 2, (57 - logo) // 2), mask=mark.getchannel("A"))
         return canvas
 
-    logo = 28
-    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
-    canvas.paste(mark, (14, (57 - logo) // 2), mask=mark.getchannel("A"))
-
+    canvas.paste(mark, (12, (57 - logo) // 2), mask=mark.getchannel("A"))
     draw = ImageDraw.Draw(canvas)
     # anchor=lm：以左侧垂直中点对齐，避免不同字体基线差异把字标顶偏。
-    draw.text((50, 29), "chaierww", font=font, fill=INK, anchor="lm")
+    draw.text((48, 29), "chaierww", font=font, fill=PAPER, anchor="lm")
     return canvas
 
 
 def installer_sidebar_bmp(glyph: Image.Image) -> Image.Image:
-    """安装器欢迎/完成页侧栏图（164×314）：纸面底 + 墨绿 logo + 账簿细线。
+    """安装器欢迎/完成页侧栏图（164×314）：整块墨绿品牌面板。
 
-    侧栏在欢迎页与完成页出现，底色必须与 MUI_BGCOLOR 的纸色一致，
-    否则会看到一块 164×314 的矩形边界。
+    侧栏是这两个页面唯一的大块视觉，做成满幅色块才撑得起品牌感；
+    文字只用英文，避免位图依赖中文字体。底部几条细线承接「账簿」主题。
     """
-    canvas = Image.new("RGB", (164, 314), PAPER)
-    logo = 76
-    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
-    canvas.paste(mark, ((164 - logo) // 2, 52), mask=mark.getchannel("A"))
+    canvas = Image.new("RGB", (164, 314), INK)
+
+    logo = 80
+    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), PAPER)
+    canvas.paste(mark, ((164 - logo) // 2, 62), mask=mark.getchannel("A"))
 
     draw = ImageDraw.Draw(canvas)
-    # 一条墨绿短横 + 三条浅色账簿线：克制，不在位图里塞文字。
-    draw.line([(42, 154), (122, 154)], fill=INK, width=1)
-    for y in (188, 206, 224):
-        draw.line([(32, y), (132, y)], fill=HAIRLINE, width=1)
+    wordmark = _wordmark_font(16)
+    if wordmark is not None:
+        draw.text((82, 168), "chaierww", font=wordmark, fill=PAPER, anchor="mm")
+        tagline = _wordmark_font(8)
+        if tagline is not None:
+            draw.text(
+                (82, 186),
+                "LOCAL · MULTI-ACCOUNT",
+                font=tagline,
+                fill=(198, 214, 203),
+                anchor="mm",
+            )
+
+    # 一条亮线 + 三条暗线：远看是呼吸留白，近看仍是账簿的横格。
+    draw.line([(40, 232), (124, 232)], fill=(198, 214, 203), width=1)
+    for y in (250, 268, 286):
+        draw.line([(32, y), (132, y)], fill=(63, 92, 82), width=1)
     return canvas
 
 

@@ -146,6 +146,9 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 - **Credentials renew themselves**: renewal starts early based on token lifetime (30 minutes to
   6 hours); failures back off at 1h / 6h, and three consecutive auth failures trip a circuit
   breaker with a one-click "resume auto-renew"
+- **One line tells you if anything needs doing**: the overview opens with a conclusion (all fine /
+  accounts need attention / health items remain) and also flags accounts that failed a switch or
+  renewal in the last 7 days, with a link straight to the right page
 - **Problems surface on their own**: the overview "needs attention" card shows the top 3 groups
   as a read-only summary and sends all handling to Health; expiring or 24h-due credentials renew
   automatically (up to 3 per round) and the day's failed activities rerun automatically (up to

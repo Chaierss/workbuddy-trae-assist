@@ -22,7 +22,7 @@ import StatusPill from "../components/StatusPill.vue";
 import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
-import { api, formatAmount, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type OverviewPulse, type Snapshot } from "../api";
+import { api, formatAmount, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type OverviewPulse, type Snapshot, type StabilityReport } from "../api";
 import { t } from "../lib/i18n";
 
 import {
@@ -76,6 +76,73 @@ const rewardsLoading = ref(true);
 const rewardsError = ref("");
 const loadError = ref("");
 const actionablesLoading = ref(true);
+
+/** 近 7 天稳定度：结论条只说「有几个号失败过」，明细去账号页看。 */
+const stability = ref<StabilityReport | null>(null);
+
+async function loadStability(): Promise<void> {
+  try {
+    stability.value = await api.poolStability(7);
+  } catch {
+    // 读不到就不显示这一句；不能用 0 冒充「一切正常」。
+    stability.value = null;
+  }
+}
+
+/** 7 天窗口里出现过任一失败的号数（切换 / 登录失效 / 续期 / 网关）。 */
+const unstableCount = computed(() => {
+  const items = stability.value?.items ?? [];
+  return items.filter(
+    (item) =>
+      (item.loginInvalid ?? 0) > 0 ||
+      (item.refreshFailed ?? 0) > 0 ||
+      (item.gatewayFailed ?? 0) > 0 ||
+      (item.switchTotal > 0 && item.switchOk < item.switchTotal),
+  ).length;
+});
+
+/**
+ * 结论条：一眼回答「今天要不要管」。
+ * 四态：空池 / 全好 / 全好但有健康事件 / 有凭据问题；文案在 locales，不在这里拼。
+ */
+const conclusion = computed(() => {
+  const total = accounts.value.length;
+  if (!total) {
+    return {
+      tone: "neutral" as const,
+      icon: Users,
+      text: t("overview.conclusion.empty"),
+      cta: t("overview.conclusion.emptyCta"),
+      to: navTo("/accounts"),
+    };
+  }
+  const issues = attentionCount.value;
+  if (issues === 0) {
+    if (healthUnhandled.value > 0) {
+      return {
+        tone: "neutral" as const,
+        icon: ShieldCheck,
+        text: t("overview.conclusion.healthyPending", { total, pending: healthUnhandled.value }),
+        cta: t("overview.conclusion.openHealth"),
+        to: navTo("/health"),
+      };
+    }
+    return {
+      tone: "ok" as const,
+      icon: ShieldCheck,
+      text: t("overview.conclusion.healthy", { total }),
+      cta: t("overview.conclusion.openAccounts"),
+      to: navTo("/accounts"),
+    };
+  }
+  return {
+    tone: "warn" as const,
+    icon: AlertTriangle,
+    text: t("overview.conclusion.issues", { total, healthy: total - issues, issues }),
+    cta: t("overview.conclusion.handle"),
+    to: navTo("/accounts?risk=credential"),
+  };
+});
 const busy = ref<string | null>(null);
 const runError = ref("");
 /** 客户端登录态目录默认收成一行，点开才铺完整路径 —— 它不是常用信息。 */
@@ -365,6 +432,7 @@ onMounted(() => {
   void loadRewards();
   void loadGlobalBackups();
   void loadHealthBadge();
+  void loadStability();
 });
 
 const clientText = computed(() => {
@@ -441,6 +509,37 @@ async function loadGlobalBackups(): Promise<void> {
         class="shrink-0 text-caption text-brand-dark hover:underline"
       >
         {{ t("overview.health.cta") }}
+      </RouterLink>
+    </div>
+
+    <!-- 结论条：一眼回答「今天要不要管」，右侧直达对应页面。 -->
+    <div
+      class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border px-4 py-3 text-body-sm"
+      :class="
+        conclusion.tone === 'warn'
+          ? 'border-warn/30 bg-warn-soft text-warn'
+          : 'border-line bg-surface text-ink-soft'
+      "
+    >
+      <component
+        :is="conclusion.icon"
+        :size="16"
+        :stroke-width="1.9"
+        class="shrink-0"
+        :class="conclusion.tone === 'warn' ? 'text-warn' : 'text-brand'"
+      />
+      <span class="min-w-0 flex-1">
+        {{ conclusion.text }}
+        <span v-if="unstableCount" class="ml-1 text-caption">
+          {{ t("overview.conclusion.stability", { count: unstableCount }) }}
+        </span>
+      </span>
+      <RouterLink
+        :to="conclusion.to"
+        class="shrink-0 text-caption hover:underline"
+        :class="conclusion.tone === 'warn' ? 'text-warn' : 'text-brand-dark'"
+      >
+        {{ conclusion.cta }}
       </RouterLink>
     </div>
 

@@ -144,8 +144,8 @@ NSIS 安装器（`oneClick: false`，辅助向导）比「一键装」多了几�
 | 资源 | 用途 |
 | --- | --- |
 | `build/license.txt` | 安装协议页（`MUI_PAGE_LICENSE`）。**UTF-8 带 BOM**，约 15 行中文要点 + 指向安装目录里的全文 |
-| `build/installerHeader.bmp` | 150×57，内页页眉右侧的品牌图 |
-| `build/installerSidebar.bmp` | 164×314，欢迎页/完成页左侧品牌图（卸载侧栏缺省复用） |
+| `build/installerHeader.bmp` | 150×57，内页页眉右侧的墨绿品牌块（反白 logo + 字标） |
+| `build/installerSidebar.bmp` | 164×314，欢迎页/完成页左侧的整幅墨绿品牌面板（卸载侧栏缺省复用） |
 | `build/INSTALL.txt` | 打进安装目录的说明：常驻托盘、数据位置、怎么卸载（完成页的「打开使用说明」链接也指向它） |
 
 三份文件随包分发到安装目录：`LICENSE.txt`（PolyForm 全文）、`DISCLAIMER.md`（免责声明）、
@@ -195,10 +195,11 @@ NSIS 自带的全套语言编进去再按系统区域挑，英文系统上又会
   可以用，但里面的 `Function` 必须定义在**宏体内**（宏在页面插入点展开，此时 MUI2 / LogicLib
   已就位）；顶层只能放 `!include` / `!define` / `Var`。
   完成页文本区默认只有 40u（约 3 行），长文案要加 `MUI_FINISHPAGE_TEXT_LARGE` 才不被裁。
-- **纸本账簿配色**（顶层 `MUI_BGCOLOR` / `MUI_INSTFILESPAGE_PROGRESSBAR`）：页眉条、
-  欢迎页与完成页统一用 `#FAF7F0` 纸色；`build/installerHeader.bmp` 与
-  `build/installerSidebar.bmp` 必须用同一个纸色，否则会露出位图边界。
-  安装进度条走 Windows 主题色，不再用 NSIS 经典的绿色块。
+- **墨绿品牌块 + 纸色正文**（顶层 `MUI_BGCOLOR` / `MUI_INSTFILESPAGE_PROGRESSBAR`）：
+  侧栏是整幅 `#1F3A33` 品牌面板、页眉位图是同一色的右侧色块，正文区统一用 `#FAF7F0` 纸色。
+  侧栏必须铺满 164×314，留纸色边会露出矩形补丁；页眉位图也必须整块铺满 150×57。
+  安装进度条走 Windows 主题色，不再用 NSIS 经典的绿色块。`MUI_BRANDINGTEXT` 置空，
+  去掉底部那行「产品名 + 版本号」的外壳杂讯。
 - **卸载时由用户决定是否删资料**（`customUnWelcomePage`）：替换默认卸载欢迎页，自绘一页
   「保留我的资料（推荐）/ 删除程序，同时删除我的资料」单选，**默认保留**、显示位置为
   `~/.chaierww`。`customUnInit` 先把 `$cwDeleteUserData` 置 `0`，因此静默卸载

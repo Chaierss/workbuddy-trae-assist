@@ -41,11 +41,14 @@
 ; 这些是 MUI2 的「默认值」：必须在 !include MUI2.nsh 之前定义。本文件被
 ; electron-builder 前插在模板之前，所以放在顶层正好生效。
 ;
-; 侧栏图（installerSidebar.bmp）与这里的纸色来自同一个色值，两边必须一致，
-; 否则欢迎页 / 完成页会看到一块 164×314 的色块边界。
+; 侧栏图是满幅墨绿品牌面板，页眉位图是同一墨绿的品牌块；纸色只负责正文区。
+; 侧栏必须整块铺满 164×314，留纸色边会露出一个矩形补丁。
 !define MUI_BGCOLOR "FAF7F0"
 ; 进度条走 Windows 主题色，替掉 NSIS 默认的经典绿色块。
 !define MUI_INSTFILESPAGE_PROGRESSBAR colored
+; 底部那行「chaierww 2.1.1」是 NSIS 的 BrandingText，属于外壳杂讯。
+; 在 MUI2 之前定义成空格；模板若用 !ifndef 就不会再覆盖回版本号。
+!define MUI_BRANDINGTEXT " "
 
 ; 宏体内共享的全局变量（顶层 Var 不依赖模板 define）。
 ;
@@ -155,26 +158,34 @@
 
     ; 值用粗体：版本号与路径是这一页最该被一眼看到的信息。
     CreateFont $R5 "$(^Font)" 9 700
+    ; 分区标题比正文大半号，代替 Windows 原生 GroupBox 的框线。
+    CreateFont $R4 "$(^Font)" 10 700
 
-    ; 第一组：版本与位置
-    ${NSD_CreateGroupBox} 0 0 100% 58u "版本"
+    ; 第一区：版本与位置（标题 + 细线）。
+    ${NSD_CreateLabel} 0 0 100% 12u "版本"
+    Pop $0
+    SendMessage $0 ${WM_SETFONT} $R4 1
+    ${NSD_CreateHLine} 0 14u 100% 1u ""
     Pop $0
 
-    ${NSD_CreateLabel} 10u 15u 48u 11u "已安装"
+    ${NSD_CreateLabel} 10u 21u 48u 11u "已安装"
     Pop $0
-    ${NSD_CreateLabel} 62u 15u -72u 11u "$cwOldVersion  →  ${VERSION}"
+    ${NSD_CreateLabel} 62u 21u -72u 11u "$cwOldVersion  →  ${VERSION}"
     Pop $1
     SendMessage $1 ${WM_SETFONT} $R5 1
 
-    ${NSD_CreateLabel} 10u 31u 48u 20u "安装位置"
+    ${NSD_CreateLabel} 10u 37u 48u 20u "安装位置"
     Pop $0
-    ${NSD_CreateLabel} 62u 31u -72u 20u "$cwOldInstallDir"
+    ${NSD_CreateLabel} 62u 37u -72u 20u "$cwOldInstallDir"
     Pop $0
 
-    ; 第二组：资料安全。把「不删你的账号」放在视线正中，而不是一行小字。
-    ${NSD_CreateGroupBox} 0 64u 100% 44u "资料安全"
+    ; 第二区：资料安全。把「不删你的账号」放在视线正中，而不是一行小字。
+    ${NSD_CreateLabel} 0 62u 100% 12u "资料安全"
     Pop $0
-    ${NSD_CreateLabel} 10u 78u -20u 26u "账号、凭据、备份与日志都保存在 $PROFILE\.chaierww。$\r$\n覆盖安装只替换程序文件，不会改动或删除这些资料。"
+    SendMessage $0 ${WM_SETFONT} $R4 1
+    ${NSD_CreateHLine} 0 76u 100% 1u ""
+    Pop $0
+    ${NSD_CreateLabel} 10u 82u -20u 26u "账号、凭据、备份与日志都保存在 $PROFILE\.chaierww。$\r$\n覆盖安装只替换程序文件，不会改动或删除这些资料。"
     Pop $0
 
     ${NSD_CreateHLine} 0 114u 100% 1u ""
@@ -340,24 +351,30 @@
       Abort
     ${EndIf}
 
+    ; 分区标题比正文大半号，代替原生 GroupBox 的框线。
+    CreateFont $R4 "$(^Font)" 10 700
+
     ${NSD_CreateLabel} 0 0 100% 11u "将删除程序文件、桌面快捷方式和开始菜单项。"
     Pop $0
     ${NSD_CreateLabel} 0 16u 100% 22u "账号、凭据、备份、日志与网页版登录态保存在 $PROFILE\.chaierww。请选择处理方式："
     Pop $0
 
-    ${NSD_CreateGroupBox} 0 42u 100% 84u "资料处理方式"
+    ${NSD_CreateLabel} 0 42u 100% 12u "资料处理方式"
+    Pop $0
+    SendMessage $0 ${WM_SETFONT} $R4 1
+    ${NSD_CreateHLine} 0 56u 100% 1u ""
     Pop $0
 
     ; 第一项默认选中：卸载不该顺手带走账号，误删的代价远高于多点一次。
-    ${NSD_CreateRadioButton} 10u 56u -20u 12u "保留我的资料（推荐）"
+    ${NSD_CreateRadioButton} 10u 62u -20u 12u "保留我的资料（推荐）"
     Pop $cwKeepRadio
     ${NSD_AddStyle} $cwKeepRadio ${WS_GROUP}
-    ${NSD_CreateLabel} 20u 70u -30u 14u "账号、凭据、备份与网页版登录态原样保留；重装后自动回来。"
+    ${NSD_CreateLabel} 20u 76u -30u 14u "账号、凭据、备份与网页版登录态原样保留；重装后自动回来。"
     Pop $0
 
-    ${NSD_CreateRadioButton} 10u 88u -20u 12u "删除程序，同时删除我的资料"
+    ${NSD_CreateRadioButton} 10u 94u -20u 12u "删除程序，同时删除我的资料"
     Pop $cwDeleteRadio
-    ${NSD_CreateLabel} 20u 102u -30u 18u "含账号、凭据、备份与 $APPDATA\chaierww 的更新偏好；删除后不可恢复。"
+    ${NSD_CreateLabel} 20u 108u -30u 18u "含账号、凭据、备份与 $APPDATA\chaierww 的更新偏好；删除后不可恢复。"
     Pop $0
 
     ; 按 $cwDeleteUserData 恢复选择（默认 "0" = 保留）。静默卸载不会进这一页。

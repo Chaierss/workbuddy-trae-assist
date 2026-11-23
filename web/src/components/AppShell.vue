@@ -17,6 +17,7 @@ import {
   changeScope,
   clientDetections,
   isImplementedScope,
+  loadAccounts,
   scope,
   scopedPath,
 } from "../stores/app";
@@ -135,6 +136,13 @@ function onShortcut(event: KeyboardEvent): void {
 let unsubscribeTray: (() => void) | null = null;
 let unsubscribeTrayFocus: (() => void) | null = null;
 
+/**
+ * 后台凭据巡检间隔。托盘常驻时页面可能停在别的模块，没人轮询账号列表，
+ * 「凭据异常 → 系统通知」就会等到用户打开账号页才触发。5 分钟拉一次本地接口。
+ */
+const BACKGROUND_REFRESH_MS = 5 * 60 * 1000;
+let backgroundRefresh: number | null = null;
+
 /** 托盘选中态要的是账号 id；检测结果给的是 externalId，这里翻译一次。 */
 const currentAccountId = computed(() => {
   const externalIds = clientDetections.value
@@ -216,6 +224,12 @@ onMounted(() => {
   initUpdateStore();
   void initTelemetry();
   subscribeTraySwitch();
+  // 只有桌面端有系统通知；浏览器形态不做这次轮询。
+  if (desktop) {
+    backgroundRefresh = window.setInterval(() => {
+      void loadAccounts().catch(() => {});
+    }, BACKGROUND_REFRESH_MS);
+  }
 });
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onShortcut);
@@ -223,6 +237,10 @@ onBeforeUnmount(() => {
   unsubscribeTray = null;
   unsubscribeTrayFocus?.();
   unsubscribeTrayFocus = null;
+  if (backgroundRefresh !== null) {
+    window.clearInterval(backgroundRefresh);
+    backgroundRefresh = null;
+  }
 });
 
 // ---------- 本地体验数据 + 首启引导 ----------
