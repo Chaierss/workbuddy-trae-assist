@@ -51,6 +51,16 @@
 !define MUI_BRANDINGTEXT " "
 BrandingText " "
 
+; —— 标题栏着色 ——
+;
+; Windows 11 允许给系统标题栏指定底色与文字色。这里取与页眉品牌块相同的墨绿，
+; 避免默认白条把窗口视觉切成两截。旧系统不支持这几个属性，调用失败会静默忽略。
+!macro cwThemeCaption
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 1, i 4)'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 35, *i 0x00333A1F, i 4)'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 36, *i 0x00F0F7FA, i 4)'
+!macroend
+
 ; 宏体内共享的全局变量（顶层 Var 不依赖模板 define）。
 ;
 ; 变量必须按编译阶段声明：BUILD_UNINSTALLER 那一次只编译卸载器代码，
@@ -131,6 +141,11 @@ BrandingText " "
 ; 顶层直接写 Function 会在编译期找不到 MUI_HEADER_TEXT、${If} 等宏。
 !macro customWelcomePage
   !define MUI_PAGE_CUSTOMFUNCTION_PRE cwSkipWelcomeWhenUpdated
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW cwThemeWelcome
+
+  Function cwThemeWelcome
+    !insertmacro cwThemeCaption
+  FunctionEnd
 
   Function cwSkipWelcomeWhenUpdated
     ${If} ${isUpdated}
@@ -156,6 +171,8 @@ BrandingText " "
     ${If} $0 == error
       Abort
     ${EndIf}
+
+    !insertmacro cwThemeCaption
 
     ; 值用粗体：版本号与路径是这一页最该被一眼看到的信息。
     CreateFont $R5 "$(^Font)" 9 700
@@ -351,6 +368,8 @@ BrandingText " "
     ${If} $0 == error
       Abort
     ${EndIf}
+
+    !insertmacro cwThemeCaption
 
     ; 分区标题比正文大半号，代替原生 GroupBox 的框线。
     CreateFont $R4 "$(^Font)" 10 700
