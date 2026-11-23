@@ -47,8 +47,9 @@
 ; 进度条走 Windows 主题色，替掉 NSIS 默认的经典绿色块。
 !define MUI_INSTFILESPAGE_PROGRESSBAR colored
 ; 底部那行「chaierww 2.1.1」是 NSIS 的 BrandingText，属于外壳杂讯。
-; 在 MUI2 之前定义成空格；模板若用 !ifndef 就不会再覆盖回版本号。
+; 两个都写：MUI_BRANDINGTEXT 管 MUI 自己的默认值，BrandingText 命令覆盖模板里的赋值。
 !define MUI_BRANDINGTEXT " "
+BrandingText " "
 
 ; 宏体内共享的全局变量（顶层 Var 不依赖模板 define）。
 ;
@@ -78,7 +79,7 @@
   ; 欢迎页：一次说清「装什么 / 装在哪 / 数据在哪 / 要不要管理员」。
   ; 只在首次安装显示；重装走 --updated 升级流程，改由下方的升级信息页接管。
   !define MUI_WELCOMEPAGE_TITLE "安装 chaierww"
-  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的多个账号收在一处。$\r$\n$\r$\n· 一键切号：登录态互相隔离，切完自动拉起$\r$\n· 签到与活动：每个号做到哪一步都看得见$\r$\n· 体检与续期：凭据快到期时提前提醒$\r$\n· 用量看板：按账号、按模型看清消耗$\r$\n$\r$\n只为当前用户安装，不需要管理员权限。$\r$\n账号与凭据只留在本机 $PROFILE\.chaierww；覆盖安装与卸载都不会删除它。"
+  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的账号收在一处：$\r$\n$\r$\n· 一键切号：登录态互相隔离$\r$\n· 签到与活动：进度一眼可见$\r$\n· 体检续期：临期提前提醒$\r$\n· 用量看板：按账号、按模型统计$\r$\n仅当前用户安装，无需管理员权限。"
 
   ; 目录页：用户最容易把「安装目录」当成「数据目录」，这里当场分开讲。
   ; 「默认沿用上次位置」由下方 customInstall / preInit 的 LastInstallDir 保证。
@@ -144,7 +145,7 @@
       Abort
     ${EndIf}
 
-    !insertmacro MUI_HEADER_TEXT "升级 chaierww" "检测到已安装版本，本次为覆盖安装，账号与资料不受影响。"
+    !insertmacro MUI_HEADER_TEXT "升级 chaierww" "覆盖安装，账号与资料不受影响。"
 
     ${If} $cwOldVersion == ""
       StrCpy $cwOldVersion "未知"
