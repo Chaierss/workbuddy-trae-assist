@@ -75,7 +75,7 @@
   ; 欢迎页：一次说清「装什么 / 装在哪 / 数据在哪 / 要不要管理员」。
   ; 只在首次安装显示；重装走 --updated 升级流程，改由下方的升级信息页接管。
   !define MUI_WELCOMEPAGE_TITLE "安装 chaierww"
-  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的多个账号收在一处。$\r$\n$\r$\n一键切号 · 签到积分 · 账号体检 · 用量看板$\r$\n$\r$\n只为当前用户安装，不需要管理员权限。$\r$\n账号与凭据只留在本机：$PROFILE\.chaierww$\r$\n覆盖安装与卸载都不会删除它。"
+  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的多个账号收在一处。$\r$\n$\r$\n· 一键切号：登录态互相隔离，切完自动拉起$\r$\n· 签到与活动：每个号做到哪一步都看得见$\r$\n· 体检与续期：凭据快到期时提前提醒$\r$\n· 用量看板：按账号、按模型看清消耗$\r$\n$\r$\n只为当前用户安装，不需要管理员权限。$\r$\n账号与凭据只留在本机 $PROFILE\.chaierww；覆盖安装与卸载都不会删除它。"
 
   ; 目录页：用户最容易把「安装目录」当成「数据目录」，这里当场分开讲。
   ; 「默认沿用上次位置」由下方 customInstall / preInit 的 LastInstallDir 保证。
@@ -153,14 +153,40 @@
       Abort
     ${EndIf}
 
-    ${NSD_CreateLabel} 0 0 100% 18u "已安装版本：$cwOldVersion"
+    ; 值用粗体：版本号与路径是这一页最该被一眼看到的信息。
+    CreateFont $R5 "$(^Font)" 9 700
+
+    ; 第一组：版本与位置
+    ${NSD_CreateGroupBox} 0 0 100% 58u "版本"
     Pop $0
-    ${NSD_CreateLabel} 0 22u 100% 18u "本次安装版本：${VERSION}"
+
+    ${NSD_CreateLabel} 10u 15u 48u 11u "已安装"
     Pop $0
-    ${NSD_CreateLabel} 0 46u 100% 18u "安装位置：$cwOldInstallDir"
+    ${NSD_CreateLabel} 62u 15u -72u 11u "$cwOldVersion  →  ${VERSION}"
+    Pop $1
+    SendMessage $1 ${WM_SETFONT} $R5 1
+
+    ${NSD_CreateLabel} 10u 31u 48u 20u "安装位置"
     Pop $0
-    ${NSD_CreateLabel} 0 72u 100% 36u "账号、凭据、备份与日志保存在 $PROFILE\.chaierww，覆盖安装不会改动它们。"
+    ${NSD_CreateLabel} 62u 31u -72u 20u "$cwOldInstallDir"
     Pop $0
+
+    ; 第二组：资料安全。把「不删你的账号」放在视线正中，而不是一行小字。
+    ${NSD_CreateGroupBox} 0 64u 100% 44u "资料安全"
+    Pop $0
+    ${NSD_CreateLabel} 10u 78u -20u 26u "账号、凭据、备份与日志都保存在 $PROFILE\.chaierww。$\r$\n覆盖安装只替换程序文件，不会改动或删除这些资料。"
+    Pop $0
+
+    ${NSD_CreateHLine} 0 114u 100% 1u ""
+    Pop $0
+    ${NSD_CreateLabel} 0 119u 100% 11u "确认后点「开始升级」；升级期间请保持网络畅通。"
+    Pop $0
+
+    ; 升级流程前面没有可见页可回：禁用「上一步」，把「下一步」改成「开始升级」。
+    GetDlgItem $0 $HWNDPARENT 3
+    EnableWindow $0 0
+    GetDlgItem $0 $HWNDPARENT 1
+    SendMessage $0 ${WM_SETTEXT} 0 "STR:开始升级"
 
     nsDialogs::Show
   FunctionEnd
@@ -314,21 +340,24 @@
       Abort
     ${EndIf}
 
-    ${NSD_CreateLabel} 0 0 100% 18u "将删除程序文件、桌面快捷方式和开始菜单项。"
+    ${NSD_CreateLabel} 0 0 100% 11u "将删除程序文件、桌面快捷方式和开始菜单项。"
     Pop $0
-    ${NSD_CreateLabel} 0 24u 100% 30u "账号、凭据、备份、日志与网页版登录态保存在 $PROFILE\.chaierww。请选择处理方式："
+    ${NSD_CreateLabel} 0 16u 100% 22u "账号、凭据、备份、日志与网页版登录态保存在 $PROFILE\.chaierww。请选择处理方式："
+    Pop $0
+
+    ${NSD_CreateGroupBox} 0 42u 100% 84u "资料处理方式"
     Pop $0
 
     ; 第一项默认选中：卸载不该顺手带走账号，误删的代价远高于多点一次。
-    ${NSD_CreateRadioButton} 0 60u 100% 16u "保留我的资料（推荐）"
+    ${NSD_CreateRadioButton} 10u 56u -20u 12u "保留我的资料（推荐）"
     Pop $cwKeepRadio
     ${NSD_AddStyle} $cwKeepRadio ${WS_GROUP}
-    ${NSD_CreateLabel} 0 78u 100% 28u "    账号、凭据、备份与网页版登录态原样保留；重装后自动回来。"
+    ${NSD_CreateLabel} 20u 70u -30u 14u "账号、凭据、备份与网页版登录态原样保留；重装后自动回来。"
     Pop $0
 
-    ${NSD_CreateRadioButton} 0 110u 100% 16u "删除程序，同时删除我的资料"
+    ${NSD_CreateRadioButton} 10u 88u -20u 12u "删除程序，同时删除我的资料"
     Pop $cwDeleteRadio
-    ${NSD_CreateLabel} 0 128u 100% 34u "    含账号、凭据、备份与 $APPDATA\chaierww 的更新偏好；删除后不可恢复。"
+    ${NSD_CreateLabel} 20u 102u -30u 18u "含账号、凭据、备份与 $APPDATA\chaierww 的更新偏好；删除后不可恢复。"
     Pop $0
 
     ; 按 $cwDeleteUserData 恢复选择（默认 "0" = 保留）。静默卸载不会进这一页。
