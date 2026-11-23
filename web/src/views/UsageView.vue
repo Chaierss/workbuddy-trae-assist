@@ -62,7 +62,8 @@ const PLATFORM_LABEL: Record<string, string> = {
   trae: "Trae",
 };
 
-type UsageTab = "overview" | "distribution" | "conversations" | "compare" | "detail";
+type AnalysisTab = "distribution" | "conversations" | "compare" | "detail";
+type UsageTab = "overview" | AnalysisTab;
 
 const VIEWS: { key: UsageTab; labelKey: MessageKey }[] = [
   { key: "overview", labelKey: "usage.view.overview" },
@@ -71,6 +72,11 @@ const VIEWS: { key: UsageTab; labelKey: MessageKey }[] = [
   { key: "compare", labelKey: "usage.view.compare" },
   { key: "detail", labelKey: "usage.view.detail" },
 ];
+
+/** 二级视角：总览之外的分析都收进「深入分析」，首屏不再平铺五个页签。 */
+const ANALYSIS_VIEWS = VIEWS.filter(
+  (item): item is { key: AnalysisTab; labelKey: MessageKey } => item.key !== "overview",
+);
 
 const COMPARE_COLUMNS: { key: "today" | "week" | "month" | "total"; labelKey: MessageKey }[] = [
   { key: "today", labelKey: "usage.period.today" },
@@ -117,8 +123,20 @@ const view = computed<UsageTab>({
   },
 });
 
-// 分段控件的选项（标签走 i18n，值保持字符串，回写时再收窄类型）。
-const viewOptions = computed(() => VIEWS.map((item) => ({ value: item.key, label: t(item.labelKey) })));
+// 一级视角：概览 / 深入分析；二级选项只在深入分析时出现。
+const modeOptions = computed(() => [
+  { value: "overview", label: t("usage.view.overview") },
+  { value: "detail", label: t("usage.view.analysis") },
+]);
+const analysisOptions = computed(() =>
+  ANALYSIS_VIEWS.map((item) => ({ value: item.key, label: t(item.labelKey) })),
+);
+const viewMode = computed<"overview" | "detail">({
+  get: () => (view.value === "overview" ? "overview" : "detail"),
+  set: (next) => {
+    view.value = next === "overview" ? "overview" : "distribution";
+  },
+});
 const platformOptions = computed(() => [
   { value: "all", label: t("usage.platformAll") },
   { value: "workbuddy", label: "WorkBuddy" },
@@ -997,10 +1015,10 @@ onMounted(() => {
       </template>
       <template #actions>
         <SegmentedControl
-          :model-value="view"
-          :options="viewOptions"
+          :model-value="viewMode"
+          :options="modeOptions"
           :label="t('usage.title')"
-          @update:model-value="view = $event as UsageTab"
+          @update:model-value="viewMode = $event as 'overview' | 'detail'"
         />
         <button
           type="button"
@@ -1013,6 +1031,16 @@ onMounted(() => {
         </button>
       </template>
     </PageHeader>
+
+    <div v-if="viewMode === 'detail'" class="mt-3 flex flex-wrap items-center gap-2">
+      <SegmentedControl
+        :model-value="view"
+        :options="analysisOptions"
+        :label="t('usage.view.analysis')"
+        size="sm"
+        @update:model-value="view = $event as UsageTab"
+      />
+    </div>
 
     <div
       v-if="focusedAccount"

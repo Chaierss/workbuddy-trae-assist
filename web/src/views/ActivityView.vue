@@ -30,7 +30,6 @@ import {
   RefreshCw,
   RotateCcw,
   Wand2,
-  X,
 } from "lucide-vue-next";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
@@ -40,11 +39,10 @@ import SelectMenu from "../components/SelectMenu.vue";
 import StatusPill from "../components/StatusPill.vue";
 import RunReportPanel from "../components/RunReportPanel.vue";
 import OfficialActivitiesPanel from "../components/activity/OfficialActivitiesPanel.vue";
-import ActivityRunsPanel from "../components/activity/ActivityRunsPanel.vue";
 import { safeActivityUrl } from "../lib/activity";
 import { normalizeActivityReport } from "../lib/runReport";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
-import { runTask, taskDrawerOpen } from "../stores/tasks";
+import { runTask, taskDrawerOpen, taskDrawerTab } from "../stores/tasks";
 import { t, type MessageKey } from "../lib/i18n";
 import { refreshOnboardingSignals } from "../lib/onboarding";
 import {
@@ -60,33 +58,38 @@ import {
   type ActivityRunReport,
   type ActivityState,
   type ActivitySummary,
-  type ActivityToday,
 } from "../api";
 
-type Tab = "official" | "accounts" | "todo" | "runs";
+type Tab = "official" | "accounts";
 
 const route = useRoute();
 const router = useRouter();
 
+/** 旧深链归一：`?tab=todo` 落到账号任务，`?tab=runs` 打开任务中心执行历史。 */
 function readTab(raw: unknown): Tab {
-  return raw === "accounts" || raw === "todo" || raw === "runs" ? raw : "official";
+  return raw === "accounts" || raw === "todo" || raw === "runs" ? "accounts" : "official";
 }
 
 const tab = ref<Tab>(readTab(route.query.tab));
-/** 从截止雷达点进来时只看这一项活动；清空即看全部手动项。 */
-const todoFilter = ref(typeof route.query.key === "string" ? route.query.key : "");
+
+function normalizeLegacyTab(raw: unknown): void {
+  if (raw !== "todo" && raw !== "runs") return;
+  if (raw === "runs") {
+    taskDrawerTab.value = "history";
+    taskDrawerOpen.value = true;
+  }
+  const query: Record<string, string> = { tab: "accounts" };
+  if (typeof route.query.campaign === "string") query.campaign = route.query.campaign;
+  void router.replace({ query });
+}
+
+normalizeLegacyTab(route.query.tab);
 
 watch(
   () => route.query.tab,
   (value) => {
     tab.value = readTab(value);
-  },
-);
-
-watch(
-  () => route.query.key,
-  (value) => {
-    todoFilter.value = typeof value === "string" ? value : "";
+    normalizeLegacyTab(value);
   },
 );
 
@@ -96,7 +99,6 @@ function setTab(next: Tab): void {
   if (next === "official" && typeof route.query.campaign === "string") {
     query.campaign = route.query.campaign;
   }
-  if (next === "todo" && todoFilter.value) query.key = todoFilter.value;
   void router.replace({ query });
 }
 
@@ -113,8 +115,6 @@ function selectCampaign(key: string | null): void {
 const TAB_OPTIONS = computed(() => [
   { value: "official", label: t("activity.tabOfficial") },
   { value: "accounts", label: t("activity.tabAccounts") },
-  { value: "todo", label: t("activity.tabTodo", { count: todoCount.value }) },
-  { value: "runs", label: t("activity.tabRuns") },
 ]);
 
 /** 状态比检测状态多一档「未检测」——目录已铺出、检测还没回来。 */
@@ -244,26 +244,6 @@ interface AccountBase {
   scope: string;
 }
 
-/** 待办工作台的一行：只收手动项，不代做。 */
-interface TodoRow {
-  accountId: string;
-  accountName: string;
-  activityKey: string;
-  activityTitle: string;
-  platform: string;
-  title: string;
-  desc: string;
-  category: string;
-  jumpUrl: string;
-}
-
-interface TodoGroupView {
-  key: string;
-  title: string;
-  platform: string;
-  rows: TodoRow[];
-}
-
 const catalog = ref<ActivityCatalogEntry[]>([]);
 const catalogMeta = ref<ActivityCatalog | null>(null);
 const knownAccounts = ref<AccountBase[]>([]);
@@ -281,8 +261,6 @@ const hideDone = ref(false);
 const runReport = ref<ActivityRunReport | null>(null);
 /** 最近执行流水：落库的是每轮最终结论，用来回看「为什么失败」。 */
 const runs = ref<ActivityRun[]>([]);
-/** 今日成效：把「跳过」拆成做完 / 上游暂无 / 缺前置 / 检测失败。 */
-const today = ref<ActivityToday | null>(null);
 const runningTargets = ref<Set<string>>(new Set());
 const expanded = ref<Set<string>>(new Set());
 const toast = ref<string | null>(null);
@@ -455,60 +433,6 @@ const visibleAccounts = computed(() =>
   ),
 );
 
-/** 手动项按活动聚合：一屏回答「每个活动还要人去点什么」。 */
-const todoGroups = computed<TodoGroupView[]>(() => {
-  const groups = new Map<string, TodoGroupView>();
-  for (const group of activityGroups.value) {
-    if (todoFilter.value && group.key !== todoFilter.value) continue;
-    for (const entry of group.entries) {
-      if (entry.actionable) continue; // 能自动做的进「一键执行」，不占待办工作台
-      if (entry.state === "done" || entry.state === "unavailable" || entry.state === "undetected") {
-        continue;
-      }
-      const tasks = entry.manualTasks.length
-        ? entry.manualTasks
-        : entry.manualReason
-          ? [
-              {
-                code: "",
-                title: entry.manualReason,
-                desc: "",
-                jumpUrl: entry.jumpUrl,
-                category: "other",
-              },
-            ]
-          : [];
-      for (const task of tasks) {
-        const slot = groups.get(group.key) ?? {
-          key: group.key,
-          title: group.title,
-          platform: group.platform,
-          rows: [],
-        };
-        slot.rows.push({
-          accountId: entry.accountId,
-          accountName: entry.name,
-          activityKey: group.key,
-          activityTitle: group.title,
-          platform: group.platform,
-          title: task.title,
-          desc: task.desc,
-          category: task.category,
-          jumpUrl: task.jumpUrl,
-        });
-        groups.set(group.key, slot);
-      }
-    }
-  }
-  return [...groups.values()].sort(
-    (a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title),
-  );
-});
-
-const todoCount = computed(() =>
-  todoGroups.value.reduce((sum, group) => sum + group.rows.length, 0),
-);
-
 /** 完成率只算「今天有意义的项」：已完成 / (已完成 + 可自动 + 需手动)。 */
 const completion = computed(() => {
   const done = summary.value?.done ?? 0;
@@ -517,14 +441,8 @@ const completion = computed(() => {
 });
 
 function openDeadline(item: ActivityDeadline): void {
-  todoFilter.value = item.key;
-  tab.value = "todo";
-  void router.replace({ query: { tab: "todo", key: item.key } });
-}
-
-function clearTodoFilter(): void {
-  todoFilter.value = "";
-  void router.replace({ query: { tab: "todo" } });
+  expanded.value = new Set([...expanded.value, item.key]);
+  setTab("accounts");
 }
 
 const actionable = computed(() => summary.value?.actionable ?? 0);
@@ -533,13 +451,6 @@ const detecting = computed(() => busy.value && !pool.value.length);
 const totalEntries = computed(() =>
   activityGroups.value.reduce((sum, group) => sum + group.entries.length, 0),
 );
-
-/** 号池清单 → 账号 id 到显示名，执行记录页靠它把 ID 换成名字。 */
-const accountNames = computed<Record<string, string>>(() => {
-  const map: Record<string, string> = {};
-  for (const account of accountBases.value) map[account.id] = account.displayName;
-  return map;
-});
 
 /** 按账号勾选执行：只作用于「按账号」页签，不改变分组展示。 */
 const selectedAccountIds = ref<Set<string>>(new Set());
@@ -671,16 +582,10 @@ async function load(refresh = false): Promise<void> {
 
 async function loadRuns(): Promise<void> {
   try {
-    const [data, summary] = await Promise.all([
-      api.activityRuns(7, 200),
-      api.activityToday(),
-    ]);
-    runs.value = data.runs;
-    today.value = summary;
+    runs.value = (await api.activityRuns(7, 200)).runs;
   } catch {
     // 流水只是辅助信息，读不到不影响活动页主流程。
     runs.value = [];
-    today.value = null;
   }
 }
 
@@ -1063,102 +968,8 @@ const runReportView = computed(() =>
       />
     </template>
 
-    <template v-else-if="tab === 'todo'">
-      <div class="mt-3 flex flex-wrap items-center gap-2">
-        <span class="text-caption text-muted">{{ t("activity.todoHint") }}</span>
-        <button
-          v-if="todoFilter"
-          type="button"
-          class="inline-flex items-center gap-1 rounded-badge border border-line bg-surface px-2 py-0.5 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          @click="clearTodoFilter"
-        >
-          {{ t("activity.todoClearFilter") }}
-          <X :size="11" :stroke-width="2" />
-        </button>
-        <button
-          type="button"
-          class="ml-auto inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-          :disabled="busy"
-          @click="recheck"
-        >
-          <RefreshCw :size="14" :stroke-width="1.9" :class="busy ? 'animate-spin' : ''" />
-          {{ t("activity.todoRecheck") }}
-        </button>
-      </div>
-
-      <div v-if="!todoGroups.length" class="mt-4 rounded-card border border-line bg-surface px-5 py-8 text-center">
-        <p class="text-body-sm text-muted">{{ t("activity.todoEmpty") }}</p>
-      </div>
-
-      <div v-else class="mt-3 space-y-3">
-        <SectionCard
-          v-for="group in todoGroups"
-          :key="group.key"
-          :title="group.title"
-          :subtitle="t('activity.todoGroupCount', { count: group.rows.length })"
-        >
-          <div class="divide-y divide-line-soft">
-            <div
-              v-for="row in group.rows"
-              :key="`${row.accountId}:${row.title}`"
-              class="flex flex-wrap items-start gap-x-3 gap-y-1 py-2.5"
-            >
-              <span class="w-[110px] shrink-0 truncate text-body-sm font-medium text-ink">
-                {{ row.accountName }}
-              </span>
-              <div class="min-w-0 flex-1">
-                <div class="text-body-sm text-ink-soft">{{ row.title }}</div>
-                <div v-if="row.desc" class="mt-0.5 text-caption leading-relaxed text-muted">
-                  {{ row.desc }}
-                </div>
-                <div v-if="row.category" class="mt-0.5 text-caption text-muted">
-                  {{ manualGuide(row.category) }}
-                </div>
-              </div>
-              <a
-                v-if="row.jumpUrl"
-                :href="row.jumpUrl"
-                target="_blank"
-                rel="noreferrer"
-                class="inline-flex shrink-0 items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-brand-dark transition-colors hover:border-brand"
-              >
-                {{ t("activity.todoOpen") }}
-                <ExternalLink :size="10" :stroke-width="2" />
-              </a>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-    </template>
-
-    <template v-else-if="tab === 'runs'">
-      <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
-        <button
-          type="button"
-          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-          @click="taskDrawerOpen = true"
-        >
-          {{ t("tasks.title") }}
-        </button>
-        <button
-          type="button"
-          class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-          :disabled="rerunBusy || busy || running"
-          :title="t('activity.rerunHint')"
-          @click="rerunFailed"
-        >
-          <Loader2 v-if="rerunBusy" :size="14" :stroke-width="1.9" class="animate-spin" />
-          <RotateCcw v-else :size="14" :stroke-width="1.9" />
-          {{ rerunBusy ? t("activity.rerunBusy") : t("activity.rerun") }}
-        </button>
-      </div>
-      <div class="mt-3">
-        <ActivityRunsPanel :runs="runs" :names="accountNames" :today="today" />
-      </div>
-    </template>
-
     <template v-else>
-    <div class="mt-3 flex flex-wrap items-center gap-3">
+      <div class="mt-3 flex flex-wrap items-center gap-3">
       <div class="flex items-center gap-1 rounded-control border border-line bg-surface p-1">
         <button
           v-for="option in [
@@ -1191,6 +1002,17 @@ const runReportView = computed(() =>
         class="w-[128px]"
       />
       <span class="text-caption text-muted">{{ t("activity.cachedSuffix") }}</span>
+      <button
+        type="button"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-1.5 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+        :disabled="rerunBusy || busy || running"
+        :title="t('activity.rerunHint')"
+        @click="rerunFailed"
+      >
+        <Loader2 v-if="rerunBusy" :size="13" :stroke-width="1.9" class="animate-spin" />
+        <RotateCcw v-else :size="13" :stroke-width="1.9" />
+        {{ rerunBusy ? t("activity.rerunBusy") : t("activity.rerun") }}
+      </button>
     </div>
 
     <!-- 只有一张卡不等于加载失败：Trae 侧目前确实只有签到可自动化 -->

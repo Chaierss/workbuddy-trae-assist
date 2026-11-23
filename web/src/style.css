@@ -707,3 +707,41 @@ body {
   color: var(--color-danger);
 }
 
+
+/* ---------- 页面骨架工具类（2.1.0 收敛与重排） ---------- */
+/* 左主右副：工作台主卡 + 系统状态窄栏；1180px 以下折成单列。 */
+.page-hero {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.55fr 1fr;
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .page-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 指标条：目标指标一排铺开，窄屏降为两列。 */
+.metric-ribbon {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+@media (max-width: 760px) {
+  .metric-ribbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 系统状态窄栏：桌面粘性，主卡很长时跟着看。 */
+.status-aside {
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+}
+@media (max-width: 1180px) {
+  .status-aside {
+    position: static;
+  }
+}

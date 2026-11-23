@@ -29,6 +29,7 @@
     { "id": "M-10", "title": "1.12.0 好用优先与自动处置", "exit": "自动续期与自动补跑默认开启，显式关闭后保持关闭；计划任务与手动点击并发时后到方立即返回 busy；概览显示 24h 自动处置计数且待处理只铺 3 组；健康中心可查看最近自动处置记录并按「可自动处理」筛选；号池一键体检返回登录 / 凭据 / 供给 / 隔离四段结果与逐条下一步，账号 id 不存在返回 400，fix=true 走 force；DB 结构不变（SCHEMA_VERSION 仍为 10）；tests/test_preferences.py / test_health_center.py / test_pool_checkup.py / test_api.py 全绿，web build 与 keel 门禁全绿", "status": "done" },
     { "id": "M-11", "title": "1.13.0 顺手版", "exit": "概览固定 4 个内容块（状态卡 / 待处理 / 号池与上游 / 今日近况），备份明细不再在概览重复；设置分栏从 11 个收敛到 6 个，旧 ?tab=general|schedule|sync|env|backup|rules|components|api|wiki|logs 深链自动映射到新分栏；同一能力只有一个可写入口；批量与破坏性动作在任务中心可见且失败可重试；Ctrl+K 覆盖页面 / 设置分栏 / 网关分栏 / 账号 / 维护动作，Ctrl/Alt+1..6 直达侧栏；主包不再出现 500KB 分块告警；web build、keel 门禁与 pytest 全绿", "status": "done" },
     { "id": "M-12", "title": "2.0.0 工作台", "exit": "概览升级为工作台：待处理项可就地批量续期 / 补跑并显示逐组结果，单账号动作不超过 2 次点击；账号页批量操作条支持全选当前筛选并批量续期 / 体检；所有异步动作在任务中心可见且失败可重试；Ctrl+K 覆盖页面 / 设置 / 账号 / 批量动作，每页只有一个主操作；排版、卡片层级与信息密度统一为「纸本账簿 2.0」，深浅色对比度均达 WCAG AA 4.5:1；web build、keel 门禁与 pytest 全绿", "status": "done" },
-    { "id": "M-13", "title": "2.0.x 文档截图与主操作审计", "exit": "用演示数据重新生成工作台 / 账号 / 用量 / 健康中心四页的浅色与深色截图，不出现真实账号名、路径或邮箱；逐页确认最多一个实心主操作，其余动作降为描边或文字按钮；README 引用新截图；node scripts/check_contrast.mjs 与 keel 门禁全绿", "status": "done" }
+    { "id": "M-13", "title": "2.0.x 文档截图与主操作审计", "exit": "用演示数据重新生成工作台 / 账号 / 用量 / 健康中心四页的浅色与深色截图，不出现真实账号名、路径或邮箱；逐页确认最多一个实心主操作，其余动作降为描边或文字按钮；README 引用新截图；node scripts/check_contrast.mjs 与 keel 门禁全绿", "status": "done" },
+    { "id": "M-14", "title": "2.1.0 收敛与重排", "exit": "活动页只剩官方活动 / 账号任务两个分段，旧 ?tab=todo|runs 深链自动归一；执行历史统一收进任务中心并支持重跑失败；健康中心移除独立自动处置按钮，改为只读系统基线；工作台待处理主卡右侧提供系统状态窄栏；用量页一级分为概览 / 深入分析；web build、web 单测、contrast 与 keel 门禁全绿", "status": "done" }
   ]
 }

@@ -105,9 +105,9 @@ Then the hard limits — these are constraints, not a roadmap:
 | --- | --- |
 | ![Account pool](docs/images/accounts.png) | ![Usage](docs/images/usage.png) |
 
-| Activity catalog · what exists, its rules and rewards | Per account · how far each account got, with manual steps explained |
+| Activity catalog · what exists, its rules and rewards | By account tasks · how far each account got, with manual steps explained |
 | --- | --- |
-| ![Activities](docs/images/activity.png) | ![Per account](docs/images/activity-accounts.png) |
+| ![Activities](docs/images/activity.png) | ![By account tasks](docs/images/activity-accounts.png) |
 
 | Gateway · credits exposed as OpenAI / Anthropic-compatible endpoints | Model catalog · available models and capabilities |
 | --- | --- |
@@ -121,9 +121,9 @@ Then the hard limits — these are constraints, not a roadmap:
 | --- | --- |
 | ![Backup](docs/images/settings-backup.png) | ![Environment](docs/images/settings-env.png) |
 
-| General · which data to migrate, whether to relaunch after a switch | Run history · every activity run keeps its verdict and reason |
+| General · which data to migrate, whether to relaunch after a switch | By account tasks · where each account is stuck, manual items inline |
 | --- | --- |
-| ![General](docs/images/settings-general.png) | ![Run history](docs/images/activity-runs.png) |
+| ![General](docs/images/settings-general.png) | ![By account tasks](docs/images/activity-accounts.png) |
 
 > Screenshots are taken after the DOM renders: account names, account IDs, emails, local
 > paths, gateway keys and IPs are replaced with dots or blur inside the page before the
@@ -189,7 +189,7 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 - **If it cannot read, it says so**: a failed backup read shows "unavailable" with a retry; loading gets a skeleton, never a fake `0` or empty state
 - **Patrol history**: each account keeps its last 20 patrol records — time, status, reason, next retry — across restarts; "resume" only clears the counter, not the history
 - **Deleted by mistake?**: the recycle bin keeps accounts for 30 days; restore, purge early, or empty in one click
-- **Run history and trends**: every run keeps its verdict and reason; details include a 14-day success / skip / failure bar trend
+- **One place for run history**: the task center splits into This session / Run history; every run keeps its verdict and reason, and details include a 14-day success / skip / failure bar trend
 - **Usage** aggregated by model and by day, so you can see who is burning quota
 - **The gateway keeps books**: every request leaves a per-hop account trail you can expand in the log; 429s honor upstream `Retry-After` (capped at 30 minutes); the pool explains why each account is excluded and for how long, and rate-limited accounts come back automatically
 - **Forecasts only use complete days**: an average needs at least 2 days with requests, and an exhaustion date is only given when the balance actually dropped

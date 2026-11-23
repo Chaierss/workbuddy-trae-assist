@@ -84,7 +84,6 @@ SHOTS: list[dict[str, object]] = [
     # 活动页默认落在「官方活动」目录，逐账号任务要显式带 ?tab=accounts，
     # 两张一起放，README 才能把「目录里有什么」和「我的号做到哪」讲全。
     {"name": "activity-accounts", "path": "/activity?tab=accounts", "height": 900},
-    {"name": "activity-runs", "path": "/activity?tab=runs", "height": 780},
     {"name": "usage", "path": "/usage", "height": 1000},
     {"name": "health", "path": "/health", "height": 1000},
     {"name": "gateway-overview", "path": "/gateway?tab=overview", "height": 940},

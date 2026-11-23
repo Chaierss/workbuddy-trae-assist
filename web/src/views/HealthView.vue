@@ -7,8 +7,10 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Coins,
   History,
   Loader2,
+  Network,
   RefreshCw,
   ShieldCheck,
   X,
@@ -19,13 +21,15 @@ import StatusPill from "../components/StatusPill.vue";
 import {
   api,
   formatTime,
+  type CompatItem,
+  type CompatOverview,
   type HealthAction,
   type HealthActionLog,
-  type HealthAutoAction,
   type HealthEvent,
   type HealthEventState,
   type HealthSeverity,
   type HealthSnapshot,
+  type PoolHealth,
 } from "../api";
 import { healthUnhandled } from "../stores/app";
 import { t, type MessageKey } from "../lib/i18n";
@@ -53,11 +57,58 @@ const selected = ref<Set<string>>(new Set());
 const auditOpen = ref<string | null>(null);
 const audits = ref<Record<string, HealthActionLog[]>>({});
 const flash = ref<{ text: string; tone: "ok" | "bad" } | null>(null);
-const autoLog = ref<HealthAutoAction[]>([]);
-const autoLogTotal = ref(0);
-const autoLogOpen = ref(false);
-const autoLogLoading = ref(false);
-const autoRunning = ref(false);
+
+/** 系统基线：号池供给与上游结构。数据只读，读不到就整块不显示。 */
+const poolHealth = ref<PoolHealth | null>(null);
+const compat = ref<CompatOverview | null>(null);
+const compatBusy = ref(false);
+
+const COMPAT_LABEL: Record<CompatItem["state"], MessageKey> = {
+  compatible: "overview.compat.compatible",
+  changed: "overview.compat.changed",
+  missing: "overview.compat.missing",
+  unknown: "overview.compat.unknown",
+  not_probed: "overview.compat.notProbed",
+};
+
+const COMPAT_TONE: Record<CompatItem["state"], "brand" | "warn" | "danger" | "neutral"> = {
+  compatible: "brand",
+  changed: "warn",
+  missing: "danger",
+  unknown: "neutral",
+  not_probed: "neutral",
+};
+
+function supplyDaysText(value: number | null): string {
+  return value === null ? t("overview.supply.noData") : t("overview.supply.days", { days: value });
+}
+
+function supplyRateText(value: number | null): string {
+  return value === null
+    ? t("overview.supply.noData")
+    : t("overview.supply.rate", { percent: Math.round(value * 100) });
+}
+
+async function loadBaseline(): Promise<void> {
+  const [supply, compatResult] = await Promise.allSettled([
+    api.poolHealth(),
+    api.compat(),
+  ]);
+  if (supply.status === "fulfilled") poolHealth.value = supply.value;
+  if (compatResult.status === "fulfilled") compat.value = compatResult.value;
+}
+
+async function probeUpstream(): Promise<void> {
+  if (compatBusy.value) return;
+  compatBusy.value = true;
+  try {
+    compat.value = await api.probeCompat();
+  } catch {
+    // 探测失败保留旧结果：基线不是关键路径。
+  } finally {
+    compatBusy.value = false;
+  }
+}
 
 const KIND_LABEL: Record<string, MessageKey> = {
   compat_changed: "health.kind.compat_changed",
@@ -354,57 +405,13 @@ function evidenceRows(event: HealthEvent): Array<{ label: string; value: string 
   return rows;
 }
 
-async function loadAutoLog(): Promise<void> {
-  autoLogLoading.value = true;
-  try {
-    const data = await api.healthAutoActions(5);
-    autoLog.value = data.items;
-    autoLogTotal.value = data.total;
-  } catch {
-    autoLog.value = [];
-    autoLogTotal.value = 0;
-  } finally {
-    autoLogLoading.value = false;
-  }
-}
-
-async function runAutoDispose(): Promise<void> {
-  if (autoRunning.value) return;
-  autoRunning.value = true;
-  flash.value = null;
-  try {
-    const result = await api.healthAutoDispose();
-    if (!result.enabled) {
-      flash.value = { text: t("health.auto.disabled"), tone: "bad" };
-      return;
-    }
-    if (result.busy) {
-      flash.value = { text: t("health.auto.busy"), tone: "bad" };
-      return;
-    }
-    flash.value = {
-      text: t("health.auto.done", { refreshed: result.refreshed, rerun: result.rerunPairs }),
-      tone: "ok",
-    };
-    await load();
-    await loadAutoLog();
-  } catch (exc) {
-    flash.value = {
-      text: t("health.actionError", { error: (exc as Error).message }),
-      tone: "bad",
-    };
-  } finally {
-    autoRunning.value = false;
-  }
-}
-
 function isAuto(log: HealthActionLog): boolean {
   return log.action.startsWith("auto:");
 }
 
 onMounted(() => {
   void load();
-  void loadAutoLog();
+  void loadBaseline();
 });
 </script>
 
@@ -412,21 +419,6 @@ onMounted(() => {
   <div class="space-y-5">
     <PageHeader :title="t('health.title')" :subtitle="t('health.subtitle')">
       <template #actions>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 rounded-control border border-brand/30 bg-brand-soft px-3.5 py-2 text-body-sm font-medium text-brand-dark transition-colors hover:border-brand/50 disabled:opacity-60"
-          :disabled="loading || autoRunning"
-          @click="runAutoDispose"
-        >
-          <Loader2
-            v-if="autoRunning"
-            :size="15"
-            :stroke-width="1.9"
-            class="animate-spin"
-          />
-          <ShieldCheck v-else :size="15" :stroke-width="1.9" />
-          {{ t("health.auto.dispose") }}
-        </button>
         <button
           type="button"
           class="inline-flex items-center gap-2 rounded-control border border-line bg-surface px-3.5 py-2 text-body-sm font-medium text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
@@ -493,46 +485,71 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 自动处置回执：默认开启后，用户要能看到「系统替我做了什么」。 -->
-    <div v-if="summary" class="rounded-card border border-line bg-surface shadow-card">
-      <button
-        type="button"
-        class="flex w-full items-center gap-2 px-4 py-3 text-left"
-        @click="autoLogOpen = !autoLogOpen"
-      >
-        <History :size="15" :stroke-width="1.9" class="text-brand" />
-        <span class="text-body-sm font-medium text-ink">{{ t("health.auto.title") }}</span>
-        <span class="min-w-0 flex-1 truncate text-caption text-muted">
-          {{ t("health.auto.summary", { ok: summary.auto.ok24h, failed: summary.auto.failed24h }) }}
-        </span>
-        <ChevronDown
-          :size="14"
-          :stroke-width="1.9"
-          class="text-muted transition-transform"
-          :class="autoLogOpen ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-if="autoLogOpen" class="border-t border-line px-4 py-3">
-        <p v-if="autoLogLoading" class="text-body-sm text-muted">{{ t("health.auto.loading") }}</p>
-        <p v-else-if="!autoLog.length" class="text-body-sm text-muted">{{ t("health.auto.empty") }}</p>
-        <ul v-else class="space-y-2">
-          <li
-            v-for="item in autoLog"
-            :key="`${item.eventId}-${item.at}-${item.action}`"
-            class="flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm"
-          >
-            <StatusPill :tone="item.ok ? 'brand' : 'danger'" dot>
-              {{ item.ok ? t("health.auto.ok") : t("health.auto.failed") }}
+    <!-- 系统基线：号池供给与上游结构各占一半；两块都没数据时整条不渲染 -->
+    <div
+      v-if="poolHealth || compat"
+      class="rounded-card border border-line bg-surface shadow-card"
+    >
+      <div class="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-2.5">
+        <ShieldCheck :size="15" :stroke-width="1.9" class="text-brand" />
+        <span class="text-body-sm font-medium text-ink">{{ t("health.baseline.title") }}</span>
+      </div>
+      <div class="grid divide-y divide-line-soft lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+        <div v-if="poolHealth" class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <Coins :size="13" :stroke-width="1.9" class="text-muted" />
+            <span class="text-body-sm font-medium text-ink">{{ t("health.baseline.supply") }}</span>
+            <StatusPill v-if="poolHealth.alerts.length" tone="warn" dot>
+              {{ t("overview.supply.alert") }}
             </StatusPill>
-            <span class="min-w-0 flex-1 truncate text-ink-soft" :title="item.eventTitle ?? ''">
-              {{ item.eventTitle ?? t("health.auto.archived") }}
-            </span>
-            <span class="text-caption text-muted">{{ formatTime(item.at) }}</span>
-          </li>
-        </ul>
-        <p v-if="autoLogTotal > autoLog.length" class="mt-2 text-caption text-muted">
-          {{ t("health.auto.more", { total: autoLogTotal }) }}
-        </p>
+          </div>
+          <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-body-sm text-ink-soft">
+            <span>{{ t("overview.supply.healthy", { count: poolHealth.healthyAccounts, total: poolHealth.accounts }) }}</span>
+            <span>{{ t("overview.supply.expiring", { count: poolHealth.expiring24h }) }}</span>
+            <span>{{ t("overview.supply.cooling", { count: poolHealth.cooling }) }}</span>
+            <span>{{ t("overview.supply.credits", { days: supplyDaysText(poolHealth.creditsDays) }) }}</span>
+            <span>{{ t("overview.supply.success", { rate: supplyRateText(poolHealth.successRate24h) }) }}</span>
+          </div>
+          <p v-if="poolHealth.alerts.length" class="mt-1 text-caption leading-relaxed text-warn">
+            {{ poolHealth.alerts[0].message }}
+          </p>
+        </div>
+
+        <div v-if="compat" class="px-4 py-3">
+          <div class="flex items-center gap-2">
+            <Network :size="13" :stroke-width="1.9" class="text-muted" />
+            <span class="text-body-sm font-medium text-ink">{{ t("health.baseline.compat") }}</span>
+            <button
+              type="button"
+              class="ml-auto inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+              :disabled="compatBusy"
+              @click="probeUpstream"
+            >
+              <Loader2 v-if="compatBusy" :size="11" class="animate-spin" />
+              {{ compatBusy ? t("overview.compat.probing") : t("overview.compat.probe") }}
+            </button>
+          </div>
+          <ul class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
+            <li
+              v-for="item in compat.items"
+              :key="item.scope"
+              class="flex items-center gap-1.5 text-body-sm"
+            >
+              <span class="font-medium text-ink">
+                {{ item.platform === "trae" ? "Trae" : "WorkBuddy" }}
+              </span>
+              <StatusPill :tone="COMPAT_TONE[item.state]">
+                {{ t(COMPAT_LABEL[item.state]) }}
+              </StatusPill>
+              <span class="text-caption text-muted">
+                {{ item.current?.clientVersion || t("overview.compat.noVersion") }}
+              </span>
+            </li>
+          </ul>
+          <p v-if="compat.changed.length" class="mt-1 text-caption text-warn">
+            {{ t("overview.compat.changedHint", { scopes: compat.changed.join(" / ") }) }}
+          </p>
+        </div>
       </div>
     </div>
 

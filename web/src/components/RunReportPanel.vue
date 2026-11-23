@@ -6,6 +6,7 @@ import StatusPill from "./StatusPill.vue";
 import { t, type MessageKey } from "../lib/i18n";
 import type { RunReportRow, RunReportView } from "../lib/runReport";
 import { scopedPath } from "../stores/app";
+import { taskDrawerOpen, taskDrawerTab } from "../stores/tasks";
 
 /**
  * 执行回执：概览与活动页共用。
@@ -43,13 +44,13 @@ const title = computed(() =>
   ),
 );
 
-const exitTo = computed(() => {
-  const raw = props.report.kind === "activity" ? "/activity?tab=runs" : "/accounts?risk=credential";
-  const index = raw.indexOf("?");
-  const path = index >= 0 ? raw.slice(0, index) : raw;
-  const query = index >= 0 ? raw.slice(index) : "";
-  return scopedPath(path) + query;
-});
+const exitTo = computed(() => scopedPath("/accounts?risk=credential"));
+
+/** 活动类回执不另开页签：执行历史已收进任务中心。 */
+function openTaskCenter(): void {
+  taskDrawerTab.value = "history";
+  taskDrawerOpen.value = true;
+}
 </script>
 
 <template>
@@ -106,11 +107,21 @@ const exitTo = computed(() => {
       </div>
     </div>
 
+    <button
+      v-if="report.kind === 'activity'"
+      type="button"
+      class="mt-2 inline-flex items-center gap-1 text-caption text-muted transition-colors hover:text-brand-dark"
+      @click="openTaskCenter"
+    >
+      {{ t("common.runResult.viewTasks") }}
+      <ArrowRight :size="10" :stroke-width="2" />
+    </button>
     <RouterLink
+      v-else
       :to="exitTo"
       class="mt-2 inline-flex items-center gap-1 text-caption text-muted transition-colors hover:text-brand-dark"
     >
-      {{ report.kind === "activity" ? t("common.runResult.viewRuns") : t("common.runResult.goAccounts") }}
+      {{ t("common.runResult.goAccounts") }}
       <ArrowRight :size="10" :stroke-width="2" />
     </RouterLink>
   </div>

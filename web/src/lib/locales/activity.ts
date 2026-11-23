@@ -97,9 +97,8 @@ export const activityZh = {
 
   "activity.tabsLabel": "活动视图",
   "activity.tabOfficial": "官方活动",
-  "activity.tabAccounts": "按账号",
-  "activity.tabRuns": "执行记录",
-  "activity.officialTabHint": "先从活动看全局，再切到「按账号」看每个号卡在哪一步",
+  "activity.tabAccounts": "账号任务",
+  "activity.officialTabHint": "先从活动看全局，再切到「账号任务」看每个号卡在哪一步",
   "activity.officialSubtitle":
     "官方活动清单由本工具按公开信息整理；规则、奖励与时间以官方页面为准。",
   "activity.officialCatalogVersion": "目录 v{version}",
@@ -287,17 +286,10 @@ export const activityZh = {
   "activity.rerunDone": "已重跑 {count} 个失败项",
   "activity.rerunNone": "今天没有可重跑的失败项",
   "activity.resultUnknown": "目录外任务",
-  // 1.9.0：截止雷达 + 待办工作台
-  "activity.tabTodo": "待办 {count}",
+  // 1.9.0：截止雷达 + 完成进度
   "activity.statCompletion": "完成进度",
   "activity.deadlineStale": "待检测",
   "activity.deadlineDays": "剩 {days} 天 · {count} 个号未完成",
-  "activity.todoHint": "这里只收需要你在客户端里动手的项目；本工具不会代做。",
-  "activity.todoClearFilter": "看全部待办",
-  "activity.todoRecheck": "重新检测",
-  "activity.todoEmpty": "当前没有需要手动处理的活动项。",
-  "activity.todoGroupCount": "{count} 个账号待处理",
-  "activity.todoOpen": "去客户端",
 };
 
 export const activityEn = {
@@ -398,10 +390,9 @@ export const activityEn = {
 
   "activity.tabsLabel": "Activity view",
   "activity.tabOfficial": "Official activities",
-  "activity.tabAccounts": "By account",
-  "activity.tabRuns": "Run history",
+  "activity.tabAccounts": "By account tasks",
   "activity.officialTabHint":
-    "Start with the activity overview, then switch to By account to see where each account is stuck",
+    "Start with the activity overview, then switch to By account tasks to see where each account is stuck",
   "activity.officialSubtitle":
     "This list is compiled by the tool from public information; rules, rewards and dates follow the official pages.",
   "activity.officialCatalogVersion": "Catalog v{version}",
@@ -602,14 +593,7 @@ export const activityEn = {
   "activity.rerunDone": "Re-ran {count} failed items",
   "activity.rerunNone": "No failed items to re-run today",
   "activity.resultUnknown": "Outside catalog",
-  "activity.tabTodo": "To do {count}",
   "activity.statCompletion": "Completion",
   "activity.deadlineStale": "Check needed",
   "activity.deadlineDays": "{days} days left · {count} accounts unfinished",
-  "activity.todoHint": "Only items that need your action in the client; this tool won't do them for you.",
-  "activity.todoClearFilter": "Show all",
-  "activity.todoRecheck": "Detect again",
-  "activity.todoEmpty": "Nothing needs manual action right now.",
-  "activity.todoGroupCount": "{count} accounts pending",
-  "activity.todoOpen": "Open client",
 };

@@ -59,6 +59,8 @@ function loadReceipts(): TaskReceipt[] {
 /** 进行中 + 失败（当前进程）+ 历史回执，统一按时间倒序展示。 */
 export const taskItems = ref<Array<TaskItem | TaskReceipt>>(loadReceipts());
 export const taskDrawerOpen = ref(false);
+/** 抽屉当前分段：本次回执 / 执行历史。历史页复用活动执行流水。 */
+export const taskDrawerTab = ref<"receipt" | "history">("receipt");
 
 const activeKeys = new Set<string>();
 /** 去重按动作类别，不按标题：同一动作在页面与命令面板的标题可能不同。 */

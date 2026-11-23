@@ -1198,23 +1198,6 @@ export interface HealthActionLog {
   at: string;
 }
 
-export interface HealthAutoAction {
-  eventId: string | null;
-  eventTitle: string | null;
-  eventKind: string | null;
-  accountId: string | null;
-  action: string;
-  ok: boolean;
-  message: string;
-  at: string;
-}
-
-export interface HealthAutoActions {
-  items: HealthAutoAction[];
-  total: number;
-  checkedAt: string;
-}
-
 export interface HealthAutoDisposeResult {
   enabled: boolean;
   busy: boolean;
@@ -2213,14 +2196,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ fix: false, ...body }),
     }),
-
-  /** 最近的自动处置记录（只读，新的在前）。 */
-  healthAutoActions: (limit = 20) =>
-    request<HealthAutoActions>(`/api/health/auto-actions?limit=${limit}`),
-
-  /** 立即执行一轮自动处置；遵循设置开关与 3/20 上限。 */
-  healthAutoDispose: () =>
-    request<HealthAutoDisposeResult>("/api/health/auto-dispose", { method: "POST" }),
 
   /** 某个事件的处置审计（新的在前）。 */
   healthEventActions: (eventId: string, limit = 20) =>

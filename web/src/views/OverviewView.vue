@@ -22,8 +22,8 @@ import StatusPill from "../components/StatusPill.vue";
 import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import OfficialActivityStrip from "../components/OfficialActivityStrip.vue";
-import { api, formatAmount, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type CompatItem, type CompatOverview, type OverviewPulse, type PoolHealth, type Snapshot } from "../api";
-import { t, type MessageKey } from "../lib/i18n";
+import { api, formatAmount, formatTime, type ActionableItem, type ActivityCampaign, type ActivityRewards, type OverviewPulse, type Snapshot } from "../api";
+import { t } from "../lib/i18n";
 
 import {
   accounts,
@@ -68,57 +68,6 @@ const subtitle = computed(() => {
 const actionables = ref<ActionableItem[]>([]);
 const pulse = ref<OverviewPulse | null>(null);
 
-/** 号池供给 + 上游兼容：两块只读数据，读不到就整块不显示，不阻塞主流程。 */
-const poolHealth = ref<PoolHealth | null>(null);
-const compat = ref<CompatOverview | null>(null);
-const compatBusy = ref(false);
-
-async function loadSupplyWatch(): Promise<void> {
-  const [supply, compatResult] = await Promise.allSettled([
-    api.poolHealth(),
-    api.compat(),
-  ]);
-  if (supply.status === "fulfilled") poolHealth.value = supply.value;
-  if (compatResult.status === "fulfilled") compat.value = compatResult.value;
-}
-
-async function probeUpstream(): Promise<void> {
-  if (compatBusy.value) return;
-  compatBusy.value = true;
-  try {
-    compat.value = await api.probeCompat();
-  } catch {
-    // 探测失败保留旧结果：页面顶部的「立即探测」不是关键路径。
-  } finally {
-    compatBusy.value = false;
-  }
-}
-
-const COMPAT_LABEL: Record<CompatItem["state"], MessageKey> = {
-  compatible: "overview.compat.compatible",
-  changed: "overview.compat.changed",
-  missing: "overview.compat.missing",
-  unknown: "overview.compat.unknown",
-  not_probed: "overview.compat.notProbed",
-};
-
-const COMPAT_TONE: Record<CompatItem["state"], "brand" | "warn" | "danger" | "neutral"> = {
-  compatible: "brand",
-  changed: "warn",
-  missing: "danger",
-  unknown: "neutral",
-  not_probed: "neutral",
-};
-
-function supplyDaysText(value: number | null): string {
-  return value === null ? t("overview.supply.noData") : t("overview.supply.days", { days: value });
-}
-
-function supplyRateText(value: number | null): string {
-  return value === null
-    ? t("overview.supply.noData")
-    : t("overview.supply.rate", { percent: Math.round(value * 100) });
-}
 /** 官方活动速览：与待处理清单同一次请求返回，不额外打上游。 */
 const campaigns = ref<ActivityCampaign[]>([]);
 /** 活动收益：只含本工具代做记录里的奖励，读不到就不显示这块，不编数字。 */
@@ -415,7 +364,6 @@ onMounted(() => {
   void load();
   void loadRewards();
   void loadGlobalBackups();
-  void loadSupplyWatch();
   void loadHealthBadge();
 });
 
@@ -496,7 +444,7 @@ async function loadGlobalBackups(): Promise<void> {
       </RouterLink>
     </div>
 
-    <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="metric-ribbon mt-5">
       <StatCard :label="t('overview.stat.accounts')" :number="accounts.length" :icon="Users" :hint="t('overview.stat.accountsHint')" :to="navTo('/accounts')" />
       <StatCard
         :label="t('overview.stat.credentialIssue')"
@@ -538,75 +486,6 @@ async function loadGlobalBackups(): Promise<void> {
       />
     </div>
 
-    <!-- 供给 + 上游兼容：两块只读数据；没有数据时整块不渲染 -->
-    <div
-      v-if="poolHealth || compat"
-      class="mt-4 grid gap-4 rounded-card border border-line bg-surface px-5 py-4 shadow-card lg:grid-cols-2"
-    >
-      <div v-if="poolHealth">
-        <div class="flex flex-wrap items-center gap-2">
-          <Coins :size="14" :stroke-width="1.9" class="text-muted" />
-          <span class="text-body font-medium text-ink">{{ t("overview.supply.title") }}</span>
-          <StatusPill v-if="poolHealth.alerts.length" tone="warn" dot>
-            {{ t("overview.supply.alert") }}
-          </StatusPill>
-          <RouterLink
-            :to="navTo('/accounts')"
-            class="ml-auto text-caption text-brand-dark hover:underline"
-          >
-            {{ t("overview.supply.goPool") }}
-          </RouterLink>
-        </div>
-        <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-body-sm text-ink-soft">
-          <span>{{ t("overview.supply.healthy", { count: poolHealth.healthyAccounts, total: poolHealth.accounts }) }}</span>
-          <span>{{ t("overview.supply.expiring", { count: poolHealth.expiring24h }) }}</span>
-          <span>{{ t("overview.supply.cooling", { count: poolHealth.cooling }) }}</span>
-          <span>{{ t("overview.supply.credits", { days: supplyDaysText(poolHealth.creditsDays) }) }}</span>
-          <span class="col-span-2 text-muted">
-            {{ t("overview.supply.success", { rate: supplyRateText(poolHealth.successRate24h) }) }}
-          </span>
-        </div>
-        <p v-if="poolHealth.alerts.length" class="mt-1.5 text-caption leading-relaxed text-warn">
-          {{ poolHealth.alerts[0].message }}
-        </p>
-      </div>
-
-      <div v-if="compat" class="lg:border-l lg:border-line-soft lg:pl-5">
-        <div class="flex flex-wrap items-center gap-2">
-          <Network :size="14" :stroke-width="1.9" class="text-muted" />
-          <span class="text-body font-medium text-ink">{{ t("overview.compat.title") }}</span>
-          <button
-            type="button"
-            class="ml-auto inline-flex items-center gap-1 rounded-control border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-            :disabled="compatBusy"
-            @click="probeUpstream"
-          >
-            <Loader2 v-if="compatBusy" :size="11" class="animate-spin" />
-            {{ compatBusy ? t("overview.compat.probing") : t("overview.compat.probe") }}
-          </button>
-        </div>
-        <ul class="mt-2 space-y-1.5">
-          <li
-            v-for="item in compat.items"
-            :key="item.scope"
-            class="flex flex-wrap items-center gap-2 text-body-sm"
-          >
-            <span class="font-medium text-ink">
-              {{ item.platform === "trae" ? "Trae" : "WorkBuddy" }}
-            </span>
-            <StatusPill :tone="COMPAT_TONE[item.state]">
-              {{ t(COMPAT_LABEL[item.state]) }}
-            </StatusPill>
-            <span class="text-caption text-muted">
-              {{ item.current?.clientVersion || t("overview.compat.noVersion") }}
-            </span>
-          </li>
-        </ul>
-        <p v-if="compat.changed.length" class="mt-1.5 text-caption text-warn">
-          {{ t("overview.compat.changedHint", { scopes: compat.changed.join(" / ") }) }}
-        </p>
-      </div>
-    </div>
     <p v-if="runError" class="mt-3 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm text-danger">
       {{ runError }}
     </p>
@@ -617,8 +496,8 @@ async function loadGlobalBackups(): Promise<void> {
       {{ runSummary }}
     </p>
 
+    <div class="page-hero mt-4">
     <SectionCard
-      class="mt-4"
       :title="t('overview.actionables.title')"
       :subtitle="
         groups.length
@@ -757,6 +636,55 @@ async function loadGlobalBackups(): Promise<void> {
         </RouterLink>
       </div>
     </SectionCard>
+
+    <!-- 系统状态窄栏：只讲账号维度的事实，供给 / 上游细节统一去健康中心看。 -->
+    <aside class="status-aside">
+      <div class="rounded-card border border-line bg-surface shadow-card">
+        <div class="border-b border-line-soft px-4 py-2.5 text-body-sm font-medium text-ink">
+          {{ t("overview.system.title") }}
+        </div>
+        <dl class="divide-y divide-line-soft px-4 text-body-sm">
+          <div class="flex items-center justify-between gap-3 py-2.5">
+            <dt class="text-muted">{{ t("overview.system.currentAccount") }}</dt>
+            <dd class="min-w-0 truncate font-medium text-ink">
+              {{ currentAccount?.displayName ?? t("overview.system.noAccount") }}
+            </dd>
+          </div>
+          <div class="flex items-center justify-between gap-3 py-2.5">
+            <dt class="text-muted">{{ t("overview.system.accounts") }}</dt>
+            <dd class="font-ledger font-medium tabular-nums text-ink">{{ accounts.length }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3 py-2.5">
+            <dt class="text-muted">{{ t("overview.system.unhandled") }}</dt>
+            <dd
+              class="font-ledger font-medium tabular-nums"
+              :class="healthUnhandled ? 'text-warn' : 'text-ink'"
+            >
+              {{ healthUnhandled }}
+            </dd>
+          </div>
+          <div class="flex items-center justify-between gap-3 py-2.5">
+            <dt class="text-muted">{{ t("overview.system.lastBackup") }}</dt>
+            <dd class="min-w-0 truncate text-right font-medium text-ink">
+              <template v-if="backupsError">—</template>
+              <template v-else-if="backupsLoading">…</template>
+              <template v-else-if="latestSnapshot">
+                {{ formatTime(latestSnapshot.createdAt) }}
+              </template>
+              <template v-else>{{ t("overview.system.neverBackup") }}</template>
+            </dd>
+          </div>
+        </dl>
+        <RouterLink
+          :to="navTo('/health')"
+          class="flex items-center justify-center gap-1 border-t border-line-soft px-4 py-2.5 text-body-sm text-brand-dark transition-colors hover:bg-line-soft/40"
+        >
+          {{ t("overview.system.openHealth") }}
+          <ArrowRight :size="13" :stroke-width="2" />
+        </RouterLink>
+      </div>
+    </aside>
+    </div>
 
     <OfficialActivityStrip v-if="pulse && campaigns.length" class="mt-4" :campaigns="campaigns" />
 

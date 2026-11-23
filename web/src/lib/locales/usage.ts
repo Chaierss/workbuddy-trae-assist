@@ -10,6 +10,7 @@ export const usageZh = {
   "usage.subtitleKey": "不可互换",
   "usage.subtitleTail": "，合计仅供展示，不能相加使用。",
   "usage.view.overview": "总览",
+  "usage.view.analysis": "深入分析",
   "usage.view.compare": "对比",
   "usage.view.detail": "明细",
   "usage.stat.accounts": "账号",
@@ -293,6 +294,15 @@ export const usageZh = {
   "overview.compat.notProbed": "尚未探测",
   "overview.compat.noVersion": "版本未知",
   "overview.compat.changedHint": "检测到新的登录态结构（{scopes}）：切换与续期照常，建议先手动验证一次切号。",
+
+  "overview.system.title": "系统状态",
+  "overview.system.currentAccount": "当前登录",
+  "overview.system.noAccount": "未登录",
+  "overview.system.accounts": "账号总数",
+  "overview.system.unhandled": "待处理",
+  "overview.system.lastBackup": "最近备份",
+  "overview.system.neverBackup": "还没有备份",
+  "overview.system.openHealth": "打开健康中心",
 };
 
 export const usageEn = {
@@ -302,6 +312,7 @@ export const usageEn = {
   "usage.subtitleKey": "not interchangeable",
   "usage.subtitleTail": "; totals are for reference only and must never be added together.",
   "usage.view.overview": "Overview",
+  "usage.view.analysis": "Deep dive",
   "usage.view.compare": "Compare",
   "usage.view.detail": "Detail",
   "usage.stat.accounts": "Accounts",
@@ -595,4 +606,13 @@ export const usageEn = {
   "overview.compat.noVersion": "Version unknown",
   "overview.compat.changedHint":
     "A new login-state structure was detected ({scopes}): switching and renewal still work, but verify one switch manually first.",
+
+  "overview.system.title": "System status",
+  "overview.system.currentAccount": "Signed in as",
+  "overview.system.noAccount": "Not signed in",
+  "overview.system.accounts": "Accounts",
+  "overview.system.unhandled": "Needs attention",
+  "overview.system.lastBackup": "Last backup",
+  "overview.system.neverBackup": "No backups yet",
+  "overview.system.openHealth": "Open health center",
 };
