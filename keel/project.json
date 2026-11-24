@@ -41,6 +41,6 @@
     { "id": "M-22", "title": "活动上游追踪（待接入）", "exit": "已覆盖 WorkBuddy 每日签到、成长任务 10 项、连签礼包 / 补签 / 兑换 / 抽奖、活跃地图、派猫猫旅行、夜猫子与 Trae 每日签到；未覆盖成长任务的专家 / 技能 / 小程序族（不伪造）与 Trae 除签到外的活动。下一步用本机一个账号只读探测上游活动 / 任务接口，产出目录外条目清单；确认可自动执行的项后在 /activities/run 增补并补测试，keel 双门禁全绿", "status": "todo" },
     { "id": "M-23", "title": "2.5.0 窗口自适应与关于入口", "exit": "桌面窗口默认按工作区 82%×85% 计算并记住大小与位置，换显示器不会跑到屏幕外；帮助 → 关于 弹窗显示版本并提供「打开个人主站」按钮直达 chaierss.fun；CHANGELOG、desktop、web、pyproject 版本同步到 2.5.0，CI 双平台产物与 latest*.yml 齐全", "status": "done" },
     { "id": "M-24", "title": "2.5.1 安装器安装页配色", "exit": "「正在安装」页底色为 #FAF7F0、状态文字与进度条为 #1F3A33、槽为 #E7E0D2，不再出现系统灰底与主题绿条；installer.nsh 编译通过；CHANGELOG、desktop、web、pyproject 版本同步到 2.5.1，CI 双平台产物与 latest*.yml 齐全", "status": "done" },
-    { "id": "M-25", "title": "2.6.0 号池与健康中心同源", "exit": "2.6.0 Release 发布；号池与健康中心读同一份凭据体检结果，只有存在缺口的号计入待处理，/api/pool/health 的供给数字包含「已排除」且 健康 + 冷却 + 已排除 = 账号数；Trae 账号合并期间同步 / 预检 / 切换按 uid 别名认号且号池标识保持导入时那份；兼容雷达指纹覆盖解密后的登录态，解不开时明确标注不计入；keel 双门禁、ruff、pytest、web build 与 web 单测全绿", "status": "doing" }
+    { "id": "M-25", "title": "2.6.0 号池与健康中心同源", "exit": "2.6.0 Release 发布；号池与健康中心读同一份凭据体检结果，只有存在缺口的号计入待处理，/api/pool/health 的供给数字包含「已排除」且 健康 + 冷却 + 已排除 = 账号数；Trae 账号合并期间同步 / 预检 / 切换按 uid 别名认号且号池标识保持导入时那份；兼容雷达指纹覆盖解密后的登录态，解不开时明确标注不计入；keel 双门禁、ruff、pytest、web build 与 web 单测全绿", "status": "done" }
   ]
 }
