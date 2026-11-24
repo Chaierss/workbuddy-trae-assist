@@ -44,12 +44,13 @@
 ; 侧栏图改成留白极简：只在左上角放一枚小 logo 与字标，不画标语、横线或边界；
 ; 页眉位图用同色纸底，页眉与页面自然连成一张纸。
 !define MUI_BGCOLOR "FAF7F0"
-; 进度条走 Windows 主题色，替掉 NSIS 默认的经典绿色块。
+!define MUI_TEXTCOLOR "1F3A33"
+; 「正在安装」是 NSIS 自带的 InstFiles 页，MUI_BGCOLOR 只作用于页眉、欢迎页和完成页，
+; 管不到它；这里先给详情区/状态文字指定墨色与纸色，灰底再由 cwThemeInstFiles 刷掉。
+!define MUI_INSTFILESPAGE_COLORS "1F3A33 FAF7F0"
+; 进度条颜色不靠这个开关：Win11 上连 colored 也还是系统绿，实际着色在
+; cwThemeInstFiles 里做（关掉控件视觉样式 + PBM 上色）。
 !define MUI_INSTFILESPAGE_PROGRESSBAR colored
-; 底部那行「chaierww 2.1.1」是 NSIS 的 BrandingText，属于外壳杂讯。
-; 两个都写：MUI_BRANDINGTEXT 管 MUI 自己的默认值，BrandingText 命令覆盖模板里的赋值。
-!define MUI_BRANDINGTEXT " "
-BrandingText " "
 
 ; —— 标题栏着色 ——
 ;
@@ -225,6 +226,32 @@ BrandingText " "
   FunctionEnd
 
   Page custom cwUpgradePageCreate cwUpgradePageLeave
+!macroend
+
+; 「正在安装」是 NSIS 自带的 InstFiles 页：标题栏不会走欢迎页的回调，灰底也不吃
+; MUI_BGCOLOR。customPageAfterChangeDir 正好展开在 MUI_PAGE_INSTFILES 之前，
+; 借它挂一个 SHOW，把标题栏、页面底色和进度条一起刷成纸本配色。
+!macro customPageAfterChangeDir
+  !define MUI_PAGE_CUSTOMFUNCTION_SHOW cwThemeInstFiles
+
+  Function cwThemeInstFiles
+    !insertmacro cwThemeCaption
+
+    ; 内层对话框（#32770）铺满整页，刷它才是换掉那块系统灰底；
+    ; 1006 是上方那行状态文字（「输出目录：…」），底色由 InstallColors 管。
+    FindWindow $0 "#32770" "" $HWNDPARENT
+    SetCtlColors $0 "1F3A33" "FAF7F0"
+    GetDlgItem $1 $0 1006
+    SetCtlColors $1 "1F3A33" "FAF7F0"
+
+    ; 进度条：Win11 的主题进度条恒为系统绿，MUI 的 colored 盖不住，只能先关掉
+    ; 这个控件的视觉样式，再直接给进度条上色。颜色字面量是 COLORREF（0x00BBGGRR）。
+    ; 0x0409 = PBM_SETBARCOLOR（墨绿），0x2001 = PBM_SETBKCOLOR（槽：发丝灰）。
+    GetDlgItem $2 $0 1004
+    System::Call 'uxtheme::SetWindowTheme(p $2, w "", w "")'
+    SendMessage $2 0x0409 0 0x00333A1F
+    SendMessage $2 0x2001 0 0x00D2E0E7
+  FunctionEnd
 !macroend
 
 ; 记住这次装到哪。
