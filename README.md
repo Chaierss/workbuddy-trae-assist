@@ -1,8 +1,8 @@
 <h1 align="center">chaierww</h1>
 
 <p align="center">
-  <b>一年换号 1800 次，等于白扔 4 个工作日。</b><br>
-  <sub>WorkBuddy 国内版 + Trae 国内版的多号切换，现在只要点一下。全部在本机，断网也能用。</sub>
+  <b>一个人，八个号，一个总控台。</b><br>
+  <sub>WorkBuddy 国内版 + Trae 国内版的多号管家：1 秒切号、自动续期、活动一键跑。<br>数据只在本机，断网也能切。</sub>
 </p>
 
 <p align="center">
@@ -10,12 +10,14 @@
   <img alt="许可" src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF-PolyForm%20Noncommercial-4c8bf5" />
   <img alt="无云端" src="https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E5%8F%AA%E5%9C%A8%E6%9C%AC%E6%9C%BA-d4a66b" />
   <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="版本" src="https://img.shields.io/github/v/release/Chaierss/workbuddy-trae-assist?color=8a63d2&label=%E7%89%88%E6%9C%AC" /></a>
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Chaierss/workbuddy-trae-assist?style=social" /></a>
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Chaierss/workbuddy-trae-assist/total?color=2ea043&label=downloads" /></a>
 </p>
 
 <p align="center">
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases/latest"><b>下载最新版</b></a> ·
+  <a href="docs/QUICKSTART.md">3 分钟上手</a> ·
   <a href="README.en.md">English</a> ·
-  <a href="docs/QUICKSTART.md"><b>3 分钟上手</b></a> ·
-  <a href="#安装">下载安装</a> ·
   <a href="#界面">界面</a> ·
   <a href="#功能">功能</a> ·
   <a href="#常见问题">常见问题</a> ·
@@ -23,19 +25,33 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/overview.png" alt="chaierww 工作台界面" width="920">
+  <img src="docs/images/demo.gif" alt="chaierww：工作台、号池与活动目录" width="880">
 </p>
 
 <p align="center">
-  <sub>深色模式与另外三页截图见 <a href="docs/images-dark">docs/images-dark</a></sub>
-</p>
-
-<p align="center">
-  <b>Windows</b>：下载 <code>chaierww-Setup-&lt;版本号&gt;.exe</code> 双击安装（免管理员）　
+  <b>Windows</b>：下载 <code>chaierww-Setup-&lt;版本号&gt;.exe</code>，双击安装，免管理员　·　
   <b>Linux x64</b>：下载 <code>chaierww-x86_64.AppImage</code>，<code>chmod +x</code> 后运行
 </p>
 
-## 数字
+## 这是什么
+
+一个跑在你自己电脑上的多账号管理工具。它把 WorkBuddy 国内版和 Trae 国内版的账号收进一处：
+
+- **切号**：从「退出 → 扫码 → 等同步 → 找回会话」的 60 秒，变成一次点击的 1 秒；
+- **续期**：按令牌寿命自动提前续，失败退避、连续失败熔断，不再手动重登；
+- **活动**：签到、成长任务、连签里程按账号列出进度，能自动的自动跑，手动项写清怎么做；
+- **网关**：把号池额度以 OpenAI / Anthropic 兼容接口借给本机其它 AI 工具。
+
+**适合谁**：同时维护 2 个以上账号、每天要在几个号之间来回切的人。
+**不适合谁**：只有一个号的人；想要云端托管、账号共享或代登录的人——这些它都不做。
+
+**所有数据只在你自己的机器上**：没有云端中转，没有账号托管，断网也能切号。
+
+> 非官方第三方工具，与 WorkBuddy / Trae 及其权利人无隶属、授权或背书关系。
+> 它会读写本机客户端的认证数据、按你的配置自动发起请求。使用前请读
+> **[免责声明](docs/policies/DISCLAIMER.md)**。
+
+## 为什么值得装
 
 一天换五次号，一年就是一千八百次。每次六十秒，累计三十个小时——**四个工作日**，
 全花在「等一下」上。而且每一次，都不是你想做的事。
@@ -53,13 +69,6 @@
 | 多号归类 | 靠备注和记忆分清谁是谁 | 分组标签，按组筛选、批量设组 |
 | 备份 | 没有 | 每日自动一份，滚动保留 7 份 |
 
-它把 WorkBuddy 国内版和 Trae 国内版的账号收进一处，切换前强制备份、中途失败自动回滚，
-不会把登录态写坏。**所有数据只在你自己的机器上**：没有云端中转，没有账号托管，断网也能切号。
-
-> 非官方第三方工具，与 WorkBuddy / Trae 及其权利人无隶属、授权或背书关系。
-> 它会读写本机客户端的认证数据、按你的配置自动发起请求。使用前请读
-> **[免责声明](docs/policies/DISCLAIMER.md)**。
-
 ## 一天
 
 把功能换成你的一天，省下的是这些动作：
@@ -73,95 +82,34 @@
 
 以上每一项都能在应用里关掉或改时间，不存在替你决定。
 
-## 边界
-
-能做和不能做，一次说清。先说不做的：
-
-| 不做 | 原因 |
-|:--|:--|
-| 云端中转、账号托管、账号分享 | 会让工具变成服务 |
-| 代登录（收集你的密码） | 凭据责任过重，且没必要 |
-| 修改客户端程序本体 | 只读写状态文件，不打补丁 |
-| 上传任何数据到服务器 | 数据只落本机：统计也只有本机匿名计数，不上传、不接第三方 SDK |
-| 绕过平台额度或风控 | 它帮你管自己的号，不帮你薅 |
-
-再说做不到的，这些是硬限制，不是排期：
-
-| 做不到 | 说明 |
-| :-- | :-- |
-| 跨设备搬号 | Trae 令牌绑定签发设备，别处导出的号会被上游拒绝（`20403`），需在本机重新扫码或导入 |
-| 网页版做活动 | 不提供网页登录链路，活动只走与客户端等价的本地请求 |
-| 把成长任务全自动做完 | 其中有 10 项是通过接口把任务标记完成，并非真的执行动作；默认不进计划任务，手动执行前会弹说明 |
-| macOS | 未适配，不发布；`default_box()` 会抛 `PlatformNotSupported` |
-| 在 CentOS 7 上跑安装包 | 产物链接 glibc 2.31+，2.17 系统直接报 `GLIBC_2.28 not found`，只能源码跑后端 |
-
-## 界面
-
-<p align="center">
-  <img src="docs/images/titlebar.png" alt="chaierww 桌面端顶栏菜单" width="700">
-</p>
-
-<p align="center">
-  <sub>桌面端顶栏：折叠、搜索与文件 / 编辑 / 查看 / 帮助四菜单，菜单项都带键帽，Alt+F/E/V/H 也能展开</sub>
-</p>
-
-| 号池 · 账号、分组、积分、凭据状态一屏看全 | 用量 · 请求 + 积分，按模型、按日趋势 |
-| --- | --- |
-| ![号池](docs/images/accounts.png) | ![用量](docs/images/usage.png) |
-
-| 活动目录 · 平台有哪些活动、规则与奖励 | 账号任务 · 每个号做到哪一步、手动项写着怎么做 |
-| --- | --- |
-| ![官方活动](docs/images/activity.png) | ![账号任务](docs/images/activity-accounts.png) |
-
-| 网关 · 额度以 OpenAI / Anthropic 兼容接口开放 | 模型目录 · 可用模型与能力标注 |
-| --- | --- |
-| ![网关](docs/images/gateway-overview.png) | ![模型目录](docs/images/gateway-models.png) |
-
-| 网关 Key · 签发、限模型、限额度、随时吊销 | 计划任务 · 一天多个时点，每档只留最近 7 次执行记录 |
-| --- | --- |
-| ![API Key](docs/images/gateway-keys.png) | ![计划任务](docs/images/settings-schedule.png) |
-
-| 备份 · 每日自动一份，可校验、可回到任意一份 | 环境 · 本机路径、客户端状态与诊断包 |
-| --- | --- |
-| ![备份](docs/images/settings-backup.png) | ![环境](docs/images/settings-env.png) |
-
-| 健康中心 · 上游结构、登录、供给与活动的异常事件流 | 外观与语言 · 主题、语言、版本更新与新手引导 |
-| --- | --- |
-| ![健康中心](docs/images/health.png) | ![外观与语言](docs/images/settings-general.png) |
-
-> 截图是脚本渲染完 DOM 再截的：账号名、账号 ID、邮箱、本机路径、网关 Key、IP
-> 在快门按下之前就已经在页面里被替换成圆点或模糊，不是事后按坐标手画的，
-> 所以界面改版也不用重新量坐标。图为脱敏后的演示数据，生成方式是 `python scripts/shots.py --demo`；
-> 顶栏横条用 `python scripts/shots.py --titlebar`——给页面注入桌面壳层的桩，渲染的仍是真实前端。
-
 ## 功能
 
-按你实际会用的四件事归类，每类只留最硬的几条：
+按你实际会用的四件事归类，每类只留最硬的几条。
 
-**换号**
+### 换号：60 秒 → 1 秒
 
-- **点一下就换**：号池卡片、`Ctrl+K` 命令面板（输入即搜账号，也认拼音与英文别名）、桌面托盘三处都能发起，
-  走同一套只读预检；失败自动回滚到切换前快照
+- **点一下就换**：号池卡片、`Ctrl+K` 命令面板（输入即搜账号，也认拼音与英文别名）、
+  桌面托盘三处都能发起，走同一套只读预检；失败自动回滚到切换前快照
+- **一个键直达**：桌面端 `Ctrl+Alt+1..8` 对应最近使用的 8 个账号，窗口藏在托盘里也能唤起
+- **切完能反悔**：换号成功后弹层里直接「切回上一个号」，重新走预检，不绕过确认
 - **先看再动手**：切换前只读预演，列出会动哪些文件，不写一个字节
 - **切完自己拉起**：是否自动重启客户端可在「设置 → 账号与切换」关掉
 
-**号池**
+### 号池：不用再记谁的 token 先过期
 
 - **凭据会自己续**：按令牌寿命动态提前续期（最短 30 分钟、最长 6 小时）；失败按
   1 小时 / 6 小时退避，连续失败自动熔断，熔断后可一键「恢复自动续期」
 - **一眼知道要不要管**：工作台顶部给出一句结论（全部正常 / 有账号要处理 / 还有健康事件），
   近 7 天出现过切换或续期失败的号也会一并点出来，点右侧直达对应页面
 - **该处理的自己冒出来**：工作台「待处理」只铺最靠前的 3 组，可一键续期 / 补跑，
-  并当场给出「已处理 / 需人工」；策略仍只在「设置 → 自动化」里改；
-  到期或 24 小时内到期的凭据默认自动续期（每轮最多 3 个），当天失败的活动默认自动补跑
-  （最多 20 对），两项都能在「设置 → 自动化」关掉
+  并当场给出「已处理 / 需人工」；策略仍只在「设置 → 自动化」里改
 - **号池一键体检**：登录复检、凭据验活、供给与隔离汇总一次跑完，每条结果给出下一步
   （重登 / 续期 / 诊断 / 解除隔离 / 去健康中心），不做推荐与评分
 - **出问题先诊断**：六步只读诊断（凭据可读、能否续期、设备是否本机、剩余寿命、退避/熔断、
   只读验活），每步给结论与建议，不写数据、不轮换令牌
 - **分组与回收站**：自由标签按组筛选、批量设组；删除先进回收站保留 30 天，可恢复
 
-**活动**
+### 活动：一键今天的活
 
 - **官方目录随版本走**：签到、成长任务、连签里程、派猫猫旅行、夜猫子、开学季逐条写清
   规则与奖励；目录外的活动标「未收录」沉底，不会静默消失
@@ -169,10 +117,11 @@
   做不了的项按族写清「怎么做」，手动做完点「重新检测」当场回查
 - **收益看得见**：今日 / 近 7 天合计、迷你趋势与 Top 3 账号；只算本工具代做并记录下来的
   奖励，手动领取不计
+- **一键今天的活**：到期续期 + 全部账号的可自动活动一次跑完，给出「已完成 / 需人工」回执
 
-**网关**
+### 网关：把额度借给本机其它 AI 工具
 
-- **额度借给本机其它 AI 工具**：以 OpenAI / Anthropic 兼容接口开放，Key 可签发、可吊销，
+- **兼容接口**：以 OpenAI / Anthropic 兼容接口开放，Key 可签发、可吊销，
   可按 Key 配每日 Token / 请求数与每分钟上限
 - **选号有策略**：`balanced` / `quality` / `quota` / `smart` 四档，可设最低积分门槛与
   每号并发上限；全部占满时快速回 `503` + `Retry-After: 1`
@@ -182,13 +131,9 @@
 <details>
 <summary>其余细节（计划任务、备份、会话、引导、体验数据等）</summary>
 
-- **换号随处可发起**：号池卡片、`Ctrl+K`、托盘三处走同一套预检，切完是否自动拉起可配置；
-  桌面端还能用 `Ctrl+Alt+1..8` 直接切最近使用的 8 个号，切完可一键「切回上一个号」
 - **顶栏就是菜单**：编辑 / 查看 / 帮助三组动作都带键帽（撤销 `Ctrl+Z`、全屏 `F11`、
   缩放 `Ctrl+= / - / 0`、开发者工具 `Ctrl+Shift+I`），`Alt+F/E/V/H` 展开；搜索按钮与
   `Ctrl+K` 打开同一个命令面板，面板认拼音与英文别名（`hc` 找号池、`sz` 找设置）
-- **执行有回执**：工作台「一键今天的活」把到期续期与可自动活动一次跑完；
-  一键执行活动 / 续期后逐项列出成功、跳过与失败原因，失败可当场重试
 - **读不到就说读不到**：备份读取失败显示「暂不可查」并可重试，加载中给骨架，不拿 0 或空态冒充
 - **巡检有历史**：每号保留最近 20 条巡检记录，卡片上可翻看时间、状态、原因与下次重试；
   重启不丢，「恢复」也只清计数、不删历史
@@ -213,6 +158,122 @@
   关闭、导出与清空（[说明](docs/policies/TELEMETRY.md)），不上云
 
 </details>
+
+## 界面
+
+<p align="center">
+  <img src="docs/images/titlebar.png" alt="chaierww 桌面端顶栏菜单" width="700">
+</p>
+
+<p align="center">
+  <sub>桌面端顶栏：折叠、搜索与文件 / 编辑 / 查看 / 帮助四菜单，菜单项都带键帽，Alt+F/E/V/H 也能展开</sub>
+</p>
+
+| 号池 · 账号、分组、积分、凭据状态一屏看全 | 用量 · 请求 + 积分，按模型、按日趋势 |
+| --- | --- |
+| ![号池](docs/images/accounts.png) | ![用量](docs/images/usage.png) |
+
+| 活动目录 · 平台有哪些活动、规则与奖励 | 账号任务 · 每个号做到哪一步、手动项写着怎么做 |
+| --- | --- |
+| ![官方活动](docs/images/activity.png) | ![账号任务](docs/images/activity-accounts.png) |
+
+<details>
+<summary>更多截图（网关、Key、计划任务、备份、环境、健康中心、外观）</summary>
+
+| 网关 · 额度以 OpenAI / Anthropic 兼容接口开放 | 模型目录 · 可用模型与能力标注 |
+| --- | --- |
+| ![网关](docs/images/gateway-overview.png) | ![模型目录](docs/images/gateway-models.png) |
+
+| 网关 Key · 签发、限模型、限额度、随时吊销 | 计划任务 · 一天多个时点，每档只留最近 7 次执行记录 |
+| --- | --- |
+| ![API Key](docs/images/gateway-keys.png) | ![计划任务](docs/images/settings-schedule.png) |
+
+| 备份 · 每日自动一份，可校验、可回到任意一份 | 环境 · 本机路径、客户端状态与诊断包 |
+| --- | --- |
+| ![备份](docs/images/settings-backup.png) | ![环境](docs/images/settings-env.png) |
+
+| 健康中心 · 上游结构、登录、供给与活动的异常事件流 | 外观与语言 · 主题、语言、版本更新与新手引导 |
+| --- | --- |
+| ![健康中心](docs/images/health.png) | ![外观与语言](docs/images/settings-general.png) |
+
+</details>
+
+> 截图是脚本渲染完 DOM 再截的：账号名、账号 ID、邮箱、本机路径、网关 Key、IP
+> 在快门按下之前就已经在页面里被替换成圆点或模糊，不是事后按坐标手画的，
+> 所以界面改版也不用重新量坐标。图为脱敏后的演示数据，生成方式是 `python scripts/shots.py --demo`；
+> 顶栏横条用 `python scripts/shots.py --titlebar`——给页面注入桌面壳层的桩，渲染的仍是真实前端。
+
+## 安全与边界
+
+- 凭据加密后落盘，密钥不落文件：Windows 用 DPAPI（绑当前用户），Linux 用 AES-256-GCM
+  （按 machine-id + uid 派生，不防本机 root）；日志里一律脱敏
+- 本机接口默认带同源守卫：浏览器同源 Cookie 放行，外部脚本用 `~/.chaierww/api-token`；
+  非回环 `Host` / `Origin` 一律拒绝（[细节](docs/README.md)）
+- 配置与数据库写入走原子写：临时文件 + fsync + 替换，损坏的 JSON 隔离留证，不静默覆盖
+- 所有数据在 `~/.chaierww`（可用 `CHAIERWW_HOME` 覆盖），整个目录拷走就是完整迁移
+- 没有服务端。断网、拔网线，切号照样能用
+
+细节和威胁模型见 **[SECURITY.md](SECURITY.md)**。
+
+先说它**不做**的：
+
+| 不做 | 原因 |
+|:--|:--|
+| 云端中转、账号托管、账号分享 | 会让工具变成服务 |
+| 代登录（收集你的密码） | 凭据责任过重，且没必要 |
+| 修改客户端程序本体 | 只读写状态文件，不打补丁 |
+| 上传任何数据到服务器 | 数据只落本机：统计也只有本机匿名计数，不上传、不接第三方 SDK |
+| 绕过平台额度或风控 | 它帮你管自己的号，不帮你薅 |
+
+再说**做不到**的，这些是硬限制，不是排期：
+
+| 做不到 | 说明 |
+| :-- | :-- |
+| 跨设备搬号 | Trae 令牌绑定签发设备，别处导出的号会被上游拒绝（`20403`），需在本机重新扫码或导入 |
+| 网页版做活动 | 不提供网页登录链路，活动只走与客户端等价的本地请求 |
+| 把成长任务全自动做完 | 其中有 10 项是通过接口把任务标记完成，并非真的执行动作；默认不进计划任务，手动执行前会弹说明 |
+| macOS | 未适配，不发布；`default_box()` 会抛 `PlatformNotSupported` |
+| 在 CentOS 7 上跑安装包 | 产物链接 glibc 2.31+，2.17 系统直接报 `GLIBC_2.28 not found`，只能源码跑后端 |
+
+## 安装
+
+到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新版。
+
+- **Windows**：`chaierww-Setup-<版本号>.exe`，双击安装。默认只为当前用户装、免管理员，
+  装进当前用户目录；向导会先展示许可要点与免责声明。
+- **Linux x64**：`chaierww-x86_64.AppImage`（`chmod +x` 后运行，缺 FUSE 时加
+  `APPIMAGE_EXTRACT_AND_RUN=1`）或 `chaierww-amd64.deb`（`sudo apt install ./…deb`）。
+  **CentOS 7 的 glibc 2.17 跑不起来**，见[边界](#安全与边界)。
+
+打开后扫码加号，之后点一下就能切过去。
+
+安装包没有代码签名，Windows 首次运行会拦一次：点「更多信息 → 仍要运行」。
+这是没有付费证书的成本，不是包有问题。
+
+**升级不用管。** 启动后自动静默检查并下载更新；下载完成才在侧栏、托盘和「设置 → 外观与语言」里提示，
+不打断当前操作。点「重启并安装」立即生效，选「稍后」则下次退出应用时自动装上。
+不想让它自动检查，在「设置 → 外观与语言」里关掉开关；手动检查也在那里。某个版本不想装，
+可以在提示里点「跳过此版本」。
+
+### 平台
+
+| 平台 | 产物 | 说明 |
+| :-- | :-- | :-- |
+| Windows 10 / 11 (x64) | `chaierww-Setup-<版本号>.exe` | 完整支持 |
+| Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+） | AppImage、deb | 完整支持，CentOS 7 除外 |
+| macOS | — | 未适配，不发布 |
+
+Linux 与 Windows 的实现差异只有三处：凭据加密（Windows DPAPI / Linux AES-256-GCM，
+密钥由 `/etc/machine-id` + uid 派生、不落盘）、登录态目录（`APPDATA` ↔ `XDG_CONFIG_HOME`）、
+客户端进程名（去 `.exe`）。Linux 的 AES **挡得住「密文被拷到别的机器」但不防本机 root**，
+理由见 [SECURITY.md](SECURITY.md)。
+
+**CentOS 7 用户**：安装包跑不起来，可 `pip install -e .` 后 `python -m chaierww.main` 跑后端，
+浏览器打开 `http://127.0.0.1:57910`；或在目标机器上自行打包（PyInstaller 不能交叉编译）。
+完整步骤见 [docs/LINUX.md](docs/LINUX.md)。
+
+macOS 未适配：后端没有 Keychain 实现。Electron 外壳、托盘与构建脚本都是跨平台的，
+欢迎 PR，切入点在[开发](#开发)一节。
 
 ## 凭据
 
@@ -241,62 +302,6 @@ Trae 2026-10 起，续期请求必须带设备签名（`DeviceProof`），令牌
 直接熔断，等用户重新登录。卡片上能看到上次巡检、上次续期与失败原因、下次重试时间，
 并就地给出「重新扫码登录」「从客户端导入」两个修复按钮；熔断后点「恢复自动续期」
 只清失败计数、保留历史。需要更细的现场信息时点「诊断」，六步检查全部是只读的。
-
-## 安装
-
-到 [Releases](https://github.com/Chaierss/workbuddy-trae-assist/releases) 下载最新版。
-
-- **Windows**：`chaierww-Setup-<版本号>.exe`，双击安装。默认只为当前用户装、免管理员，
-  装进当前用户目录；向导会先展示许可要点与免责声明。
-- **Linux x64**：`chaierww-x86_64.AppImage`（`chmod +x` 后运行，缺 FUSE 时加
-  `APPIMAGE_EXTRACT_AND_RUN=1`）或 `chaierww-amd64.deb`（`sudo apt install ./…deb`）。
-  **CentOS 7 的 glibc 2.17 跑不起来**，见[边界](#边界)。
-
-打开后扫码加号，之后点一下就能切过去。
-
-安装包没有代码签名，Windows 首次运行会拦一次：点「更多信息 → 仍要运行」。
-这是没有付费证书的成本，不是包有问题。
-
-**升级不用管。** 启动后自动静默检查并下载更新；下载完成才在侧栏、托盘和「设置 → 外观与语言」里提示，
-不打断当前操作。点「重启并安装」立即生效，选「稍后」则下次退出应用时自动装上。
-不想让它自动检查，在「设置 → 外观与语言」里关掉开关；手动检查也在那里。某个版本不想装，
-可以在提示里点「跳过此版本」。
-
-### 平台
-
-| 平台 | 产物 | 说明 |
-| :-- | :-- | :-- |
-| Windows 10 / 11 (x64) | `chaierww-Setup-<版本号>.exe` | 完整支持 |
-| Linux x64（Ubuntu 20.04+ / Debian 11+ / CentOS 8+） | AppImage、deb | 完整支持，CentOS 7 除外 |
-| macOS | — | 未适配，不发布 |
-
-Linux 与 Windows 的实现差异只有三处：凭据加密（Windows DPAPI / Linux AES-256-GCM，
-密钥由 `/etc/machine-id` + uid 派生、不落盘）、登录态目录（`APPDATA` ↔ `XDG_CONFIG_HOME`）、
-客户端进程名（去 `.exe`）。Linux 的 AES **挡得住「密文被拷到别的机器」但不防本机 root**，
-理由见 [SECURITY.md](SECURITY.md)。
-
-**CentOS 7 用户**：可选路径是 `pip install -e .` 后 `python -m chaierww.main` 跑后端、
-浏览器打开 `http://127.0.0.1:57910`；或者在那台机器上自己打包（PyInstaller 不能交叉编译）。
-细节见 [desktop/README.md](desktop/README.md#centos-用户先读这一段)，
-完整步骤（Python 3.11 怎么装、前端产物怎么来、远程怎么访问）见
-[docs/LINUX.md](docs/LINUX.md)。服务器上要长期跑（退出 SSH 也不停）：
-`bash scripts/install-linux.sh --systemd`，见
-[常驻运行](docs/LINUX.md#b4-常驻运行systemd---user服务器场景)。
-
-macOS 仍未适配：后端没有 Keychain 实现。Electron 外壳、托盘、构建脚本都是跨平台的，
-欢迎 PR，切入点在[开发](#开发)一节。
-
-## 安全
-
-- 凭据加密后落盘，密钥不落文件：Windows 用 DPAPI（绑当前用户），Linux 用 AES-256-GCM
-  （按 machine-id + uid 派生，不防本机 root）；日志里一律脱敏
-- 本机接口默认带同源守卫：浏览器同源 Cookie 放行，外部脚本用 `~/.chaierww/api-token`；
-  非回环 `Host` / `Origin` 一律拒绝（[细节](docs/README.md)）
-- 配置与数据库写入走原子写：临时文件 + fsync + 替换，损坏的 JSON 隔离留证，不静默覆盖
-- 所有数据在 `~/.chaierww`（可用 `CHAIERWW_HOME` 覆盖），整个目录拷走就是完整迁移
-- 没有服务端。断网、拔网线，切号照样能用
-
-细节和威胁模型见 **[SECURITY.md](SECURITY.md)**。
 
 ## 常见问题
 
@@ -384,8 +389,8 @@ tests/         pytest 用例
 
 **源码全部公开，但这不是一个 OSI 认可的开源许可。** 准确说法是 source-available：
 
-- ✅ 个人使用、学习、修改、二次分发（非商业目的）
-- ❌ 任何商业用途——包括公司内部使用、打包进商业产品、对外提供付费服务
+- 可以：个人使用、学习、修改、二次分发（非商业目的）
+- 不可以：任何商业用途——包括公司内部使用、打包进商业产品、对外提供付费服务
 - 商业使用需另行获得作者授权（[开 issue](https://github.com/Chaierss/workbuddy-trae-assist/issues) 联系）
 
 ```
@@ -393,15 +398,16 @@ Required Notice: Copyright (c) 2026 NextAgentX (https://github.com/NextAgentX/qo
 Required Notice: Copyright (c) 2026 Chaierss (https://github.com/Chaierss)
 ```
 
-第一行属于上游：Trae 的凭据信封解析（`domain/trae_crypto.py`）与扫码登录
-（`domain/trae_oauth.py`）起于对
-[qoder-trae-workbuddy-switch](https://github.com/NextAgentX/qoder-trae-workbuddy-switch)
-的协议研究——那是同许可的 Rust/Tauri 实现，本项目用 Python 重写。
-按 PolyForm 的 Notices 条款，上游的 Required Notice 必须一并保留，不做移除。
-
 ---
 
-如果它帮你省下了每天那几趟登出重登，[点个 star](https://github.com/Chaierss/workbuddy-trae-assist/stargazers)
-就行；顺手转给同样在几个号之间来回切的人，比 star 更有用。
-有问题[开 issue](https://github.com/Chaierss/workbuddy-trae-assist/issues)，
-想参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+<p align="center">
+  <b>如果它帮你省下了每天那几趟登出重登，点个 Star 就行。</b><br>
+  <sub>顺手转给同样在几个号之间来回切的人，比 Star 更有用。</sub>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/stargazers">Star</a> ·
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/issues">开 issue</a> ·
+  <a href="CONTRIBUTING.md">参与开发</a> ·
+  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases/latest">下载</a>
+</p>
