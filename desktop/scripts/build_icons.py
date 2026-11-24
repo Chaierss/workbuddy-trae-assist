@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
-"""从 Web 端的应用图标生成桌面端各平台所需的图标。
+"""绘制 c/w 字母标，并生成 Web 与桌面端所需的全部图标。
 
-源：`web/public/android-chrome-512x512.png`（499×499 RGBA，黑色字形 + 透明底）
+源：本脚本里的 `draw_mark()`——一条开口的 c 加一条折线 w，墨绿 #1F3A33。
+所有产物都由它按目标尺寸重新绘制 / 缩放，不存在「先存一张大图再到处缩」的糊边。
 
-产物（都在 desktop/build/ 下）：
+产物：
 
 | 文件 | 用途 |
 | --- | --- |
+| `web/public/android-chrome-512x512.png` | Web 端应用图标（纸色圆角块 + 字标） |
+| `web/public/android-chrome-192x192.png` / `apple-touch-icon.png` | 侧栏品牌块、iOS 主屏 |
+| `web/public/android-chrome-192x192-dark.png` | 应用内深色主题的侧栏品牌块（墨绿底反白） |
+| `web/public/favicon-16x16.png` / `favicon-32x32.png` / `favicon.ico` | 浏览器标签页 |
 | `build/icon.ico` | Windows 应用图标（16–256 多尺寸） |
 | `build/icon.icns` | macOS 应用图标 |
 | `build/icon.png` | 1024×1024，Linux 与兜底 |
@@ -22,10 +27,10 @@ buildResources 目录，**打包时会被排除在 app.asar 之外**。托盘图
 
 托盘图的两个决定：
 
-1. **就是 logo 本身，不另画简化标记**。托盘图直接由同一份源字形缩放而来，
-   跟应用图标、任务栏图标、网页 favicon 是同一个图形。16px 下它必然糊，
+1. **就是字标本身，不另画简化标记**。托盘图直接由同一份 c/w 字形缩放而来，
+   跟应用图标、任务栏图标、网页 favicon 是同一个图形。小尺寸下它必然糊，
    但「糊掉的 logo」和「另一个形状」是两回事——用户认的是形状要一致。
-2. **按系统深浅色出两套**。logo 是纯黑字形 + 透明底：浅色任务栏用黑字形，
+2. **按系统深浅色出两套**。字标本身是纯色 + 透明底：浅色任务栏用黑字形，
    深色任务栏必须用白字形，否则就是一块看不见的黑影。Windows / Linux 没有
    「模板图自动反色」这回事，只能由主进程按 `nativeTheme.shouldUseDarkColors`
    挑一个，并在系统主题变化时换图（见 main.js 的 trayIcon）。
@@ -39,11 +44,15 @@ buildResources 目录，**打包时会被排除在 app.asar 之外**。托盘图
 
 macOS 例外：菜单栏图标走模板图，系统按菜单栏明暗自动反色，不需要两套。
 
+应用图标采用「纸色圆角块 + 墨绿字标」：任务栏、深色桌面与浅色桌面上都能看清；
+托盘与应用内小图标仍用纯字形，跟随主题染色。
+
 用法：`python desktop/scripts/build_icons.py`
 """
 
 from __future__ import annotations
 
+import math
 import struct
 import sys
 from io import BytesIO
@@ -73,10 +82,14 @@ def _use_utf8_console() -> None:
 _use_utf8_console()
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "web" / "public" / "android-chrome-512x512.png"
+WEB = ROOT / "web" / "public"
 OUT = ROOT / "desktop" / "build"
 # 托盘图必须放在 buildResources 之外，否则会被排除在 app.asar 外（详见文件头说明）。
 TRAY_OUT = ROOT / "desktop" / "assets"
+
+# 字标画布与超采样倍数：先用 4 倍尺寸画，再缩到目标尺寸，边缘才干净。
+MARK_CANVAS = 1024
+SUPERSAMPLE = 4
 
 # 裁掉留白后的源字形，main() 里赋值；托盘渲染靠它按各尺寸缩放。
 _GLYPH: Image.Image | None = None
@@ -118,9 +131,48 @@ def write_ico(path: Path, images: list[Image.Image]) -> None:
 
 
 
+def _draw_mark(size: int = MARK_CANVAS) -> Image.Image:
+    """画 c/w 字标：左侧开口圆环的 c，右侧三条折线的 w，圆头圆角。
+
+    为什么用几何描边而不是字体：字标必须是自有形状，换机器、换字体都不会变；
+    而且圆头端点、开口角度、字距都能逐个调，缩小后比现成字体更稳。
+    """
+    big = size * SUPERSAMPLE
+    canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    k = big / MARK_CANVAS
+    stroke = 112 * k
+
+    def cap(x: float, y: float) -> None:
+        rad = stroke / 2
+        draw.ellipse((x - rad, y - rad, x + rad, y + rad), fill=INK)
+
+    # c：开口圆环，缺口朝向 w；arc 的线宽向圆心内缩，圆头落在描边中线上。
+    cx, cy, r = 292 * k, 512 * k, 150 * k
+    start, end = 48, 312
+    draw.arc((cx - r, cy - r, cx + r, cy + r), start=start, end=end, fill=INK, width=int(stroke))
+    for angle in (start, end):
+        rr = r - stroke / 2
+        cap(cx + rr * math.cos(math.radians(angle)), cy + rr * math.sin(math.radians(angle)))
+
+    # w：三条折线，与 c 之间留一个很窄的呼吸位，缩小后仍是一个整体。
+    points = [
+        (508 * k, 392 * k),
+        (572 * k, 646 * k),
+        (636 * k, 486 * k),
+        (700 * k, 646 * k),
+        (764 * k, 392 * k),
+    ]
+    draw.line(points, fill=INK, width=int(stroke), joint="curve")
+    for x, y in points:
+        cap(x, y)
+
+    return canvas.resize((size, size), Image.LANCZOS)
+
+
 def load_glyph() -> Image.Image:
-    """载入源图并裁到内容边界，去掉四周留白。"""
-    img = Image.open(SRC).convert("RGBA")
+    """画一份字标并裁到内容边界，去掉四周留白。"""
+    img = _draw_mark()
     bbox = img.getbbox()
     if bbox:
         img = img.crop(bbox)
@@ -128,20 +180,21 @@ def load_glyph() -> Image.Image:
 
 
 def tray_glyph(size: int) -> Image.Image:
-    """把 logo 缩放成目标尺寸，留着透明底（颜色由调用方染色）。
+    """把字标等比缩进目标尺寸，留着透明底（颜色由调用方染色）。
 
-    `pad_ratio` 给小一点（0.04）：托盘格子本身已经很小，四周再留白等于自废武功。
+    字标是横宽形（约 1.85:1），不能按正方形拉伸，否则 c 会被压扁；
+    这里按宽度铺满、垂直居中，小尺寸下至少保住横向的字母轮廓。
 
     小尺寸不做「加粗/腐蚀」之类的加工——试过：MaxFilter 加粗之后 16px 反而
     从「糊掉的 logo」变成「一坨实心块」，形状信息全丢，不如老老实实高质量缩放。
     """
-    pad_ratio = 0.04
-    inner = max(1, int(round(size * (1 - pad_ratio * 2))))
     if _GLYPH is None:  # 只在 main() 之前被调用才会发生
         raise SystemExit("源字形尚未载入")
-    mark = _GLYPH.resize((inner, inner), Image.LANCZOS)
+    inner_w = max(1, int(round(size * 0.92)))
+    inner_h = max(1, int(round(_GLYPH.height * inner_w / _GLYPH.width)))
+    mark = _GLYPH.resize((inner_w, inner_h), Image.LANCZOS)
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    canvas.alpha_composite(mark, ((size - inner) // 2, (size - inner) // 2))
+    canvas.alpha_composite(mark, ((size - inner_w) // 2, (size - inner_h) // 2))
     return canvas
 
 
@@ -167,13 +220,32 @@ INK = (31, 58, 51)  # #1F3A33
 HAIRLINE = (231, 224, 210)  # #E7E0D2
 
 
-def compose_app(size: int, glyph: Image.Image, pad_ratio: float = 0.1) -> Image.Image:
-    """应用图标：透明底 + 原字形（保持与 Web 端 favicon 完全一致）。"""
-    inner = int(size * (1 - pad_ratio * 2))
-    mark = glyph.resize((inner, inner), Image.LANCZOS)
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    canvas.alpha_composite(mark, ((size - inner) // 2, (size - inner) // 2))
-    return canvas
+def rounded_plate(size: int, color: tuple[int, int, int] = PAPER) -> Image.Image:
+    """圆角块：应用图标与 favicon 的底，圆角比例固定，各尺寸看起来一致。"""
+    big = size * SUPERSAMPLE
+    canvas = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    radius = int(big * 0.23)
+    draw.rounded_rectangle((0, 0, big - 1, big - 1), radius=radius, fill=color)
+    return canvas.resize((size, size), Image.LANCZOS)
+
+
+def compose_app(size: int, dark: bool = False) -> Image.Image:
+    """应用图标：纸色圆角块 + 墨绿字标（宽度占 74%，四周留呼吸位）。
+
+    `dark=True` 出的是应用内深色主题用的小图标：墨绿底 + 纸色字标，
+    避免一块亮纸色在深色侧栏里抢走视线；系统图标仍用浅色版。
+    """
+    if _GLYPH is None:
+        raise SystemExit("源字形尚未载入")
+    plate = rounded_plate(size, INK if dark else PAPER)
+    target_w = max(1, int(round(size * 0.74)))
+    target_h = max(1, int(round(_GLYPH.height * target_w / _GLYPH.width)))
+    mark = _GLYPH.resize((target_w, target_h), Image.LANCZOS)
+    if dark:
+        mark = tint(mark, PAPER)
+    plate.alpha_composite(mark, ((size - target_w) // 2, (size - target_h) // 2))
+    return plate
 
 
 def flatten_bmp(img: Image.Image, background: tuple[int, int, int]) -> Image.Image:
@@ -202,6 +274,12 @@ def _wordmark_font(size: int) -> ImageFont.FreeTypeFont | None:
     return None
 
 
+def fit_glyph(glyph: Image.Image, height: int) -> Image.Image:
+    """按高度等比缩放字标，宽度跟着长宽比走（字标是横宽的，不能塞进正方形）。"""
+    width = max(1, int(round(glyph.width * height / glyph.height)))
+    return glyph.resize((width, height), Image.LANCZOS)
+
+
 def installer_header_bmp(glyph: Image.Image) -> Image.Image:
     """安装器内页页眉图（150×57）：纸色底 + 墨色 logo 与字标。
 
@@ -212,15 +290,15 @@ def installer_header_bmp(glyph: Image.Image) -> Image.Image:
     canvas = Image.new("RGB", (150, 57), PAPER)
     font = _wordmark_font(13)
 
-    logo = 24
-    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
-    canvas.paste(mark, (14, (57 - logo) // 2), mask=mark.getchannel("A"))
+    mark = tint(fit_glyph(glyph, 22), INK)
+    left = 14
+    canvas.paste(mark, (left, (57 - mark.height) // 2), mask=mark.getchannel("A"))
     if font is None:
         return canvas
 
     draw = ImageDraw.Draw(canvas)
     # anchor=lm：以左侧垂直中点对齐，避免不同字体基线差异把字标顶偏。
-    draw.text((46, 29), "chaierww", font=font, fill=INK, anchor="lm")
+    draw.text((left + mark.width + 8, 29), "chaierww", font=font, fill=INK, anchor="lm")
     return canvas
 
 
@@ -233,37 +311,52 @@ def installer_sidebar_bmp(glyph: Image.Image) -> Image.Image:
     """
     canvas = Image.new("RGB", (164, 314), PAPER)
 
-    logo = 40
-    mark = tint(glyph.resize((logo, logo), Image.LANCZOS), INK)
-    canvas.paste(mark, (18, 52), mask=mark.getchannel("A"))
+    mark = tint(fit_glyph(glyph, 34), INK)
+    left, top = 18, 52
+    canvas.paste(mark, (left, top), mask=mark.getchannel("A"))
 
     draw = ImageDraw.Draw(canvas)
     wordmark = _wordmark_font(10)
     if wordmark is not None:
-        draw.text((18, 101), "chaierww", font=wordmark, fill=INK)
+        draw.text((left, top + mark.height + 12), "chaierww", font=wordmark, fill=INK)
     return canvas
+
+
+def write_web_icons() -> None:
+    """把同一套应用图标写回 Web 端，favicon / 主屏图标不会与桌面端分叉。"""
+    WEB.mkdir(parents=True, exist_ok=True)
+    compose_app(512).save(WEB / "android-chrome-512x512.png", "PNG", optimize=True)
+    compose_app(192).save(WEB / "android-chrome-192x192.png", "PNG", optimize=True)
+    compose_app(192, dark=True).save(
+        WEB / "android-chrome-192x192-dark.png", "PNG", optimize=True
+    )
+    compose_app(180).save(WEB / "apple-touch-icon.png", "PNG", optimize=True)
+    compose_app(32).save(WEB / "favicon-32x32.png", "PNG", optimize=True)
+    compose_app(16).save(WEB / "favicon-16x16.png", "PNG", optimize=True)
+    write_ico(WEB / "favicon.ico", [compose_app(s) for s in (16, 32, 48)])
 
 
 def main() -> None:
     global _GLYPH
-
-    if not SRC.is_file():
-        raise SystemExit(f"找不到源图标：{SRC}")
 
     OUT.mkdir(parents=True, exist_ok=True)
     glyph = load_glyph()
     _GLYPH = glyph
     print(f"源字形：{glyph.size[0]}×{glyph.size[1]}")
 
+    # ---- Web 端图标（侧栏品牌块、favicon、iOS 主屏）----
+    write_web_icons()
+    print("✅ web/public：android-chrome 512/192、apple-touch-icon、favicon 32/16/ico")
+
     # ---- 应用图标 ----
-    compose_app(1024, glyph).save(OUT / "icon.png", "PNG")
+    compose_app(1024).save(OUT / "icon.png", "PNG")
     print("✅ icon.png（1024，macOS / Linux 兜底）")
 
-    write_ico(OUT / "icon.ico", [compose_app(s, glyph) for s in WIN_ICO_SIZES])
+    write_ico(OUT / "icon.ico", [compose_app(s) for s in WIN_ICO_SIZES])
     print(f"✅ icon.ico（{', '.join(map(str, WIN_ICO_SIZES))}）")
 
     try:
-        compose_app(1024, glyph).save(
+        compose_app(1024).save(
             OUT / "icon.icns", "ICNS", sizes=[(s, s) for s in MAC_ICNS_SIZES]
         )
         print("✅ icon.icns（macOS）")
@@ -274,7 +367,7 @@ def main() -> None:
     linux_dir = OUT / "icons"
     linux_dir.mkdir(exist_ok=True)
     for size in LINUX_SIZES:
-        compose_app(size, glyph).save(linux_dir / f"{size}x{size}.png", "PNG")
+        compose_app(size).save(linux_dir / f"{size}x{size}.png", "PNG")
     print(f"✅ icons/（{', '.join(f'{s}x{s}' for s in LINUX_SIZES)}）")
 
     # ---- 托盘：Windows（浅色任务栏黑字形 / 深色任务栏白字形）----

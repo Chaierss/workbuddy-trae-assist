@@ -137,7 +137,8 @@ Then the hard limits — these are constraints, not a roadmap:
 > paths, gateway keys and IPs are replaced with dots or blur inside the page before the
 > shutter fires — not painted over manually afterwards, so layout changes do not need
 > re-measuring. The data shown is anonymized demo data, produced by `python scripts/shots.py --demo`;
-> the title bar image is a desktop capture.
+> the title-bar strip comes from `python scripts/shots.py --titlebar`, which stubs the desktop shell
+> while rendering the real frontend.
 
 ## Features
 

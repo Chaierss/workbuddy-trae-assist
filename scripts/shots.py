@@ -26,6 +26,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -852,6 +853,83 @@ def collect_secrets(page) -> list[str]:
     return data or []
 
 
+# 只用于截顶栏：桌面端的自绘标题栏由 preload 注入的桥接对象决定，
+# 浏览器里没有它。这里塞一个最小可用的桩，只为把 36px 顶栏渲染出来。
+TITLEBAR_STUB = """
+(() => {
+  const idle = {
+    status: "idle", currentVersion: "2.3.0", version: null, releaseNotes: "",
+    percent: 0, transferred: 0, total: 0, bytesPerSecond: 0,
+    errorKind: "", message: "", checkedAt: null,
+  };
+  const prefs = { autoCheck: true, skippedVersion: null };
+  const noop = () => () => {};
+  window.chaierwwDesktop = {
+    isDesktop: true,
+    version: "2.3.0",
+    platform: "win32",
+    chrome: { setTheme() {} },
+    appMenu: { run: async () => true },
+    update: {
+      get: async () => idle, check: async () => idle, download: async () => idle,
+      install: async () => false, skip: async () => prefs, unskip: async () => prefs,
+      getPrefs: async () => prefs, setPrefs: async () => prefs,
+      onState: noop, onPrompt: noop,
+    },
+    webLogin: {
+      open: async () => ({ ok: false }), close: async () => true,
+      openApp: async () => ({ ok: false }),
+    },
+    tray: { syncAccounts() {}, onSwitchAccount: noop, onFocusCredentialHealth: noop },
+    health: { notify() {} },
+  };
+})();
+"""
+
+
+def capture_titlebar(args: argparse.Namespace, executable: str | None) -> int:
+    """截一张「顶栏 + 查看菜单展开」的横条，供 README 说明 2.3 的菜单。
+
+    浏览器形态没有自绘顶栏，所以这里注入了 TITLEBAR_STUB；页面本身仍走真实前端，
+    展开的菜单、键帽、字标都来自同一份代码，不靠手工拼图。
+    """
+    out = Path(args.out) / "titlebar.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    raw = out.parent / ".raw-titlebar.png"
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True, executable_path=executable)
+        try:
+            page = browser.new_page(
+                viewport={"width": 1440, "height": 460},
+                device_scale_factor=2,
+                locale="zh-CN",
+                color_scheme="light",
+            )
+            page.add_init_script(
+                "localStorage.setItem('chaierww.theme', 'light');"
+                "localStorage.setItem('chaierww.locale', 'zh');"
+            )
+            page.add_init_script(TITLEBAR_STUB)
+            if args.demo:
+                install_demo_routes(page, demo_fixtures())
+            page.goto(f"{args.base.rstrip('/')}/overview", wait_until="networkidle", timeout=45000)
+            page.wait_for_timeout(1800)
+            page.get_by_role("button", name=re.compile("查看")).click()
+            page.wait_for_timeout(320)
+            page.screenshot(
+                path=str(raw), clip={"x": 0, "y": 0, "width": 1120, "height": 380}
+            )
+        finally:
+            browser.close()
+
+    with Image.open(raw) as img:
+        img.resize((1120, 380), Image.LANCZOS).save(out, "PNG", optimize=True)
+    raw.unlink(missing_ok=True)
+    print(f"titlebar 1120x380 -> {out}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="chaierww 界面截图（含脱敏）")
     parser.add_argument("--base", default="http://127.0.0.1:57910", help="后端地址")
@@ -865,13 +943,12 @@ def main() -> int:
         action="store_true",
         help="用内置演示数据替换账号 / 用量 / 健康 / 客户端接口（公开截图用）",
     )
+    parser.add_argument(
+        "--titlebar",
+        action="store_true",
+        help="只截一张顶栏横条（含展开的「查看」菜单），用于 README",
+    )
     args = parser.parse_args()
-
-    only = {s.strip() for s in args.only.split(",") if s.strip()}
-    targets = [s for s in SHOTS if not only or s["name"] in only]
-    if not targets:
-        print(f"没有匹配的截图项：{args.only}")
-        return 1
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -879,6 +956,15 @@ def main() -> int:
     executable = args.chrome or find_chromium()
     if executable:
         print(f"浏览器：{executable}")
+
+    if args.titlebar:
+        return capture_titlebar(args, executable)
+
+    only = {s.strip() for s in args.only.split(",") if s.strip()}
+    targets = [s for s in SHOTS if not only or s["name"] in only]
+    if not targets:
+        print(f"没有匹配的截图项：{args.only}")
+        return 1
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, executable_path=executable)
