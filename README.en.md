@@ -101,6 +101,14 @@ Then the hard limits — these are constraints, not a roadmap:
 
 ## Interface
 
+<p align="center">
+  <img src="docs/images/titlebar.png" alt="chaierww desktop title bar menus" width="700">
+</p>
+
+<p align="center">
+  <sub>Desktop title bar: collapse, search, and the File / Edit / View / Help menus — every action carries its shortcut; Alt+F/E/V/H opens a menu</sub>
+</p>
+
 | Account pool · accounts, groups, credits, credential health in one view | Usage · requests and credits by model and day |
 | --- | --- |
 | ![Account pool](docs/images/accounts.png) | ![Usage](docs/images/usage.png) |
@@ -121,14 +129,15 @@ Then the hard limits — these are constraints, not a roadmap:
 | --- | --- |
 | ![Backup](docs/images/settings-backup.png) | ![Environment](docs/images/settings-env.png) |
 
-| General · which data to migrate, whether to relaunch after a switch | By account tasks · where each account is stuck, manual items inline |
+| Health center · an event stream for upstream schema, sign-in, supply and activity anomalies | Appearance & language · theme, language, updates and onboarding |
 | --- | --- |
-| ![General](docs/images/settings-general.png) | ![By account tasks](docs/images/activity-accounts.png) |
+| ![Health center](docs/images/health.png) | ![Appearance & language](docs/images/settings-general.png) |
 
 > Screenshots are taken after the DOM renders: account names, account IDs, emails, local
 > paths, gateway keys and IPs are replaced with dots or blur inside the page before the
 > shutter fires — not painted over manually afterwards, so layout changes do not need
-> re-measuring. The data shown is anonymized demo data, produced by `python scripts/shots.py`.
+> re-measuring. The data shown is anonymized demo data, produced by `python scripts/shots.py --demo`;
+> the title bar image is a desktop capture.
 
 ## Features
 
@@ -137,7 +146,8 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 **Switching**
 
 - **One click to switch**: from an account card, the `Ctrl+K` command palette (search as you
-  type), or the desktop tray — all sharing one read-only preflight, with automatic rollback on failure
+  type, with pinyin and English aliases), or the desktop tray — all sharing one read-only
+  preflight, with automatic rollback on failure
 - **Look before you leap**: a read-only preview lists every file that would change; nothing is written
 - **Relaunch under your control**: whether the client restarts after a switch is a setting, not a default
 
@@ -188,6 +198,10 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 <summary>Everything else (scheduling, backups, sessions, onboarding, local telemetry)</summary>
 
 - **Switch from anywhere**: account card, `Ctrl+K`, and tray all use the same preflight; relaunch-after-switch is configurable
+- **The title bar is a menu**: Edit / View / Help label each action with its shortcut (undo `Ctrl+Z`,
+  fullscreen `F11`, zoom `Ctrl+= / - / 0`, devtools `Ctrl+Shift+I`), and `Alt+F/E/V/H` opens them;
+  the search button opens the same palette as `Ctrl+K`, which understands pinyin and English
+  aliases (`hc` for the pool, `sz` for settings)
 - **Every run leaves a receipt**: one-click activity / renewal runs list successes, skips and failure reasons per item, retryable on the spot
 - **If it cannot read, it says so**: a failed backup read shows "unavailable" with a retry; loading gets a skeleton, never a fake `0` or empty state
 - **Patrol history**: each account keeps its last 20 patrol records — time, status, reason, next retry — across restarts; "resume" only clears the counter, not the history

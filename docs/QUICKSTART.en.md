@@ -84,6 +84,9 @@ Seeing an account in the pool means step 2 is done.
 
 ## 5. What else is there
 
+- **Top bar and command palette**: the search button in the desktop title bar opens the same
+  palette as `Ctrl+K` — type `hc` for the account pool, `sz` for settings, or an account name;
+  the Edit / View / Help menus label every action with its shortcut.
 - **Groups**: tag accounts ("primary", "backup", …), filter the pool by group, assign in bulk,
   and pick a scheduled task's accounts by group with one click.
 - **Activities**: the official catalogue lists rules and rewards; automatable ones run in one
