@@ -9,9 +9,6 @@
   <img alt="平台" src="https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%2010%20%2F%2011%20%C2%B7%20Linux-2ea043" />
   <img alt="许可" src="https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF-PolyForm%20Noncommercial-4c8bf5" />
   <img alt="无云端" src="https://img.shields.io/badge/%E6%95%B0%E6%8D%AE-%E5%8F%AA%E5%9C%A8%E6%9C%AC%E6%9C%BA-d4a66b" />
-  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="版本" src="https://img.shields.io/github/v/release/Chaierss/workbuddy-trae-assist?color=8a63d2&label=%E7%89%88%E6%9C%AC" /></a>
-  <a href="https://github.com/Chaierss/workbuddy-trae-assist/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Chaierss/workbuddy-trae-assist?style=social" /></a>
-  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Chaierss/workbuddy-trae-assist/total?color=2ea043&label=downloads" /></a>
 </p>
 
 <p align="center">

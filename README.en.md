@@ -9,9 +9,6 @@
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20%C2%B7%20Linux-2ea043" />
   <img alt="License" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-4c8bf5" />
   <img alt="No cloud" src="https://img.shields.io/badge/data-on--device%20only-d4a66b" />
-  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Chaierss/workbuddy-trae-assist?color=8a63d2&label=release" /></a>
-  <a href="https://github.com/Chaierss/workbuddy-trae-assist/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Chaierss/workbuddy-trae-assist?style=social" /></a>
-  <a href="https://github.com/Chaierss/workbuddy-trae-assist/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/Chaierss/workbuddy-trae-assist/total?color=2ea043&label=downloads" /></a>
 </p>
 
 <p align="center">
