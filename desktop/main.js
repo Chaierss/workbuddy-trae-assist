@@ -27,6 +27,24 @@ const APP_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}/`;
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
 
+// ---------------------------------------------------------------------------
+// 自绘标题栏
+// ---------------------------------------------------------------------------
+// 系统标题栏在 Windows 上是一条独立的白条，会把窗口切成「系统外壳 + 应用」
+// 两截。这里改成 hidden：窗口按钮仍由系统绘制（位置、DPI、贴边吸附、最大化的
+// Snap Layouts 全部保持原生），但标题栏底色与按钮颜色由我们给，前端在同样
+// 36px 高的位置画一条单行功能顶栏（Trae 式：左侧身份、居中命令、右侧工具），
+// 两者拼成一条完整的顶栏。
+//
+// 配色必须和应用语义色一致：浅色 = surface #FFFDF7 / 墨字 #20231E，
+// 深色 = surface #1C1E19 / 纸字 #E9EBE3（见 web/src/style.css）。
+// 主题切换时由渲染进程经 titlebar:set-theme 通知主进程重设。
+const TITLEBAR_HEIGHT = 36;
+const TITLEBAR_COLORS = {
+  light: { color: '#FFFDF7', symbolColor: '#20231E' },
+  dark: { color: '#1C1E19', symbolColor: '#E9EBE3' },
+};
+
 // GPU 兼容性说明：部分老显卡驱动（如 AMD Radeon 停更驱动）会让 Electron 的
 // 独立 GPU 进程在极早期访问冲突崩溃（exit_code=-1073741819），最终 "GPU process
 // isn't usable" 拖垮整个应用。解法是启动参数 --no-sandbox --in-process-gpu，让
@@ -381,6 +399,23 @@ function createWindow() {
     title: 'chaierww',
     autoHideMenuBar: true,
     backgroundColor: '#0B0B0E',
+    // 自绘标题栏：Windows 隐藏系统标题栏但保留原生窗口按钮（颜色由
+    // titlebar:set-theme 同步）；macOS 用 hiddenInset，红绿灯内缩到品牌条中线；
+    // Linux 不支持 titleBarStyle，保留系统窗口框（前端用 customTitlebar 白名单同步）。
+    ...(IS_MAC
+      ? {
+          titleBarStyle: 'hiddenInset',
+          trafficLightPosition: { x: 14, y: 12 },
+        }
+      : IS_WIN
+        ? {
+            titleBarStyle: 'hidden',
+            titleBarOverlay: {
+              ...TITLEBAR_COLORS.light,
+              height: TITLEBAR_HEIGHT,
+            },
+          }
+        : {}),
     // 打包后不指定 icon：`build/` 是 buildResources，不进 asar，这个路径在安装版
     // 根本不存在；Windows 会自动用 exe 内嵌图标（由 afterPack 写入）。
     icon: app.isPackaged || !IS_WIN ? undefined : path.join(__dirname, 'build', 'icon.ico'),
@@ -1141,6 +1176,23 @@ ipcMain.on('health:notify', (event, payload) => {
   healthNotification.show();
 });
 ipcMain.handle('update:get', () => updateState);
+/**
+ * 自绘标题栏跟随应用主题。
+ *
+ * 渲染进程在主题变化时调用；主进程只认自己窗口发来的消息。Windows / Linux 用
+ * 系统按钮覆盖层重设颜色，macOS 的红绿灯由系统决定，不处理。旧版 Electron /
+ * 不支持的平台调用会抛错，静默忽略即可——标题栏仍是可用的，只是配色不跟随。
+ */
+ipcMain.on('titlebar:set-theme', (event, payload) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return;
+  if (typeof mainWindow.setTitleBarOverlay !== 'function') return;
+  const theme = payload && payload.dark === true ? TITLEBAR_COLORS.dark : TITLEBAR_COLORS.light;
+  try {
+    mainWindow.setTitleBarOverlay({ ...theme, height: TITLEBAR_HEIGHT });
+  } catch {
+    /* macOS / 旧系统不支持覆盖层：保持系统默认外观 */
+  }
+});
 // 备份恢复只在下次启动时生效：界面确认后调它重启应用（不重开新实例）。
 ipcMain.handle('app:relaunch', () => {
   quitting = true;
@@ -1148,6 +1200,51 @@ ipcMain.handle('app:relaunch', () => {
   app.relaunch();
   app.exit(0);
   return true;
+});
+/**
+ * 顶栏菜单里的窗口级动作。菜单是自绘的，这些能力只能回主进程做：
+ * 缩放读的是 webContents 的缩放级别，全屏 / 开发者工具 / 关于面板同理。
+ */
+ipcMain.handle('app:menu-action', (_event, action) => {
+  const win = mainWindow;
+  if (action === 'quit') {
+    app.quit();
+    return true;
+  }
+  if (action === 'about') {
+    app.setAboutPanelOptions({
+      applicationName: 'chaierww',
+      applicationVersion: app.getVersion(),
+    });
+    app.showAboutPanel();
+    return true;
+  }
+  if (!win || win.isDestroyed()) return false;
+  if (action === 'zoom-in') {
+    win.webContents.setZoomLevel(Math.min(win.webContents.getZoomLevel() + 0.5, 4));
+    return true;
+  }
+  if (action === 'zoom-out') {
+    win.webContents.setZoomLevel(Math.max(win.webContents.getZoomLevel() - 0.5, -3));
+    return true;
+  }
+  if (action === 'zoom-reset') {
+    win.webContents.setZoomLevel(0);
+    return true;
+  }
+  if (action === 'fullscreen') {
+    win.setFullScreen(!win.isFullScreen());
+    return true;
+  }
+  if (action === 'devtools') {
+    win.webContents.toggleDevTools();
+    return true;
+  }
+  if (action === 'open-logs') {
+    void shell.openPath(app.getPath('logs'));
+    return true;
+  }
+  return false;
 });
 ipcMain.handle('update:check', () => checkForUpdates({ manual: true }));
 ipcMain.handle('update:download', async () => {

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
+import { PanelLeft, Search } from "lucide-vue-next";
 import CommandPalette from "./CommandPalette.vue";
+import { checkForUpdates } from "../stores/update";
 import SidebarRail from "./SidebarRail.vue";
 import SwitchDialog from "./SwitchDialog.vue";
 import TaskCenterDrawer from "./TaskCenterDrawer.vue";
@@ -18,11 +20,12 @@ import {
   clientDetections,
   isImplementedScope,
   loadAccounts,
+  resolvedTheme,
   scope,
   scopedPath,
 } from "../stores/app";
 import { api } from "../api";
-import { desktop } from "../lib/desktop";
+import { customTitlebar, desktop } from "../lib/desktop";
 import { setMetricsEnabled, track } from "../lib/metrics";
 import { ensureOnboarding } from "../lib/onboarding";
 import { backendOffline, resetHealthWatch } from "../lib/healthWatch";
@@ -43,6 +46,164 @@ const route = useRoute();
 const router = useRouter();
 const navCollapsed = ref(false);
 const paletteOpen = ref(false);
+/** 菜单按钮 / 面板 / 菜单项的共用样式，避免四份菜单各写一遍。 */
+const menuBtnClass =
+  "flex h-6 items-center gap-0.5 rounded-[6px] px-2 text-caption text-ink-soft transition-colors hover:bg-line-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35";
+const menuPanelClass =
+  "absolute left-0 top-[calc(100%+4px)] z-[320] max-h-[70vh] w-60 overflow-y-auto rounded-control border border-line bg-surface py-1 shadow-float";
+const menuItemClass =
+  "flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-body-sm text-ink-soft transition-colors hover:bg-line-soft hover:text-ink";
+
+/** 快捷键键帽：每颗键单独一个圆角块，和参考里的 Ctrl + Z 一致。 */
+const keycapClass =
+  "inline-flex h-[18px] min-w-[19px] items-center justify-center rounded-[4px] border border-line bg-canvas px-1 text-micro font-medium text-muted";
+
+const modifier = desktop?.platform === "darwin" ? "⌘" : "Ctrl";
+
+interface MenuEntry {
+  type?: "item" | "separator";
+  label?: string;
+  shortcut?: string[];
+  action?: () => void;
+}
+
+interface MenuDef {
+  key: MenuKey;
+  label: string;
+  mnemonic: string;
+  items: MenuEntry[];
+}
+
+/** 撤销 / 剪切 / 复制这类文档动作走浏览器原生命令，不必回主进程。 */
+function runEditCommand(command: "undo" | "redo" | "cut" | "copy" | "paste" | "selectAll"): void {
+  document.execCommand(command);
+}
+
+/** 缩放 / 全屏 / 开发者工具 / 日志目录 / 关于 / 退出：这些只有主进程能做。 */
+function runAppAction(action: string): void {
+  void desktop?.appMenu?.run(action);
+}
+
+const menus = computed<MenuDef[]>(() => [
+  {
+    key: "file",
+    label: t("shell.menuFile"),
+    mnemonic: "F",
+    items: [
+      { label: t("nav.accounts"), action: () => goTo("/accounts") },
+      {
+        label: t("tasks.title"),
+        action: () => {
+          taskDrawerOpen.value = true;
+        },
+      },
+      { label: t("nav.settings"), action: () => goTo("/settings") },
+      { type: "separator" },
+      { label: t("shell.quit"), action: () => runAppAction("quit") },
+    ],
+  },
+  {
+    key: "edit",
+    label: t("shell.menuEdit"),
+    mnemonic: "E",
+    items: [
+      { label: t("shell.undo"), shortcut: [modifier, "Z"], action: () => runEditCommand("undo") },
+      { label: t("shell.redo"), shortcut: [modifier, "Y"], action: () => runEditCommand("redo") },
+      { type: "separator" },
+      { label: t("shell.cut"), shortcut: [modifier, "X"], action: () => runEditCommand("cut") },
+      { label: t("shell.copy"), shortcut: [modifier, "C"], action: () => runEditCommand("copy") },
+      { label: t("shell.paste"), shortcut: [modifier, "V"], action: () => runEditCommand("paste") },
+      {
+        label: t("shell.selectAll"),
+        shortcut: [modifier, "A"],
+        action: () => runEditCommand("selectAll"),
+      },
+    ],
+  },
+  {
+    key: "view",
+    label: t("shell.menuView"),
+    mnemonic: "V",
+    items: [
+      {
+        label: t("shell.fullscreen"),
+        shortcut: ["F11"],
+        action: () => runAppAction("fullscreen"),
+      },
+      { type: "separator" },
+      { label: t("shell.zoomIn"), shortcut: [modifier, "="], action: () => runAppAction("zoom-in") },
+      { label: t("shell.zoomOut"), shortcut: [modifier, "-"], action: () => runAppAction("zoom-out") },
+      {
+        label: t("shell.zoomReset"),
+        shortcut: [modifier, "0"],
+        action: () => runAppAction("zoom-reset"),
+      },
+    ],
+  },
+  {
+    key: "help",
+    label: t("shell.help"),
+    mnemonic: "H",
+    items: [
+      {
+        label: t("shell.devtools"),
+        shortcut: [modifier, "Shift", "I"],
+        action: () => runAppAction("devtools"),
+      },
+      { label: t("shell.openLogs"), action: () => runAppAction("open-logs") },
+      { type: "separator" },
+      ...(desktop
+        ? [{ label: t("shell.checkUpdates"), action: () => void checkForUpdates() }]
+        : []),
+      { type: "separator" },
+      { label: t("shell.about"), action: () => runAppAction("about") },
+    ],
+  },
+]);
+
+/** 顶栏菜单：一次只开一个，鼠标移到别的菜单上直接切换（和 VS Code 一致）。 */
+type MenuKey = "file" | "edit" | "view" | "help";
+const openMenu = ref<MenuKey | null>(null);
+
+function closeMenu(): void {
+  if (!openMenu.value) return;
+  openMenu.value = null;
+  window.removeEventListener("pointerdown", onMenuOutside, true);
+  window.removeEventListener("keydown", onMenuKeydown, true);
+}
+
+function onMenuOutside(event: PointerEvent): void {
+  const target = event.target;
+  if (target instanceof Element && target.closest(".app-menu")) return;
+  closeMenu();
+}
+
+function onMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") closeMenu();
+}
+
+function toggleMenu(key: MenuKey): void {
+  if (openMenu.value === key) {
+    closeMenu();
+    return;
+  }
+  if (!openMenu.value) {
+    window.addEventListener("pointerdown", onMenuOutside, true);
+    window.addEventListener("keydown", onMenuKeydown, true);
+  }
+  openMenu.value = key;
+}
+
+/** 已经开着菜单时，悬停到同排其它菜单直接切过去，不用先关再点。 */
+function hoverMenu(key: MenuKey): void {
+  if (openMenu.value && openMenu.value !== key) openMenu.value = key;
+}
+
+/** 菜单项触发前先收起，避免下拉压住后续页面 / 弹窗。 */
+function runMenu(action: () => void): void {
+  closeMenu();
+  action();
+}
 
 const focusModule = computed(() => resolveFocusModule(route.meta.focus));
 const focusRail = computed(() => focusModule.value?.rail ?? null);
@@ -58,7 +219,36 @@ const navRailVars = computed(() => ({
   "--nav-rail-current": navCollapsed.value
     ? "var(--nav-rail-width-collapsed)"
     : "var(--nav-rail-width)",
+  // 桌面端自绘顶栏：单行 36px，放折叠、搜索、帮助，右侧让给系统窗口按钮。
+  "--titlebar-height": customTitlebar ? "36px" : "0px",
+  // 右上角原生窗口按钮的占位宽度（macOS 红绿灯在左边，占位为 0）。
+  "--window-controls-width": customTitlebar && desktop?.platform !== "darwin" ? "138px" : "0px",
 }));
+
+/**
+ * macOS 的红绿灯在左上角，顶栏内容要让开这段系统区域；
+ * Windows 右侧给原生窗口按钮留出覆盖层宽度。
+ */
+const titlebarPadding = {
+  paddingLeft: desktop?.platform === "darwin" ? "86px" : "0px",
+  paddingRight: "calc(var(--window-controls-width) + 4px)",
+};
+
+/** 命令面板的快捷键提示：帮助菜单和侧栏用同一份，别一处 ⌘K 一处 Ctrl K。 */
+const paletteShortcut = desktop?.platform === "darwin" ? "⌘K" : "Ctrl K";
+
+/**
+ * 自绘标题栏里原生窗口按钮的配色跟随主题。
+ *
+ * 主题只会写到 `document.documentElement[data-theme]`（见 stores/app.ts 的
+ * applyTheme），这里用 MutationObserver 监听这个属性，而不是再复制一份
+ * 「浅色 / 深色 / 跟随系统」的判断逻辑——主题只有一个真相源。
+ */
+let themeObserver: MutationObserver | null = null;
+
+function syncTitlebarTheme(): void {
+  desktop?.chrome?.setTheme(resolvedTheme() === "dark");
+}
 
 const contentOffsetClass = computed(() => {
   if (layoutMode.value === "inline") return "";
@@ -68,11 +258,12 @@ const contentOffsetClass = computed(() => {
 });
 
 const mainClasses = computed(() => {
-  if (layoutMode.value === "inline") return "min-h-0 flex-1 overflow-hidden p-0";
+  if (layoutMode.value === "inline") return "min-h-0 flex-1 overflow-hidden bg-canvas p-0";
   // 专注模式的 main 必须 overflow-hidden，滚动交给页面自持，
   // 否则页面里固定在底部的输入框会被滚走。
-  if (layoutMode.value === "focus") return "min-h-0 flex-1 overflow-hidden px-6 py-6";
-  return "min-h-0 flex-1 overflow-y-auto px-8 py-7";
+  if (layoutMode.value === "focus") return "min-h-0 flex-1 overflow-hidden bg-canvas px-6 py-6";
+  // 常规布局：内容是一块圆角面板，左上角留一个倒角，和侧栏/顶栏的浅色底咬合。
+  return "min-h-0 flex-1 overflow-y-auto rounded-tl-[14px] bg-canvas px-8 py-7";
 });
 
 // ---------- 作用域写进 URL ----------
@@ -107,12 +298,51 @@ function goTo(path: string): void {
  * 桌面壳（PWA / 套壳）里 Ctrl 组合也不受限。
  */
 function onShortcut(event: KeyboardEvent): void {
+  // F11 全屏：Electron 没有原生菜单后不会被自动接管，这里补上。
+  if (event.key === "F11" && customTitlebar) {
+    event.preventDefault();
+    runAppAction("fullscreen");
+    return;
+  }
   if (event.metaKey) return;
   const useCtrl = event.ctrlKey && !event.altKey;
   const useAlt = event.altKey && !event.ctrlKey;
   if (!useCtrl && !useAlt) return;
 
   const key = event.key.toLowerCase();
+  // 缩放与开发者工具：和「查看」「帮助」菜单里标注的快捷键保持一致。
+  if (useCtrl && customTitlebar) {
+    if (key === "=" || key === "+") {
+      event.preventDefault();
+      runAppAction("zoom-in");
+      return;
+    }
+    if (key === "-") {
+      event.preventDefault();
+      runAppAction("zoom-out");
+      return;
+    }
+    if (key === "0") {
+      event.preventDefault();
+      runAppAction("zoom-reset");
+      return;
+    }
+    if (key === "i" && event.shiftKey) {
+      event.preventDefault();
+      runAppAction("devtools");
+      return;
+    }
+  }
+  // Alt+F/E/V/H：与顶栏菜单标题里的助记符一致；浏览器形态没有这条菜单，不抢键。
+  if (useAlt && customTitlebar) {
+    const menuKeys: Record<string, MenuKey> = { f: "file", e: "edit", v: "view", h: "help" };
+    const menu = menuKeys[key];
+    if (menu) {
+      event.preventDefault();
+      toggleMenu(menu);
+      return;
+    }
+  }
   if (key === "k") {
     event.preventDefault();
     paletteOpen.value = true;
@@ -219,6 +449,12 @@ function subscribeTraySwitch(): void {
 
 onMounted(() => {
   document.addEventListener("keydown", onShortcut);
+  syncTitlebarTheme();
+  themeObserver = new MutationObserver(syncTitlebarTheme);
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
   // 更新 store 要尽早初始化：先订阅主进程的 update:state / update:prompt，再拉初值，
   // 否则启动后那次静默检查推来的「新版本 / 已下载」会没人接。
   initUpdateStore();
@@ -233,6 +469,9 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   document.removeEventListener("keydown", onShortcut);
+  closeMenu();
+  themeObserver?.disconnect();
+  themeObserver = null;
   unsubscribeTray?.();
   unsubscribeTray = null;
   unsubscribeTrayFocus?.();
@@ -291,11 +530,81 @@ watch(
 </script>
 
 <template>
-  <div class="app-canvas relative h-screen overflow-hidden" :style="navRailVars">
+  <div
+    class="app-canvas relative h-screen overflow-hidden"
+    :style="[navRailVars, { background: 'var(--color-surface)' }]"
+  >
+    <!--
+      自绘顶栏（36px 单行）：左折叠 / 搜索 + 文件·编辑·查看·帮助 菜单，
+      末端是系统窗口按钮的预留位。品牌与版本在侧栏顶部，不在这里重复。
+    -->
+    <header
+      v-if="customTitlebar"
+      class="app-titlebar fixed inset-x-0 top-0 z-[300] flex h-[var(--titlebar-height)] items-center bg-surface"
+      :style="titlebarPadding"
+    >
+      <div class="flex min-w-0 items-center gap-0.5 pl-2">
+        <button
+          type="button"
+          class="grid size-6 shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-line-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+          :title="navCollapsed ? t('shell.expandRail') : t('shell.collapseRail')"
+          @click="navCollapsed = !navCollapsed"
+        >
+          <PanelLeft :size="15" :stroke-width="1.9" />
+        </button>
+        <button
+          type="button"
+          class="grid size-6 shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-line-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+          :title="`${t('shell.commandHint')} · ${paletteShortcut}`"
+          @click="paletteOpen = true"
+        >
+          <Search :size="15" :stroke-width="1.9" />
+        </button>
+
+        <span class="mx-1 h-4 w-px shrink-0 bg-line-soft" aria-hidden="true" />
+
+        <div v-for="menu in menus" :key="menu.key" class="app-menu relative">
+          <button
+            type="button"
+            :class="[menuBtnClass, openMenu === menu.key ? 'bg-line-soft text-ink' : '']"
+            :aria-expanded="openMenu === menu.key"
+            @click="toggleMenu(menu.key)"
+            @mouseenter="hoverMenu(menu.key)"
+          >
+            {{ menu.label }}<span class="text-muted">({{ menu.mnemonic }})</span>
+          </button>
+          <div v-if="openMenu === menu.key" role="menu" :class="menuPanelClass">
+            <template v-for="(entry, index) in menu.items" :key="index">
+              <div v-if="entry.type === 'separator'" class="my-1 h-px bg-line-soft" />
+              <button
+                v-else
+                type="button"
+                role="menuitem"
+                :class="menuItemClass"
+                @mousedown.prevent
+                @click="runMenu(() => entry.action?.())"
+              >
+                <span class="truncate">{{ entry.label }}</span>
+                <span v-if="entry.shortcut?.length" class="flex shrink-0 items-center gap-0.5">
+                  <template v-for="(keyName, keyIndex) in entry.shortcut" :key="keyIndex">
+                    <span v-if="keyIndex" class="text-micro text-muted">+</span>
+                    <kbd :class="keycapClass">{{ keyName }}</kbd>
+                  </template>
+                </span>
+              </button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧整段留白：窗口拖拽区，末端是系统窗口按钮的预留位 -->
+      <div class="h-full min-w-0 flex-1" aria-hidden="true" />
+    </header>
+
     <div
       v-if="backendOffline"
       role="status"
-      class="absolute inset-x-0 top-0 z-50 flex flex-wrap items-center justify-center gap-3 bg-warn-soft px-4 py-2 text-body-sm text-warn shadow-card"
+      class="absolute inset-x-0 top-[var(--titlebar-height)] z-50 flex flex-wrap items-center justify-center gap-3 bg-warn-soft px-4 py-2 text-body-sm text-warn shadow-card"
     >
       <span>{{ t("app.offline") }}</span>
       <button
@@ -312,6 +621,7 @@ watch(
     <div
       class="flex h-full min-h-0 min-w-0 flex-col transition-[margin] duration-200 ease-out"
       :class="contentOffsetClass"
+      :style="{ paddingTop: 'var(--titlebar-height)' }"
     >
       <main :class="mainClasses">
         <!-- 宽屏上限：内容列不跟着显示器无限拉宽，卡片和表格保持可读的行长。 -->
@@ -325,6 +635,7 @@ watch(
       </main>
     </div>
 
+    <!-- 浏览器形态没有顶栏，命令面板是居中弹层；桌面端也从标题条的搜索图标打开 -->
     <CommandPalette v-if="paletteOpen" @close="paletteOpen = false" />
     <!-- 任务中心：复检 / 续期 / 备份 / 跑活动的结果都留在这里，刷新后仍可回看 -->
     <TaskCenterDrawer v-if="taskDrawerOpen" />
@@ -345,3 +656,20 @@ watch(
     <ToastHost />
   </div>
 </template>
+
+<style scoped>
+/* 自绘标题栏：整条可拖动窗口，交互控件必须退出拖拽区，否则点不动。
+   双击拖拽区由系统处理最大化，不在前端再记一次。 */
+.app-titlebar {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-titlebar :deep(button),
+.app-titlebar :deep(a),
+.app-titlebar :deep(input),
+.app-titlebar :deep([role="button"]),
+.app-titlebar :deep([role="menu"]) {
+  -webkit-app-region: no-drag;
+}
+</style>

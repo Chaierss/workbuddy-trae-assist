@@ -30,6 +30,19 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
   /** 备份恢复后重启应用（只由主进程执行 relaunch，渲染层不直接碰 app）。 */
   relaunch: () => ipcRenderer.invoke('app:relaunch'),
 
+  /** 自绘标题栏：把窗口按钮配色同步成当前主题（macOS 无此能力，调了也不报错）。 */
+  chrome: {
+    setTheme: (dark) => ipcRenderer.send('titlebar:set-theme', { dark: dark === true }),
+  },
+
+  /**
+   * 顶栏菜单里的窗口级动作：缩放 / 全屏 / 开发者工具 / 日志目录 / 关于 / 退出。
+   * 这些能力只在主进程有，渲染层通过这里转一次，不直接碰 BrowserWindow。
+   */
+  appMenu: {
+    run: (action) => ipcRenderer.invoke('app:menu-action', action),
+  },
+
   /** 更新相关：check 会连更新源，get 只读当前状态。 */
   update: {
     get: () => ipcRenderer.invoke('update:get'),

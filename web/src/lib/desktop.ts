@@ -67,6 +67,14 @@ export interface DesktopBridge {
   platform: string;
   /** 备份恢复后由主进程重启应用；浏览器端没有此能力。 */
   relaunch?: () => Promise<boolean>;
+  /** 自绘标题栏：把原生窗口按钮配色同步成浅色 / 深色。 */
+  chrome?: {
+    setTheme: (dark: boolean) => void;
+  };
+  /** 顶栏菜单的窗口级动作：缩放、全屏、开发者工具、日志目录、关于、退出。 */
+  appMenu?: {
+    run: (action: string) => Promise<boolean>;
+  };
   update: {
     get: () => Promise<DesktopUpdateState>;
     check: () => Promise<DesktopUpdateState>;
@@ -121,3 +129,10 @@ export const desktop: DesktopBridge | null =
 
 /** 当前是否运行在桌面端。整个前端只有这一个判断入口。 */
 export const isDesktop: boolean = desktop !== null;
+
+/**
+ * 是否由前端接管窗口顶栏。Electron 只允许 Windows / macOS 隐藏系统标题栏；
+ * Linux 保留原生窗口框，前端再画一条会重影，所以这里必须是白名单。
+ */
+export const customTitlebar: boolean =
+  desktop !== null && (desktop.platform === "win32" || desktop.platform === "darwin");

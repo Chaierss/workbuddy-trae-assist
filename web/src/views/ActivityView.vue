@@ -929,7 +929,7 @@ const runReportView = computed(() =>
 
     <div
       v-if="error"
-      class="mt-3 rounded-card border border-line bg-danger-soft px-5 py-3 text-body-sm text-danger"
+      class="mt-3 rounded-card border border-danger/30 bg-danger-soft px-5 py-3 text-body-sm text-danger"
     >
       {{ t("activity.detectFailed", { message: error }) }}
     </div>

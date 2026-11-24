@@ -28,7 +28,7 @@ function backToMain(): void {
 
 <template>
   <aside
-    class="fixed inset-y-0 left-0 z-[200] flex w-[var(--sider-width)] flex-col border-r border-line bg-surface"
+    class="fixed bottom-0 left-0 top-[var(--titlebar-height)] z-[200] flex w-[var(--sider-width)] flex-col border-r border-line bg-surface"
   >
     <button
       type="button"

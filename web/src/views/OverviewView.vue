@@ -7,17 +7,15 @@ import {
   ArrowRight,
   CheckCircle2,
   Coins,
-  Database,
   HeartPulse,
   Loader2,
-  MonitorSmartphone,
   Network,
   ShieldCheck,
   Users,
 } from "lucide-vue-next";
 import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
-import StatCard from "../components/StatCard.vue";
+import AnimatedNumber from "../components/AnimatedNumber.vue";
 import StatusPill from "../components/StatusPill.vue";
 import Skeleton from "../components/Skeleton.vue";
 import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
@@ -482,108 +480,138 @@ async function loadGlobalBackups(): Promise<void> {
 
     <OnboardingChecklist class="mt-4" />
 
-    <!-- 自动处置回执：默认开启后，让用户看到它确实在干活，而不是只在设置里有个开关。 -->
-    <div
-      v-if="healthAutoStats && (healthAutoStats.ok24h || healthAutoStats.failed24h)"
-      class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border border-line bg-surface px-4 py-2.5 text-body-sm text-ink-soft"
-    >
-      <ShieldCheck :size="15" :stroke-width="1.9" class="shrink-0 text-brand" />
-      <span class="min-w-0 flex-1">
-        {{ t("overview.health.auto", {
-          ok: healthAutoStats.ok24h,
-          failed: healthAutoStats.failed24h,
-        }) }}
-        <template v-if="!autoNoticeSeen">
-          {{ t("overview.health.autoNotice") }}
-          <button
-            type="button"
-            class="ml-1 text-brand-dark hover:underline"
-            @click="dismissAutoNotice"
+    <!--
+      今日状态：结论、自动处置回执与四个关键数字收进同一张纸。
+      以前这里是「回执条 + 结论条 + 四张统计卡」五块独立边框，信息没变，
+      视觉噪音却翻了几倍；合成一块后，先读一句话，再看数字。
+    -->
+    <section class="mt-5 overflow-hidden rounded-card border border-line bg-surface shadow-card">
+      <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 py-4">
+        <div class="flex min-w-0 flex-1 items-start gap-3">
+          <span
+            class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border"
+            :class="
+              conclusion.tone === 'warn'
+                ? 'border-warn/25 bg-warn-soft text-warn'
+                : 'border-brand/20 bg-brand-soft text-brand'
+            "
           >
-            {{ t("switch.nextStep.dismiss") }}
-          </button>
-        </template>
-      </span>
-      <RouterLink
-        to="/health"
-        class="shrink-0 text-caption text-brand-dark hover:underline"
-      >
-        {{ t("overview.health.cta") }}
-      </RouterLink>
-    </div>
+            <component :is="conclusion.icon" :size="16" :stroke-width="1.9" />
+          </span>
+          <div class="min-w-0">
+            <p class="text-title font-semibold leading-snug tracking-tight text-ink">
+              {{ conclusion.text }}
+              <span v-if="unstableCount" class="ml-1 text-caption font-normal text-muted">
+                {{ t("overview.conclusion.stability", { count: unstableCount }) }}
+              </span>
+            </p>
+            <p
+              v-if="healthAutoStats && (healthAutoStats.ok24h || healthAutoStats.failed24h)"
+              class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-muted"
+            >
+              <ShieldCheck :size="12" :stroke-width="2" class="shrink-0 text-brand" />
+              <span>
+                {{ t("overview.health.auto", {
+                  ok: healthAutoStats.ok24h,
+                  failed: healthAutoStats.failed24h,
+                }) }}
+              </span>
+              <template v-if="!autoNoticeSeen">
+                <span>{{ t("overview.health.autoNotice") }}</span>
+                <button
+                  type="button"
+                  class="text-brand-dark hover:underline"
+                  @click="dismissAutoNotice"
+                >
+                  {{ t("switch.nextStep.dismiss") }}
+                </button>
+              </template>
+              <RouterLink :to="navTo('/health')" class="text-brand-dark hover:underline">
+                {{ t("overview.health.cta") }}
+              </RouterLink>
+            </p>
+          </div>
+        </div>
+        <RouterLink
+          :to="conclusion.to"
+          class="inline-flex shrink-0 items-center gap-1 text-body-sm transition-colors"
+          :class="
+            conclusion.tone === 'warn'
+              ? 'text-warn hover:text-warn/80'
+              : 'text-brand-dark hover:text-ink'
+          "
+        >
+          {{ conclusion.cta }}
+          <ArrowRight :size="13" :stroke-width="2" />
+        </RouterLink>
+      </div>
 
-    <!-- 结论条：一眼回答「今天要不要管」，右侧直达对应页面。 -->
-    <div
-      class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border px-4 py-3 text-body-sm"
-      :class="
-        conclusion.tone === 'warn'
-          ? 'border-warn/30 bg-warn-soft text-warn'
-          : 'border-line bg-surface text-ink-soft'
-      "
-    >
-      <component
-        :is="conclusion.icon"
-        :size="16"
-        :stroke-width="1.9"
-        class="shrink-0"
-        :class="conclusion.tone === 'warn' ? 'text-warn' : 'text-brand'"
-      />
-      <span class="min-w-0 flex-1">
-        {{ conclusion.text }}
-        <span v-if="unstableCount" class="ml-1 text-caption">
-          {{ t("overview.conclusion.stability", { count: unstableCount }) }}
-        </span>
-      </span>
-      <RouterLink
-        :to="conclusion.to"
-        class="shrink-0 text-caption hover:underline"
-        :class="conclusion.tone === 'warn' ? 'text-warn' : 'text-brand-dark'"
-      >
-        {{ conclusion.cta }}
-      </RouterLink>
-    </div>
-
-    <div class="metric-ribbon mt-5">
-      <StatCard :label="t('overview.stat.accounts')" :number="accounts.length" :icon="Users" :hint="t('overview.stat.accountsHint')" :to="navTo('/accounts')" />
-      <StatCard
-        :label="t('overview.stat.credentialIssue')"
-        :number="attentionCount"
-        :icon="AlertTriangle"
-        :tone="attentionCount ? 'warn' : undefined"
-        :hint="
-          attentionCount
-            ? t('overview.stat.credentialIssueSplit', {
-                relogin: credentialIssueCounts.relogin,
-                expired: credentialIssueCounts.expired,
-                expiring: credentialIssueCounts.expiring,
-              })
-            : t('overview.stat.allGood')
-        "
-        :to="navTo('/accounts?risk=credential')"
-      />
-      <StatCard
-        :label="t('overview.stat.snapshots')"
-        :number="backupsError || backupsLoading ? undefined : globalSnapshots.length"
-        :value="backupsError ? '—' : backupsLoading ? '…' : undefined"
-        :icon="Database"
-        :hint="
-          backupsError
-            ? t('overview.stat.backupsUnavailable')
-            : backupsLoading
-              ? t('common.loading')
-              : latestSnapshot
-                ? t('overview.stat.lastBackup', { time: formatTime(latestSnapshot.createdAt) })
-                : t('overview.stat.noBackups')
-        "
-      />
-      <StatCard
-        :label="t('overview.stat.clientsRunning')"
-        :number="runningClients"
-        :icon="MonitorSmartphone"
-        :hint="t('overview.client.runningCount', { running: runningClients, total: clientDetections.length })"
-        :to="navTo('/accounts')"
-      />
-    </div>
+      <div class="grid grid-cols-2 border-t border-line-soft sm:grid-cols-4">
+        <RouterLink
+          :to="navTo('/accounts')"
+          class="px-5 py-3.5 transition-colors hover:bg-line-soft/40"
+        >
+          <div class="text-micro font-medium tracking-[0.12em] text-muted">{{ t("overview.stat.accounts") }}</div>
+          <div class="mt-1 font-ledger text-metric font-semibold leading-none text-ink">
+            <AnimatedNumber :value="accounts.length" />
+          </div>
+          <p class="mt-1.5 truncate text-micro text-muted">{{ t("overview.stat.accountsHint") }}</p>
+        </RouterLink>
+        <RouterLink
+          :to="navTo('/accounts?risk=credential')"
+          class="px-5 py-3.5 transition-colors hover:bg-line-soft/40"
+        >
+          <div class="text-micro font-medium tracking-[0.12em] text-muted">{{ t("overview.stat.credentialIssue") }}</div>
+          <div
+            class="mt-1 font-ledger text-metric font-semibold leading-none"
+            :class="attentionCount ? 'text-warn' : 'text-ink'"
+          >
+            <AnimatedNumber :value="attentionCount" />
+          </div>
+          <p class="mt-1.5 truncate text-micro text-muted">
+            {{
+              attentionCount
+                ? t("overview.stat.credentialIssueSplit", {
+                    relogin: credentialIssueCounts.relogin,
+                    expired: credentialIssueCounts.expired,
+                    expiring: credentialIssueCounts.expiring,
+                  })
+                : t("overview.stat.allGood")
+            }}
+          </p>
+        </RouterLink>
+        <RouterLink
+          :to="navTo('/accounts')"
+          class="px-5 py-3.5 transition-colors hover:bg-line-soft/40"
+        >
+          <div class="text-micro font-medium tracking-[0.12em] text-muted">{{ t("overview.stat.clientsRunning") }}</div>
+          <div class="mt-1 font-ledger text-metric font-semibold leading-none text-ink">
+            <AnimatedNumber :value="runningClients" />
+          </div>
+          <p class="mt-1.5 truncate text-micro text-muted">
+            {{ t("overview.client.runningCount", { running: runningClients, total: clientDetections.length }) }}
+          </p>
+        </RouterLink>
+        <div class="px-5 py-3.5">
+          <div class="text-micro font-medium tracking-[0.12em] text-muted">{{ t("overview.stat.snapshots") }}</div>
+          <div class="mt-1 font-ledger text-metric font-semibold leading-none text-ink">
+            <AnimatedNumber v-if="!backupsError && !backupsLoading" :value="globalSnapshots.length" />
+            <template v-else>{{ backupsError ? "—" : "…" }}</template>
+          </div>
+          <p class="mt-1.5 truncate text-micro text-muted">
+            {{
+              backupsError
+                ? t("overview.stat.backupsUnavailable")
+                : backupsLoading
+                  ? t("common.loading")
+                  : latestSnapshot
+                    ? t("overview.stat.lastBackup", { time: formatTime(latestSnapshot.createdAt) })
+                    : t("overview.stat.noBackups")
+            }}
+          </p>
+        </div>
+      </div>
+    </section>
 
     <p v-if="runError" class="mt-3 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm text-danger">
       {{ runError }}

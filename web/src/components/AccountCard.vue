@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import {
   BadgeCheck,
   Check,
@@ -11,6 +11,7 @@ import {
   History,
   Layers,
   Loader2,
+  MoreHorizontal,
   Pencil,
   QrCode,
   RefreshCw,
@@ -407,6 +408,67 @@ function requestPreview(): void {
   if (!props.preview) emit("preview", props.account);
 }
 
+/**
+ * 低频操作菜单：诊断 / 历史 / 删除收进「更多」，底部只留切换、续期和这一颗入口。
+ * 面板用 fixed 挂到 body —— 卡片自己 overflow-hidden，就地弹会被裁掉。
+ */
+const menuOpen = ref(false);
+const menuAnchor = ref<HTMLElement | null>(null);
+const menuPanel = ref<HTMLElement | null>(null);
+const menuStyle = ref<Record<string, string>>({});
+
+function detachMenuListeners(): void {
+  window.removeEventListener("pointerdown", onOutsidePointer, true);
+  window.removeEventListener("keydown", onMenuKeydown, true);
+  window.removeEventListener("scroll", closeMenu, true);
+  window.removeEventListener("resize", closeMenu);
+}
+
+function closeMenu(): void {
+  if (!menuOpen.value) return;
+  menuOpen.value = false;
+  detachMenuListeners();
+}
+
+function onOutsidePointer(event: PointerEvent): void {
+  const target = event.target as Node | null;
+  if (menuAnchor.value?.contains(target) || menuPanel.value?.contains(target)) return;
+  closeMenu();
+}
+
+function onMenuKeydown(event: KeyboardEvent): void {
+  if (event.key === "Escape") closeMenu();
+}
+
+function toggleMenu(): void {
+  if (menuOpen.value) {
+    closeMenu();
+    return;
+  }
+  const rect = menuAnchor.value?.getBoundingClientRect();
+  if (!rect) return;
+  // 面板宽 144px：与按钮右对齐；空间够就向上弹，否则落到按钮下方。
+  const left = Math.max(8, Math.round(rect.right - 144));
+  menuStyle.value =
+    rect.top > 170
+      ? { top: `${Math.round(rect.top - 8)}px`, left: `${left}px`, transform: "translateY(-100%)" }
+      : { top: `${Math.round(rect.bottom + 6)}px`, left: `${left}px` };
+  menuOpen.value = true;
+  window.addEventListener("pointerdown", onOutsidePointer, true);
+  window.addEventListener("keydown", onMenuKeydown, true);
+  window.addEventListener("scroll", closeMenu, true);
+  window.addEventListener("resize", closeMenu);
+}
+
+function pickMenu(action: "diagnose" | "history" | "remove"): void {
+  closeMenu();
+  if (action === "diagnose") emit("diagnose", props.account);
+  else if (action === "history") emit("history", props.account);
+  else emit("remove", props.account);
+}
+
+onBeforeUnmount(detachMenuListeners);
+
 function formatCredits(value: number | null): string {
   if (value === null) return "—";
   return formatAmount(value);
@@ -510,7 +572,15 @@ function formatCredits(value: number | null): string {
         :stroke-width="2"
         class="shrink-0 opacity-0 transition-opacity group-hover/note:opacity-100"
       />
-      <span class="truncate">{{ account.note || t("accounts.addNote") }}</span>
+      <span
+        class="truncate"
+        :class="
+          account.note
+            ? ''
+            : 'opacity-0 transition-opacity group-hover/note:opacity-100 group-focus-visible/note:opacity-100'
+        "
+        >{{ account.note || t("accounts.addNote") }}</span
+      >
       <span
         v-if="account.lastUsedAt"
         class="flex shrink-0 items-center gap-0.5 text-muted/80"
@@ -820,32 +890,57 @@ function formatCredits(value: number | null): string {
         <RefreshCw :size="12" :stroke-width="1.9" />
       </button>
       <button
+        ref="menuAnchor"
         type="button"
-        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
+        class="grid size-[22px] shrink-0 place-items-center rounded-badge transition-colors disabled:opacity-50"
+        :class="menuOpen ? 'bg-line-soft text-ink' : 'text-muted hover:bg-line-soft hover:text-ink'"
         :disabled="busy"
-        :title="t('accounts.credential.diagnose')"
-        @click="emit('diagnose', account)"
+        :aria-expanded="menuOpen"
+        aria-haspopup="menu"
+        :title="t('accounts.moreActions')"
+        @click="toggleMenu"
       >
-        <Stethoscope :size="12" :stroke-width="1.9" />
-      </button>
-      <button
-        type="button"
-        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-brand-soft hover:text-brand-dark disabled:opacity-50"
-        :disabled="busy"
-        :title="t('accounts.credential.history')"
-        @click="emit('history', account)"
-      >
-        <History :size="12" :stroke-width="1.9" />
-      </button>
-      <button
-        type="button"
-        class="grid size-[22px] shrink-0 place-items-center rounded-badge text-muted transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-50"
-        :disabled="busy"
-        :title="t('common.delete')"
-        @click="emit('remove', account)"
-      >
-        <Trash2 :size="12" :stroke-width="1.9" />
+        <MoreHorizontal :size="13" :stroke-width="1.9" />
       </button>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="menuOpen"
+        ref="menuPanel"
+        class="fixed z-[900] w-36 rounded-control border border-line bg-surface p-1 shadow-float"
+        :style="menuStyle"
+        role="menu"
+      >
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-body-sm text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+          role="menuitem"
+          @click="pickMenu('diagnose')"
+        >
+          <Stethoscope :size="12" :stroke-width="1.9" />
+          {{ t("accounts.credential.diagnose") }}
+        </button>
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-body-sm text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+          role="menuitem"
+          @click="pickMenu('history')"
+        >
+          <History :size="12" :stroke-width="1.9" />
+          {{ t("accounts.credential.history") }}
+        </button>
+        <div class="my-1 h-px bg-line-soft" aria-hidden="true" />
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-body-sm text-danger transition-colors hover:bg-danger-soft"
+          role="menuitem"
+          @click="pickMenu('remove')"
+        >
+          <Trash2 :size="12" :stroke-width="1.9" />
+          {{ t("common.delete") }}
+        </button>
+      </div>
+    </Teleport>
   </article>
 </template>

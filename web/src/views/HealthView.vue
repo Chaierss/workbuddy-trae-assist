@@ -681,7 +681,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <p v-if="error" class="rounded-control border border-danger/20 bg-danger-soft px-3.5 py-2.5 text-body-sm text-danger">
+    <p v-if="error" class="rounded-control border border-danger/30 bg-danger-soft px-3.5 py-2.5 text-body-sm text-danger">
       {{ t("health.loadError", { error }) }}
     </p>
 

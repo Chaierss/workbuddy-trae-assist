@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="store.error"
-      class="mb-3 flex items-start gap-2.5 rounded-card border border-line bg-danger-soft px-4 py-2.5 text-body-sm text-danger"
+      class="mb-3 flex items-start gap-2.5 rounded-card border border-danger/30 bg-danger-soft px-4 py-2.5 text-body-sm text-danger"
     >
       <TriangleAlert :size="15" class="mt-0.5 shrink-0" />
       <div>{{ store.error }}</div>

@@ -20,11 +20,9 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import {
   AlertTriangle,
-  BarChart3,
   ChevronLeft,
   ChevronRight,
   Clock,
-  Coins,
   Flame,
   Loader2,
   MessageSquare,
@@ -32,13 +30,11 @@ import {
   TrendingDown,
   TrendingUp,
   X,
-  Zap,
 } from "lucide-vue-next";
 import SectionCard from "../components/SectionCard.vue";
 import PageHeader from "../components/PageHeader.vue";
 import Skeleton from "../components/Skeleton.vue";
 import SearchInput from "../components/SearchInput.vue";
-import StatCard from "../components/StatCard.vue";
 import StatusPill from "../components/StatusPill.vue";
 import EmptyState from "../components/EmptyState.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
@@ -986,6 +982,49 @@ async function openConversation(account: AccountUsage, conversation: Conversatio
   }
 }
 
+/** 总览首屏六个指标：收进一张发丝线卡，和号池、概览页用同一套卡面。 */
+const overviewStats = computed(() => [
+  {
+    key: "accounts",
+    label: t("usage.stat.accounts"),
+    value: `${summary.value?.detectable ?? 0}/${summary.value?.accounts ?? 0}`,
+    hint: t("usage.stat.accountsHint"),
+  },
+  {
+    key: "requests",
+    label: t("usage.stat.requests"),
+    value: String(summary.value?.totalRequests ?? 0),
+    hint: t("usage.stat.requestsHint"),
+  },
+  {
+    key: "workbuddy",
+    label: t("usage.stat.workbuddy"),
+    value: creditText(summary.value?.workbuddyCreditConsumed),
+    hint: t("usage.stat.workbuddyHint"),
+  },
+  {
+    key: "trae",
+    label: t("usage.stat.trae"),
+    value:
+      summary.value?.traeCreditsConsumed != null
+        ? creditText(summary.value.traeCreditsConsumed)
+        : "—",
+    hint: t("usage.stat.traeHint"),
+  },
+  {
+    key: "avgCost",
+    label: t("usage.stat.avgCost"),
+    value: creditText(avgCost.value),
+    hint: t("usage.stat.avgCostHint"),
+  },
+  {
+    key: "linkRate",
+    label: t("usage.stat.linkRate"),
+    value: linkRate.value == null ? "—" : `${linkRate.value}%`,
+    hint: t("usage.stat.linkRateHint"),
+  },
+]);
+
 // ---------- 加载 ----------
 
 async function load(refresh = false): Promise<void> {
@@ -1057,48 +1096,24 @@ onMounted(() => {
       </RouterLink>
     </div>
 
-    <div v-if="view === 'overview'" class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      <StatCard
-        :label="t('usage.stat.accounts')"
-        :value="`${summary?.detectable ?? 0}/${summary?.accounts ?? 0}`"
-        :icon="BarChart3"
-        :hint="t('usage.stat.accountsHint')"
-      />
-      <StatCard
-        :label="t('usage.stat.requests')"
-        :value="String(summary?.totalRequests ?? 0)"
-        :icon="Zap"
-        :hint="t('usage.stat.requestsHint')"
-      />
-      <StatCard
-        :label="t('usage.stat.workbuddy')"
-        :value="creditText(summary?.workbuddyCreditConsumed)"
-        :icon="Coins"
-        :hint="t('usage.stat.workbuddyHint')"
-      />
-      <StatCard
-        :label="t('usage.stat.trae')"
-        :value="summary?.traeCreditsConsumed != null ? creditText(summary.traeCreditsConsumed) : '—'"
-        :icon="Coins"
-        :hint="t('usage.stat.traeHint')"
-      />
-      <StatCard
-        :label="t('usage.stat.avgCost')"
-        :value="creditText(avgCost)"
-        :icon="TrendingUp"
-        :hint="t('usage.stat.avgCostHint')"
-      />
-      <StatCard
-        :label="t('usage.stat.linkRate')"
-        :value="linkRate == null ? '—' : `${linkRate}%`"
-        :icon="MessageSquare"
-        :hint="t('usage.stat.linkRateHint')"
-      />
+    <div
+      v-if="view === 'overview'"
+      class="mt-4 overflow-hidden rounded-card border border-line bg-surface shadow-card"
+    >
+      <div class="grid grid-cols-2 gap-px bg-line-soft sm:grid-cols-3 xl:grid-cols-6">
+        <div v-for="stat in overviewStats" :key="stat.key" class="min-w-0 bg-surface px-4 py-3">
+          <div class="truncate text-caption text-muted">{{ stat.label }}</div>
+          <div class="font-ledger mt-1 truncate text-metric font-semibold leading-none text-ink">
+            {{ stat.value }}
+          </div>
+          <div class="mt-1 truncate text-micro text-muted">{{ stat.hint }}</div>
+        </div>
+      </div>
     </div>
 
     <div
       v-if="error"
-      class="mt-4 rounded-card border border-line bg-danger-soft px-5 py-3 text-body-sm text-danger"
+      class="mt-4 rounded-card border border-danger/30 bg-danger-soft px-5 py-3 text-body-sm text-danger"
     >
       {{ t("usage.error", { message: error }) }}
     </div>
@@ -1195,6 +1210,12 @@ onMounted(() => {
               viewBox="0 0 100 40"
               preserveAspectRatio="none"
             >
+              <!-- 三条发丝线给定基准：顶/中/底，中间虚线，避免折线悬空 -->
+              <g stroke="var(--color-line)" stroke-width="1" vector-effect="non-scaling-stroke">
+                <line x1="0" y1="0.6" x2="100" y2="0.6" />
+                <line x1="0" y1="20" x2="100" y2="20" stroke-dasharray="3 4" />
+                <line x1="0" y1="39.4" x2="100" y2="39.4" />
+              </g>
               <defs>
                 <linearGradient id="usage-trend-fill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stop-color="var(--color-brand)" stop-opacity="0.26" />
@@ -2053,7 +2074,7 @@ onMounted(() => {
 
           <div
             v-else-if="drawer.error"
-            class="rounded-card border border-line bg-danger-soft px-4 py-3 text-body-sm text-danger"
+            class="rounded-card border border-danger/30 bg-danger-soft px-4 py-3 text-body-sm text-danger"
           >
             {{ t("usage.drawer.error", { message: drawer.error }) }}
           </div>

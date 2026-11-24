@@ -36,6 +36,7 @@ import StabilityDrawer from "../components/stability/StabilityDrawer.vue";
 import EmptyState from "../components/EmptyState.vue";
 import NoteDialog from "../components/NoteDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
+import SectionCard from "../components/SectionCard.vue";
 import OAuthLoginDialog from "../components/OAuthLoginDialog.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import {
@@ -1881,56 +1882,71 @@ const confirmText = computed(() => {
       </button>
     </div>
 
-    <!-- 号池健康度：一眼看清可用/异常/到期/低积分/今日待做；能筛的整块可点
-         数字是异步到的，用 AnimatedNumber 滚动 + 跳动，异常项点一颗呼吸圆点 -->
-    <div class="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
-      <component
-        :is="stat.risk ? 'button' : 'div'"
-        v-for="(stat, index) in health"
-        :key="stat.key"
-        :type="stat.risk ? 'button' : undefined"
-        class="stat-tile min-w-0 rounded-control border px-3.5 py-2.5 text-left transition-[border-color,box-shadow,background-color,transform] duration-200"
-        :class="[
-          stat.risk
-            ? 'hover:-translate-y-px hover:border-line-strong hover:shadow-card-hover'
-            : 'cursor-default',
-          stat.risk && riskFilter === stat.risk
-            ? 'border-brand bg-brand-soft/60'
-            : 'border-line bg-surface shadow-card',
-        ]"
-        :style="{ animationDelay: `${index * 45}ms` }"
-        :title="
-          stat.risk === 'total'
-            ? t('accounts.health.clearHint')
-            : stat.risk
-              ? t('accounts.health.filterHint')
-              : stat.hint
-        "
-        @click="applyRisk(stat.risk)"
-      >
-        <div class="flex items-center gap-1.5 text-caption text-muted">
-          <span class="truncate">{{ stat.label }}</span>
-          <span
-            v-if="stat.tone === 'danger'"
-            class="stat-dot stat-dot--danger shrink-0"
-            aria-hidden="true"
-          />
-          <span v-else-if="stat.tone === 'warn'" class="stat-dot shrink-0" aria-hidden="true" />
-        </div>
-        <div class="mt-0.5 flex items-baseline gap-1">
-          <AnimatedNumber
-            :value="stat.value"
-            :delay="index * 20"
-            class="font-ledger font-ledger text-metric font-semibold leading-none"
-            :class="TONE_TEXT[stat.tone]"
-          />
-          <span v-if="riskFilter === stat.risk" class="text-micro text-brand-dark">
-            {{ t("accounts.health.filtered") }}
-          </span>
-        </div>
-        <div class="mt-0.5 truncate text-micro text-muted">{{ stat.hint }}</div>
-      </component>
-    </div>
+    <!-- 号池健康度：一张卡装下 8 个指标，发丝线分隔；能筛的整块可点
+         数字是异步到的，用 AnimatedNumber 滚动 + 跳动，异常项点一颗静态圆点 -->
+    <SectionCard class="mt-4" :title="t('accounts.health.title')" flush>
+      <template #actions>
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-control border border-brand/40 bg-surface px-2.5 py-1.5 text-body-sm font-medium text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
+          :disabled="checkupBusy || Boolean(credentialBusy) || activityBusy || !accounts.length"
+          :title="t('accounts.checkup.hint')"
+          @click="runPoolCheckup"
+        >
+          <Loader2 v-if="checkupBusy" :size="13" :stroke-width="1.9" class="animate-spin" />
+          <ShieldCheck v-else :size="13" :stroke-width="1.9" />
+          {{ checkupBusy ? t("accounts.checkup.running") : t("accounts.checkup.action") }}
+        </button>
+      </template>
+
+      <div class="grid grid-cols-2 gap-px bg-line-soft sm:grid-cols-4 xl:grid-cols-8">
+        <component
+          :is="stat.risk ? 'button' : 'div'"
+          v-for="(stat, index) in health"
+          :key="stat.key"
+          :type="stat.risk ? 'button' : undefined"
+          class="stat-tile min-w-0 px-4 py-3 text-left transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand/60"
+          :class="[
+            stat.risk && riskFilter === stat.risk
+              ? 'bg-brand-soft'
+              : stat.risk
+                ? 'bg-surface hover:bg-line-soft/60'
+                : 'cursor-default bg-surface',
+          ]"
+          :style="{ animationDelay: `${index * 45}ms` }"
+          :title="
+            stat.risk === 'total'
+              ? t('accounts.health.clearHint')
+              : stat.risk
+                ? t('accounts.health.filterHint')
+                : stat.hint
+          "
+          @click="applyRisk(stat.risk)"
+        >
+          <div class="flex items-center gap-1.5 text-caption text-muted">
+            <span class="truncate">{{ stat.label }}</span>
+            <span
+              v-if="stat.tone === 'danger'"
+              class="stat-dot stat-dot--danger shrink-0"
+              aria-hidden="true"
+            />
+            <span v-else-if="stat.tone === 'warn'" class="stat-dot shrink-0" aria-hidden="true" />
+          </div>
+          <div class="mt-1 flex items-baseline gap-1">
+            <AnimatedNumber
+              :value="stat.value"
+              :delay="index * 20"
+              class="font-ledger text-metric font-semibold leading-none"
+              :class="TONE_TEXT[stat.tone]"
+            />
+            <span v-if="riskFilter === stat.risk" class="text-micro text-brand-dark">
+              {{ t("accounts.health.filtered") }}
+            </span>
+          </div>
+          <div class="mt-1 truncate text-micro text-muted">{{ stat.hint }}</div>
+        </component>
+      </div>
+    </SectionCard>
 
     <!-- 批量操作条：选中后出现在工具栏上方，跟着内容走，不浮在视口底部挡卡片 -->
     <div
@@ -2159,19 +2175,6 @@ const confirmText = computed(() => {
         <Rows3 v-else :size="14" :stroke-width="1.9" />
       </button>
 
-      <!-- 一键体检并修复：登录 + 凭据 + 供给/隔离一次跑完，修复只走安全白名单 -->
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-brand/40 bg-brand-soft/50 px-3 py-2 text-body font-medium text-brand-dark transition-colors hover:bg-brand-soft disabled:opacity-60"
-        :disabled="checkupBusy || Boolean(credentialBusy) || activityBusy || !accounts.length"
-        :title="t('accounts.checkup.hint')"
-        @click="runPoolCheckup"
-      >
-        <Loader2 v-if="checkupBusy" :size="14" :stroke-width="1.9" class="animate-spin" />
-        <ShieldCheck v-else :size="14" :stroke-width="1.9" />
-        {{ checkupBusy ? t("accounts.checkup.running") : t("accounts.checkup.action") }}
-      </button>
-
       <!-- 全选常驻：选中后不搬走，否则按钮会在眼前消失又从别处冒出来 -->
       <button
         type="button"
@@ -2193,21 +2196,10 @@ const confirmText = computed(() => {
         {{ allSelected ? t("accounts.unselectAll") : t("accounts.selectAll", { count: visible.length }) }}
       </button>
 
+      <!-- 刷新积分：数据拉取动作，弱化成一个右侧的次要按钮，不占筛选的位置 -->
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
-        :disabled="!selectedCount || exporting"
-        :title="selectedCount ? t('accounts.exportHint') : t('accounts.exportNeedSelection')"
-        @click="askExport"
-      >
-        <Loader2 v-if="exporting" :size="14" :stroke-width="1.9" class="animate-spin" />
-        <Download v-else :size="14" :stroke-width="1.9" />
-        {{ exporting ? t("accounts.exporting") : t("accounts.export") }}
-      </button>
-
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink disabled:opacity-60"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-control px-2.5 py-2 text-body text-muted transition-colors hover:bg-line-soft hover:text-ink disabled:opacity-60"
         :disabled="creditsLoading || loading"
         :title="t('accounts.reloadCredits')"
         @click="loadCredits(true)"

@@ -184,7 +184,7 @@ function saveForm(): void {
         </div>
         <div
           v-if="store.status.error"
-          class="rounded-control bg-danger-soft px-3 py-2 text-caption leading-relaxed text-danger"
+          class="rounded-control border border-danger/25 bg-danger-soft px-3 py-2 text-caption leading-relaxed text-danger"
         >
           {{ store.status.error }}
         </div>

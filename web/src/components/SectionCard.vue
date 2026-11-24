@@ -26,13 +26,13 @@ withDefaults(
   >
     <header
       v-if="title || $slots.actions"
-      class="flex items-center justify-between gap-4 border-b border-line-soft bg-line-soft/35 px-4 py-2.5"
+      class="flex items-center justify-between gap-4 border-b border-line-soft px-5 py-3"
     >
       <div class="min-w-0">
         <h2 class="flex items-center gap-2 text-body font-semibold tracking-[0.005em] text-ink">
           <span
             v-if="title"
-            class="h-3.5 w-[3px] shrink-0 rounded-full bg-brand/75"
+            class="h-3 w-[2px] shrink-0 rounded-full bg-brand/75"
             aria-hidden="true"
           />
           <span class="truncate">{{ title }}</span>
@@ -43,7 +43,7 @@ withDefaults(
         <slot name="actions" />
       </div>
     </header>
-    <div :class="flush ? '' : 'px-4 py-3.5'">
+    <div :class="flush ? '' : 'px-5 py-4'">
       <slot />
     </div>
   </section>

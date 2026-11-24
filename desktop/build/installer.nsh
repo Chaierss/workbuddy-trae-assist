@@ -41,8 +41,8 @@
 ; 这些是 MUI2 的「默认值」：必须在 !include MUI2.nsh 之前定义。本文件被
 ; electron-builder 前插在模板之前，所以放在顶层正好生效。
 ;
-; 侧栏图是满幅墨绿品牌面板，页眉位图是同一墨绿的品牌块；纸色只负责正文区。
-; 侧栏必须整块铺满 164×314，留纸色边会露出一个矩形补丁。
+; 侧栏图改成留白极简：只在左上角放一枚小 logo 与字标，不画标语、横线或边界；
+; 页眉位图用同色纸底，页眉与页面自然连成一张纸。
 !define MUI_BGCOLOR "FAF7F0"
 ; 进度条走 Windows 主题色，替掉 NSIS 默认的经典绿色块。
 !define MUI_INSTFILESPAGE_PROGRESSBAR colored
@@ -53,12 +53,13 @@ BrandingText " "
 
 ; —— 标题栏着色 ——
 ;
-; Windows 11 允许给系统标题栏指定底色与文字色。这里取与页眉品牌块相同的墨绿，
-; 避免默认白条把窗口视觉切成两截。旧系统不支持这几个属性，调用失败会静默忽略。
+; Windows 11 允许给系统标题栏指定底色与文字色。这里取纸色底 + 墨色字，
+; 与页眉位图、页面底色一致，避免默认白条或深色条把窗口视觉切成两截。
+; 旧系统不支持这几个属性，调用失败会静默忽略。
 !macro cwThemeCaption
-  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 1, i 4)'
-  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 35, *i 0x00333A1F, i 4)'
-  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 36, *i 0x00F0F7FA, i 4)'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 20, *i 0, i 4)'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 35, *i 0x00F0F7FA, i 4)'
+  System::Call 'dwmapi::DwmSetWindowAttribute(p $HWNDPARENT, i 36, *i 0x00333A1F, i 4)'
 !macroend
 
 ; 宏体内共享的全局变量（顶层 Var 不依赖模板 define）。
@@ -89,7 +90,7 @@ BrandingText " "
   ; 欢迎页：一次说清「装什么 / 装在哪 / 数据在哪 / 要不要管理员」。
   ; 只在首次安装显示；重装走 --updated 升级流程，改由下方的升级信息页接管。
   !define MUI_WELCOMEPAGE_TITLE "安装 chaierww"
-  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的账号收在一处：$\r$\n$\r$\n· 一键切号：登录态互相隔离$\r$\n· 签到与活动：进度一眼可见$\r$\n· 体检续期：临期提前提醒$\r$\n· 用量看板：按账号、按模型统计$\r$\n仅当前用户安装，无需管理员权限。"
+  !define MUI_WELCOMEPAGE_TEXT "把 WorkBuddy / Trae 的账号收在一处，只在这台电脑上运行。$\r$\n$\r$\n· 一键切号：登录态互相隔离$\r$\n· 签到与活动：进度一眼可见$\r$\n· 体检续期：临期提前提醒$\r$\n· 用量看板：按账号、按模型统计$\r$\n$\r$\n仅当前用户安装，无需管理员权限。"
 
   ; 目录页：用户最容易把「安装目录」当成「数据目录」，这里当场分开讲。
   ; 「默认沿用上次位置」由下方 customInstall / preInit 的 LastInstallDir 保证。
@@ -177,7 +178,7 @@ BrandingText " "
     ; 值用粗体：版本号与路径是这一页最该被一眼看到的信息。
     CreateFont $R5 "$(^Font)" 9 700
     ; 分区标题比正文大半号，代替 Windows 原生 GroupBox 的框线。
-    CreateFont $R4 "$(^Font)" 10 700
+    CreateFont $R4 "$(^Font)" 11 700
 
     ; 第一区：版本与位置（标题 + 细线）。
     ${NSD_CreateLabel} 0 0 100% 12u "版本"
@@ -372,7 +373,7 @@ BrandingText " "
     !insertmacro cwThemeCaption
 
     ; 分区标题比正文大半号，代替原生 GroupBox 的框线。
-    CreateFont $R4 "$(^Font)" 10 700
+    CreateFont $R4 "$(^Font)" 11 700
 
     ${NSD_CreateLabel} 0 0 100% 11u "将删除程序文件、桌面快捷方式和开始菜单项。"
     Pop $0

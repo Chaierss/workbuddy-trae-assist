@@ -24,6 +24,8 @@ export type PaletteResult =
       label: string;
       path: string;
       icon: Component;
+      /** 来自「最近使用」，只影响分组，不影响行为。 */
+      recent?: boolean;
     }
   | {
       kind: "action";
@@ -32,6 +34,7 @@ export type PaletteResult =
       hint: string;
       icon: Component;
       action: PaletteAction;
+      recent?: boolean;
     }
   | {
       kind: "account";
@@ -39,6 +42,7 @@ export type PaletteResult =
       label: string;
       hint: string;
       account: Account;
+      recent?: boolean;
     };
 
 const ACCOUNT_LIMIT = 6;
@@ -60,6 +64,62 @@ function accountHint(account: Account): string {
   return `${platformLabel(account.platform)} · ${stateLabel(account.credentialState)}`;
 }
 
+/** 一行参与检索的文本：主标题 + 补充词（英文名 / 拼音 / 首字母）。 */
+interface Searchable {
+  label: string;
+  keywords?: string[];
+  extra?: string[];
+}
+
+/**
+ * 给一行打分：`score` 越小越靠前，`missing` 是没命中的词数。
+ *
+ * - 空格分词：所有词都命中的行排在最前；
+ * - 主标题命中优于补充词命中，完全相等 > 前缀 > 包含；
+ * - 一个词都没命中（missing === 词数）视为无关，直接丢弃。
+ */
+function score(item: Searchable, tokens: string[]): { score: number; missing: number } {
+  const label = item.label.toLowerCase();
+  const words = [
+    label,
+    ...(item.keywords ?? []).map((word) => word.toLowerCase()),
+    ...(item.extra ?? []).map((word) => word.toLowerCase()),
+  ];
+  let total = 0;
+  let missing = 0;
+  for (const token of tokens) {
+    let best = Infinity;
+    for (let index = 0; index < words.length; index += 1) {
+      const word = words[index];
+      if (word === token) best = Math.min(best, index === 0 ? 0 : 3);
+      else if (word.startsWith(token)) best = Math.min(best, index === 0 ? 1 : 4);
+      else if (word.includes(token)) best = Math.min(best, index === 0 ? 2 : 5);
+    }
+    if (Number.isFinite(best)) total += best;
+    else missing += 1;
+  }
+  return { score: total, missing };
+}
+
+/**
+ * 按匹配质量排序；同分保持登记顺序（稳定）。
+ *
+ * `strict` 为 true 时只保留每个词都命中的行；否则允许部分命中，
+ * 先按「少漏词」再按分数排 —— 这样输入两个词时不至于直接掉进兜底建议。
+ */
+function rank<T>(
+  items: T[],
+  tokens: string[],
+  searchable: (item: T) => Searchable,
+  strict: boolean,
+): T[] {
+  return items
+    .map((item) => ({ item, ...score(searchable(item), tokens) }))
+    .filter((entry) => (strict ? entry.missing === 0 : entry.missing < tokens.length))
+    .sort((a, b) => (strict ? a.score - b.score : a.missing - b.missing || a.score - b.score))
+    .map((entry) => entry.item);
+}
+
 /**
  * 面板结果：空关键词只列页面；有输入时页面、动作与账号一起匹配。
  * 纯函数，账号最多 `ACCOUNT_LIMIT` 条，避免面板变成第二张号池表。
@@ -71,49 +131,64 @@ export function matchPalette(
   actions: PaletteAction[] = [],
 ): PaletteResult[] {
   const query = keyword.trim().toLowerCase();
-  const nav = navItems
-    .filter(
-      (item) =>
-        !query ||
-        t(item.labelKey).toLowerCase().includes(query) ||
-        item.key.includes(query) ||
-        item.path.includes(query),
-    )
-    .map<PaletteResult>((item) => ({
-      kind: "nav",
-      key: `nav:${item.key}`,
-      label: t(item.labelKey),
-      path: item.path,
-      icon: item.icon,
-    }));
+  const tokens = query.split(/\s+/).filter(Boolean);
+  const searching = tokens.length > 0;
 
-  if (!query) return nav;
+  const navOf = (item: NavDestination): Searchable => ({
+    label: t(item.labelKey),
+    keywords: item.keywords,
+    extra: [item.key, item.path],
+  });
+  const actionOf = (action: PaletteAction): Searchable => ({
+    label: action.label,
+    keywords: [action.key],
+    extra: [action.hint],
+  });
+  const accountOf = (account: Account): Searchable => ({
+    label: account.displayName,
+    keywords: [
+      account.externalId,
+      account.platform,
+      platformLabel(account.platform),
+      account.note,
+    ],
+  });
 
-  const matchedActions = actions
-    .filter(
-      (action) =>
-        action.label.toLowerCase().includes(query) ||
-        action.hint.toLowerCase().includes(query) ||
-        action.key.includes(query),
-    )
-    .map<PaletteResult>((action) => ({
-      kind: "action",
-      key: `action:${action.key}`,
-      label: action.label,
-      hint: action.hint,
-      icon: action.icon,
-      action,
-    }));
+  const navMatched = !searching
+    ? navItems
+    : (() => {
+        const strict = rank(navItems, tokens, navOf, true);
+        return strict.length ? strict : rank(navItems, tokens, navOf, false);
+      })();
 
-  const matchedAccounts = accounts
-    .filter(
-      (account) =>
-        account.displayName.toLowerCase().includes(query) ||
-        account.note.toLowerCase().includes(query) ||
-        account.externalId.toLowerCase().includes(query) ||
-        account.platform.toLowerCase().includes(query) ||
-        platformLabel(account.platform).toLowerCase().includes(query),
-    )
+  const matchedNav = navMatched.map<PaletteResult>((item) => ({
+    kind: "nav",
+    key: `nav:${item.key}`,
+    label: t(item.labelKey),
+    path: item.path,
+    icon: item.icon,
+  }));
+
+  if (!searching) return matchedNav;
+
+  const actionStrict = rank(actions, tokens, actionOf, true);
+  const matchedActions = (actionStrict.length
+    ? actionStrict
+    : rank(actions, tokens, actionOf, false)
+  ).map<PaletteResult>((action) => ({
+    kind: "action",
+    key: `action:${action.key}`,
+    label: action.label,
+    hint: action.hint,
+    icon: action.icon,
+    action,
+  }));
+
+  const accountStrict = rank(accounts, tokens, accountOf, true);
+  const matchedAccounts = (accountStrict.length
+    ? accountStrict
+    : rank(accounts, tokens, accountOf, false)
+  )
     .slice(0, ACCOUNT_LIMIT)
     .map<PaletteResult>((account) => ({
       kind: "account",
@@ -123,5 +198,5 @@ export function matchPalette(
       account,
     }));
 
-  return [...nav, ...matchedActions, ...matchedAccounts];
+  return [...matchedNav, ...matchedActions, ...matchedAccounts];
 }

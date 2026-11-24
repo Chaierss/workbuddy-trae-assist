@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import { ListChecks, Moon, Sun } from "lucide-vue-next";
 import { t } from "../lib/i18n";
+// 侧栏对桌面端与浏览器形态都显示品牌头（见模板）。
 import { NAV_DESTINATIONS, SETTINGS_DESTINATION } from "../lib/nav";
 import {
   accountCount,
@@ -35,6 +36,7 @@ const items = computed(() =>
     to: scopedPath(item.path),
     label: t(item.labelKey),
     icon: item.icon,
+    section: item.section,
     // 号池徽标 = 账号数；活动徽标 = 有可执行项的活动个数（两者语义不同）。
     badge:
       item.key === "accounts"
@@ -53,6 +55,22 @@ const items = computed(() =>
   })),
 );
 
+/** 侧栏按「工作台 / 运营 / 运维」分三段；空分组直接不渲染。 */
+const sections = computed(() =>
+  (
+    [
+      { key: "workbench", labelKey: "shell.sectionWorkbench" as const },
+      { key: "ops", labelKey: "shell.sectionOps" as const },
+      { key: "infra", labelKey: "shell.sectionInfra" as const },
+    ] as const
+  )
+    .map((section) => ({
+      ...section,
+      items: items.value.filter((item) => item.section === section.key),
+    }))
+    .filter((section) => section.items.length),
+);
+
 /**
  * 主题按钮：纯图标，点一下在浅色/深色之间切换（跟随系统仍去外观里选）。
  * 图标本身表达「当前是暗色/亮色」，title 补充当前模式与下一步动作。
@@ -61,6 +79,7 @@ const isDark = computed(() => resolvedTheme() === "dark");
 const themeTitle = computed(() =>
   isDark.value ? t("shell.themeToLight") : t("shell.themeToDark"),
 );
+
 
 function toggleTheme(): void {
   setTheme(resolvedTheme() === "dark" ? "light" : "dark");
@@ -93,8 +112,9 @@ const updateBadgeTitle = computed(() => {
 
 <template>
   <aside
-    class="fixed inset-y-0 left-0 z-[200] flex w-[var(--nav-rail-current)] flex-col border-r border-line bg-surface transition-[width] duration-200 ease-out"
+    class="fixed bottom-0 left-0 top-[var(--titlebar-height)] z-[200] flex w-[var(--nav-rail-current)] flex-col border-r border-line bg-surface transition-[width] duration-200 ease-out"
   >
+    <!-- 品牌头：桌面端与浏览器形态都保留，版本号唯一来源是 /api/health。 -->
     <div class="flex h-14 shrink-0 items-center gap-2.5 border-b border-line-soft px-3">
       <!-- 品牌块本身就是折叠按钮：logo 图标即展开/收起入口，不再单独摆一个折叠箭头 -->
       <button
@@ -110,7 +130,6 @@ const updateBadgeTitle = computed(() => {
       <template v-if="!collapsed">
         <div class="min-w-0 flex-1">
           <div class="truncate text-title font-semibold tracking-tight">chaierww</div>
-          <div class="truncate text-caption text-muted">{{ t("shell.tagline") }}</div>
           <!-- 版本号只有一个来源：后端 /api/health 报的 __version__。
                以前这里和 web/src/lib/version.ts 各写一份字面量，两处都停在 0.1.0。 -->
           <div v-if="health?.version" class="truncate text-micro text-muted">
@@ -121,54 +140,59 @@ const updateBadgeTitle = computed(() => {
     </div>
 
     <nav class="flex-1 overflow-y-auto px-2 py-3">
-      <div
-        v-if="!collapsed"
-        class="px-2.5 pb-1.5 text-micro font-medium uppercase tracking-[0.09em] text-muted"
-      >
-        {{ t("shell.sectionWorkbench") }}
-      </div>
-      <div class="space-y-0.5">
-        <RouterLink
-          v-for="item in items"
-          :key="item.to"
-          v-slot="{ navigate, isActive }"
-          :to="item.to"
-          custom
+      <template v-for="(section, sectionIndex) in sections" :key="section.key">
+        <div
+          v-if="!collapsed"
+          class="px-2.5 pb-1.5 text-micro font-medium uppercase tracking-[0.09em] text-muted"
+          :class="sectionIndex === 0 ? '' : 'pt-4'"
         >
-          <button
-            type="button"
-            class="relative flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-body transition-[background-color,color] duration-150"
-            :class="
-              isActive
-                ? 'bg-brand-soft font-medium text-brand-dark'
-                : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-            "
-            :title="collapsed ? item.label : undefined"
-            @click="navigate"
+          {{ t(section.labelKey) }}
+        </div>
+        <!-- 折叠态没有文字分组，用一道发丝线保留段落感 -->
+        <div v-else-if="sectionIndex > 0" class="mx-2 my-2 h-px bg-line-soft" aria-hidden="true" />
+        <div class="space-y-0.5">
+          <RouterLink
+            v-for="item in section.items"
+            :key="item.to"
+            v-slot="{ navigate, isActive }"
+            :to="item.to"
+            custom
           >
-            <span
-              v-if="isActive"
-              class="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-brand"
-            />
-            <component :is="item.icon" :size="17" :stroke-width="1.9" class="shrink-0" />
-            <template v-if="!collapsed">
-              <span class="flex-1 truncate text-left">{{ item.label }}</span>
+            <button
+              type="button"
+              class="relative flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-body transition-[background-color,color] duration-150"
+              :class="
+                isActive
+                  ? 'bg-brand-soft font-medium text-brand-dark'
+                  : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+              "
+              :title="collapsed ? item.label : undefined"
+              @click="navigate"
+            >
               <span
-                v-if="item.badge"
-                class="rounded-full px-1.5 py-0.5 text-caption leading-none tabular-nums"
-                :class="isActive ? 'bg-white/80 text-brand-dark dark:bg-white/15' : 'bg-line-soft text-muted'"
-                :title="item.badgeTitle || undefined"
-                :aria-label="item.badgeTitle || undefined"
-              >
-                {{ item.badge }}
-              </span>
-            </template>
-          </button>
-        </RouterLink>
-      </div>
+                v-if="isActive"
+                class="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-full bg-brand"
+              />
+              <component :is="item.icon" :size="17" :stroke-width="1.9" class="shrink-0" />
+              <template v-if="!collapsed">
+                <span class="flex-1 truncate text-left">{{ item.label }}</span>
+                <span
+                  v-if="item.badge"
+                  class="rounded-full px-1.5 py-0.5 text-caption leading-none tabular-nums"
+                  :class="isActive ? 'bg-white/80 text-brand-dark dark:bg-white/15' : 'bg-line-soft text-muted'"
+                  :title="item.badgeTitle || undefined"
+                  :aria-label="item.badgeTitle || undefined"
+                >
+                  {{ item.badge }}
+                </span>
+              </template>
+            </button>
+          </RouterLink>
+        </div>
+      </template>
     </nav>
 
-    <!-- 左下角：设置（与主导航同构）+ 主题纯图标，一行并排。折叠时都退成图标。 -->
+    <!-- 左下角：设置（与主导航同构）+ 任务 / 搜索 / 主题，一行并排。折叠时都退成图标。 -->
     <div
       class="flex shrink-0 items-center gap-1 border-t border-line-soft p-2"
       :class="collapsed ? 'flex-col' : ''"
@@ -207,7 +231,7 @@ const updateBadgeTitle = computed(() => {
 
       <button
         type="button"
-        class="relative grid size-9 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+        class="relative grid size-8 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
         :title="taskBadgeTitle"
         :aria-label="taskBadgeTitle"
         @click="taskDrawerOpen = true"
@@ -224,7 +248,7 @@ const updateBadgeTitle = computed(() => {
 
       <button
         type="button"
-        class="grid size-9 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+        class="grid size-8 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
         :title="themeTitle"
         :aria-label="themeTitle"
         @click="toggleTheme"
