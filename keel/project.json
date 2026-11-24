@@ -37,6 +37,8 @@
     { "id": "M-18", "title": "2.2.1 安装器排版修正", "exit": "用可运行的 NSIS 预览壳实测欢迎页与升级页；欢迎页功能点不重叠，页眉副标题保持一行，底部不再出现 BrandingText 版本行；installer.nsh 编译通过", "status": "done" },
     { "id": "M-19", "title": "2.2.2 安装器标题栏着色", "exit": "Windows 11 上安装向导标题栏取墨绿、文字反白，与页眉品牌块连成一体；旧系统调用失败静默忽略；installer.nsh 在安装器与卸载器两种编译上下文下通过 makensis；desktop 版本与 CHANGELOG 同步到 2.2.2", "status": "done" },
     { "id": "M-20", "title": "2.3.0 桌面顶栏菜单与命令面板", "exit": "顶栏 36px 单行内含折叠 / 搜索 / 文件·编辑·查看·帮助四菜单，菜单项带键帽且动作真实可用（编辑类走 execCommand，窗口级走 app:menu-action IPC）；Alt+F/E/V/H 与 F11、Ctrl+=/-/0、Ctrl+Shift+I 生效；命令面板支持拼音 / 英文别名、分词与命中高亮，实测「设置 网络」首位为设置；vue-tsc 与 vite build、keel 双门禁全绿；desktop、web、pyproject 与 CHANGELOG 版本同步到 2.3.0", "status": "done" },
-    { "id": "M-21", "title": "2.4.0 快捷切号与工作台一键", "exit": "桌面端 Ctrl+Alt+1..8 注册成功时可直接唤起窗口并发起对应账号切换，注册失败静默跳过且托盘菜单只标注成功键位；换号成功弹层提供「切回上一个号」且仍走预检确认；工作台「一键今天的活」顺序执行到期续期与全部可自动活动并给出回执；web build、keel 双门禁与 pytest 全绿；desktop、web、pyproject 与 CHANGELOG 版本同步到 2.4.0", "status": "done" }
+    { "id": "M-21", "title": "2.4.0 快捷切号与工作台一键", "exit": "桌面端 Ctrl+Alt+1..8 注册成功时可直接唤起窗口并发起对应账号切换，注册失败静默跳过且托盘菜单只标注成功键位；换号成功弹层提供「切回上一个号」且仍走预检确认；工作台「一键今天的活」顺序执行到期续期与全部可自动活动并给出回执；web build、keel 双门禁与 pytest 全绿；desktop、web、pyproject 与 CHANGELOG 版本同步到 2.4.0", "status": "done" },
+    { "id": "M-22", "title": "活动上游追踪（待接入）", "exit": "已覆盖 WorkBuddy 每日签到、成长任务 10 项、连签礼包 / 补签 / 兑换 / 抽奖、活跃地图、派猫猫旅行、夜猫子与 Trae 每日签到；未覆盖成长任务的专家 / 技能 / 小程序族（不伪造）与 Trae 除签到外的活动。下一步用本机一个账号只读探测上游活动 / 任务接口，产出目录外条目清单；确认可自动执行的项后在 /activities/run 增补并补测试，keel 双门禁全绿", "status": "todo" },
+    { "id": "M-23", "title": "2.5.0 窗口自适应与关于入口", "exit": "桌面窗口默认按工作区 82%×85% 计算并记住大小与位置，换显示器不会跑到屏幕外；帮助 → 关于 弹窗显示版本并提供「打开个人主站」按钮直达 chaierss.fun；CHANGELOG、desktop、web、pyproject 版本同步到 2.5.0，CI 双平台产物与 latest*.yml 齐全", "status": "done" }
   ]
 }

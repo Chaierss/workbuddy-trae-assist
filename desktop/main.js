@@ -12,7 +12,7 @@
  *  - 托盘图标（Windows 多尺寸 ico / macOS 模板图 / Linux png）
  *  - macOS 关窗不退出、Dock 点击唤起
  */
-const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, globalShortcut, nativeImage, nativeTheme, session, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, globalShortcut, nativeImage, nativeTheme, session, Notification, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
@@ -23,6 +23,8 @@ const net = require('net');
 const BACKEND_HOST = '127.0.0.1';
 const BACKEND_PORT = 57910;
 const APP_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}/`;
+/** 帮助 → 关于 里「打开个人主站」的目标；换域名只改这里。 */
+const PERSONAL_SITE = 'https://www.chaierss.fun/';
 
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
@@ -394,12 +396,78 @@ function stopBackend() {
 // ---------------------------------------------------------------------------
 // 窗口
 // ---------------------------------------------------------------------------
+// 默认尺寸跟着屏幕工作区走：1366×768 上 720 高会顶满任务栏，这里按 85% 收一截；
+// 大屏仍封顶 1080×720，维持原来的信息密度。用户拖过之后记住大小与位置。
+const WINDOW_MIN = { width: 900, height: 600 };
+const WINDOW_MAX = { width: 1080, height: 720 };
+
+function windowStateFile() {
+  return path.join(app.getPath('userData'), 'window-state.json');
+}
+
+function defaultWindowSize() {
+  const area = screen.getPrimaryDisplay().workAreaSize;
+  return {
+    width: Math.min(WINDOW_MAX.width, Math.max(WINDOW_MIN.width, Math.round(area.width * 0.82))),
+    height: Math.min(WINDOW_MAX.height, Math.max(WINDOW_MIN.height, Math.round(area.height * 0.85))),
+  };
+}
+
+function readWindowState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'));
+    const area = screen.getPrimaryDisplay().workAreaSize;
+    const width = Math.round(Number(raw.width));
+    const height = Math.round(Number(raw.height));
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
+    const state = {
+      width: Math.min(area.width, Math.max(WINDOW_MIN.width, width)),
+      height: Math.min(area.height, Math.max(WINDOW_MIN.height, height)),
+      maximized: Boolean(raw.maximized),
+    };
+    // 位置只在仍落在某块屏幕里时才恢复：拔掉扩展屏后不能把窗口丢到屏幕外。
+    const x = Math.round(Number(raw.x));
+    const y = Math.round(Number(raw.y));
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      const visible = screen.getAllDisplays().some(({ workArea }) =>
+        x + state.width > workArea.x + 80 &&
+        x < workArea.x + workArea.width - 80 &&
+        y + state.height > workArea.y + 40 &&
+        y < workArea.y + workArea.height - 40
+      );
+      if (visible) Object.assign(state, { x, y });
+    }
+    return state;
+  } catch {
+    return null;
+  }
+}
+
+let saveWindowTimer = null;
+
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    const maximized = mainWindow.isMaximized();
+    // 最大化时 getBounds 是整屏；存 normalBounds，下次还原成普通窗口也不会占满。
+    const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+    fs.writeFileSync(windowStateFile(), JSON.stringify({ ...bounds, maximized }), 'utf8');
+  } catch (error) {
+    console.warn('保存窗口状态失败：', error.message);
+  }
+}
+
+function scheduleWindowStateSave() {
+  clearTimeout(saveWindowTimer);
+  saveWindowTimer = setTimeout(saveWindowState, 400);
+}
+
 function createWindow() {
+  const saved = readWindowState() ?? defaultWindowSize();
   mainWindow = new BrowserWindow({
-    // 默认窗口按 1366×768 笔记本可用高度收小：1280×840 在任务栏之后会顶到屏幕外，
-    // 首屏还得用户先拖一下才能看到底部按钮。
-    width: 1080,
-    height: 720,
+    width: saved.width,
+    height: saved.height,
+    ...(saved.x === undefined ? {} : { x: saved.x, y: saved.y }),
     minWidth: 900,
     minHeight: 600,
     title: 'chaierww',
@@ -438,6 +506,12 @@ function createWindow() {
       additionalArguments: [`--chaierww-version=${app.getVersion()}`],
     },
   });
+
+  if (saved.maximized) mainWindow.maximize();
+  // 拖动和缩放很密集，400ms 防抖后再落盘，避免频繁写文件。
+  mainWindow.on('resize', scheduleWindowStateSave);
+  mainWindow.on('move', scheduleWindowStateSave);
+  mainWindow.on('close', saveWindowState);
 
   mainWindow.loadURL(APP_URL);
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -1251,20 +1325,31 @@ ipcMain.handle('app:relaunch', () => {
 });
 /**
  * 顶栏菜单里的窗口级动作。菜单是自绘的，这些能力只能回主进程做：
- * 缩放读的是 webContents 的缩放级别，全屏 / 开发者工具 / 关于面板同理。
+ * 缩放读的是 webContents 的缩放级别，全屏 / 开发者工具 / 关于弹窗同理。
  */
-ipcMain.handle('app:menu-action', (_event, action) => {
+ipcMain.handle('app:menu-action', async (_event, action) => {
   const win = mainWindow;
   if (action === 'quit') {
     app.quit();
     return true;
   }
   if (action === 'about') {
-    app.setAboutPanelOptions({
-      applicationName: 'chaierww',
-      applicationVersion: app.getVersion(),
-    });
-    app.showAboutPanel();
+    // 原生 About 面板在 Windows 上不可定制、放不进链接；这里改成自绘弹窗，
+    // 版本号一眼可见，个人主站用一个按钮直达。
+    const options = {
+      type: 'info',
+      title: '关于 chaierww',
+      message: `chaierww ${app.getVersion()}`,
+      detail: 'WorkBuddy / Trae 多账号本地切换工作台。\n所有数据只在本机。',
+      buttons: ['打开个人主站', '关闭'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    };
+    const { response } = win && !win.isDestroyed()
+      ? await dialog.showMessageBox(win, options)
+      : await dialog.showMessageBox(options);
+    if (response === 0) await shell.openExternal(PERSONAL_SITE);
     return true;
   }
   if (!win || win.isDestroyed()) return false;
@@ -1509,6 +1594,8 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  // 隐藏到托盘后再退出时 close 不一定触发，这里补存一次窗口状态。
+  saveWindowState();
   closeWebLoginWindow();
 });
 
