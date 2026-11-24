@@ -304,6 +304,7 @@ export const accountsZh = {
   "switch.files.heading": "涉及文件",
   "switch.migration.heading": "数据迁移",
   "switch.confirm": "确认切换",
+  "switch.switchBack": "切回 {name}",
   "switch.nextStep.title": "下一步：让它自己跑",
   "switch.nextStep.hint": "换号已经完成。开启每日签到，或签发一个网关 Key，让别的工具也能用上这个号池。",
   "switch.nextStep.schedule": "开每日签到",
@@ -814,6 +815,7 @@ export const accountsEn = {
   "switch.files.heading": "Files involved",
   "switch.migration.heading": "Data migration",
   "switch.confirm": "Confirm switch",
+  "switch.switchBack": "Switch back to {name}",
   "switch.nextStep.title": "Next: let it run on its own",
   "switch.nextStep.hint":
     "The switch is done. Turn on the daily check-in, or issue a gateway key so other tools can use this pool too.",

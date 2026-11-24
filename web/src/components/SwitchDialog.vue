@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { RouterLink } from "vue-router";
 import { AlertTriangle, ArrowRight, Check, Copy, Info, X } from "lucide-vue-next";
-import type { MigrationPreview, SwitchReport } from "../api";
+import type { Account, MigrationPreview, SwitchReport } from "../api";
 import { onboardingPrefs } from "../lib/onboarding";
 import { scopedPath } from "../stores/app";
 import { t } from "../lib/i18n";
@@ -16,9 +16,11 @@ const props = defineProps<{
   preview?: MigrationPreview | null;
   /** true = 处于「预检确认」态：尚未执行切换，等用户确认。 */
   confirming?: boolean;
+  /** 切换前的当前账号：成功后给一个「切回」的入口。 */
+  previous?: Account | null;
 }>();
 
-const emit = defineEmits<{ close: []; confirm: [] }>();
+const emit = defineEmits<{ close: []; confirm: []; "switch-back": [] }>();
 
 /**
  * 切成功了、但凭据本身有先天缺陷（缺 refresh token 之类）。
@@ -341,6 +343,15 @@ function dismissNextStep(): void {
             @click="emit('confirm')"
           >
             {{ t("switch.confirm") }}
+          </button>
+          <button
+            v-if="!confirming && report?.succeeded && !report.dryRun && previous"
+            type="button"
+            class="rounded-control border border-line px-3.5 py-2 text-body text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+            :disabled="busy"
+            @click="emit('switch-back')"
+          >
+            {{ t("switch.switchBack", { name: previous.displayName }) }}
           </button>
           <button
             v-if="!confirming"

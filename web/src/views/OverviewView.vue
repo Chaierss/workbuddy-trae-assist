@@ -10,6 +10,7 @@ import {
   HeartPulse,
   Loader2,
   Network,
+  Play,
   ShieldCheck,
   Users,
 } from "lucide-vue-next";
@@ -301,6 +302,37 @@ async function handleAll(): Promise<void> {
   }
 }
 
+/**
+ * 一键今天的活：到期凭据续期 + 全部账号的可自动活动。
+ *
+ * 和上面的「一键处理」区别：那个只处理待办清单里已经冒出来的组；
+ * 这里不看清单，直接按今天的节奏跑一遍（活动接口会跳过已完成项）。
+ * 共用 `batchBusy`，避免两条批量任务同时打上游。
+ */
+async function handleToday(): Promise<void> {
+  if (batchBusy.value || !accounts.value.length) return;
+  batchBusy.value = true;
+  runError.value = "";
+  runSummary.value = "";
+  let ok = 0;
+  let failed = 0;
+  try {
+    const refresh = await api.refreshCredentials("due");
+    ok += refresh.summary.refreshed + refresh.summary.ok;
+    failed += refresh.summary.failed + refresh.summary.reloginRequired;
+    const activities = await api.runActivities();
+    ok += activities.summary.ok;
+    failed += activities.summary.failed;
+    runSummary.value = t("overview.today.done", { ok, failed });
+    await load();
+    void loadRewards();
+  } catch (cause) {
+    runError.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    batchBusy.value = false;
+  }
+}
+
 /** 自动处置默认开启后的首次告知：只出现一次，点「知道了」后不再打扰。 */
 const AUTO_NOTICE_KEY = "chaierww.health.autoNotice.v1";
 const autoNoticeSeen = ref(localStorage.getItem(AUTO_NOTICE_KEY) === "1");
@@ -469,6 +501,17 @@ async function loadGlobalBackups(): Promise<void> {
   <div>
     <PageHeader :title="t('nav.overview')" :subtitle="subtitle">
       <template #actions>
+        <button
+          v-if="accounts.length"
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-control bg-brand px-3 py-2 text-body-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+          :disabled="batchBusy"
+          @click="handleToday"
+        >
+          <Loader2 v-if="batchBusy" :size="14" class="animate-spin" />
+          <Play v-else :size="14" :stroke-width="1.9" />
+          {{ batchBusy ? t("overview.today.running") : t("overview.today.run") }}
+        </button>
         <RouterLink
           :to="navTo('/accounts')"
           class="inline-flex shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface px-3 py-2 text-body-sm text-ink-soft transition-colors hover:border-line-strong hover:text-ink"

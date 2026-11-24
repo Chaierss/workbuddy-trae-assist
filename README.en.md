@@ -198,12 +198,13 @@ Grouped by the four things you actually do, with only the sharpest bullets kept:
 <details>
 <summary>Everything else (scheduling, backups, sessions, onboarding, local telemetry)</summary>
 
-- **Switch from anywhere**: account card, `Ctrl+K`, and tray all use the same preflight; relaunch-after-switch is configurable
+- **Switch from anywhere**: account card, `Ctrl+K`, and tray all use the same preflight; relaunch-after-switch is configurable.
+  On desktop, `Ctrl+Alt+1..8` switches the 8 most recently used accounts directly, and a successful switch offers "switch back to the previous account"
 - **The title bar is a menu**: Edit / View / Help label each action with its shortcut (undo `Ctrl+Z`,
   fullscreen `F11`, zoom `Ctrl+= / - / 0`, devtools `Ctrl+Shift+I`), and `Alt+F/E/V/H` opens them;
   the search button opens the same palette as `Ctrl+K`, which understands pinyin and English
   aliases (`hc` for the pool, `sz` for settings)
-- **Every run leaves a receipt**: one-click activity / renewal runs list successes, skips and failure reasons per item, retryable on the spot
+- **Every run leaves a receipt**: "Run today's tasks" on the overview renews due credentials and runs all automatable activities in one go; one-click activity / renewal runs list successes, skips and failure reasons per item, retryable on the spot
 - **If it cannot read, it says so**: a failed backup read shows "unavailable" with a retry; loading gets a skeleton, never a fake `0` or empty state
 - **Patrol history**: each account keeps its last 20 patrol records — time, status, reason, next retry — across restarts; "resume" only clears the counter, not the history
 - **Deleted by mistake?**: the recycle bin keeps accounts for 30 days; restore, purge early, or empty in one click

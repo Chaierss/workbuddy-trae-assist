@@ -175,6 +175,9 @@ export const usageZh = {
   "overview.subtitle.notImported": "当前登录的账号尚未导入",
   "overview.clientLoggedOut": "客户端当前未登录",
   "overview.manageAccounts": "管理账号",
+  "overview.today.run": "一键今天的活",
+  "overview.today.running": "正在处理…",
+  "overview.today.done": "今天的活已处理：{ok} 项完成，{failed} 项需人工",
   "overview.onboarding.clientDetail": "需要先安装 WorkBuddy 客户端并登录，才能导入账号。",
   "overview.onboarding.loggedOutDetail":
     "请在客户端登录后回到这里导入，导入的是当前登录的那个账号。",
@@ -489,6 +492,9 @@ export const usageEn = {
   "overview.subtitle.notImported": "The signed-in account has not been imported yet",
   "overview.clientLoggedOut": "The client is not signed in",
   "overview.manageAccounts": "Manage accounts",
+  "overview.today.run": "Run today's tasks",
+  "overview.today.running": "Working…",
+  "overview.today.done": "Today's tasks done: {ok} finished, {failed} need attention",
   "overview.onboarding.clientDetail":
     "Install the WorkBuddy client and sign in before importing accounts.",
   "overview.onboarding.loggedOutDetail":

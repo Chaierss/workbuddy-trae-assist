@@ -447,6 +447,15 @@ function subscribeTraySwitch(): void {
     }) ?? null;
 }
 
+/**
+ * 成功换号后点「切回上一个号」：重新走完整预检，不绕过确认步骤。
+ * `openSwitch` 会把「切换前账号」重新记成刚切到的号，连续切换也不会串。
+ */
+function switchBack(): void {
+  const previous = switchFlow.previous;
+  if (previous) void openSwitch(previous, "manual");
+}
+
 onMounted(() => {
   document.addEventListener("keydown", onShortcut);
   syncTitlebarTheme();
@@ -647,8 +656,10 @@ watch(
       :error="switchFlow.error"
       :preview="switchFlow.preview"
       :confirming="switchFlow.confirming"
+      :previous="switchFlow.previous"
       @close="closeSwitch"
       @confirm="confirmSwitch"
+      @switch-back="switchBack"
     />
     <!-- 更新弹窗挂在壳层：不依赖任何路由，主进程一推 update:prompt 就能弹 -->
     <UpdateDialog />

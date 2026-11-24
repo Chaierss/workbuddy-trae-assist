@@ -6,7 +6,7 @@ import {
   type MigrationPreview,
   type SwitchReport,
 } from "../api";
-import { clientDetections, refreshAll } from "../stores/app";
+import { accounts, clientDetections, refreshAll } from "../stores/app";
 import { refreshOnboarding } from "./onboarding";
 import { track } from "./metrics";
 
@@ -29,6 +29,8 @@ export const switchFlow = reactive({
   confirming: false,
   /** 待切换的账号（确认态需要它来执行切换）。 */
   account: null as Account | null,
+  /** 切换前的当前账号：成功后可以一键切回；没有或与目标相同时为 null。 */
+  previous: null as Account | null,
   /** 目标账号所属平台登记的程序位（只读 / 未适配的位置会灰掉）。 */
   slots: [] as ClientSlot[],
   /** 选中的程序位 key；空串 = 该平台不区分程序位，按默认位切换。 */
@@ -38,10 +40,27 @@ export const switchFlow = reactive({
 });
 
 /**
+ * 当前登录的账号：检测结果给的是 externalId，这里翻译成号池里的账号对象。
+ * 与 AppShell 里同步托盘选中态的口径一致。
+ */
+function currentAccount(): Account | null {
+  const externalIds = new Set(
+    clientDetections.value
+      .map((client) => client.currentAccountId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  if (!externalIds.size) return null;
+  return accounts.value.find((item) => externalIds.has(item.externalId)) ?? null;
+}
+
+/**
  * 打开预检弹层并拉取只读预检。
  * 预检本身就是「确认步骤」，所以不再走通用 ConfirmDialog（那会变成连点两次确认）。
  */
 export async function openSwitch(account: Account, method: SwitchMethod = "manual"): Promise<void> {
+  // 在真正切换前记下当前账号：成功后弹层里的「切回上一个号」用它。
+  const current = currentAccount();
+  switchFlow.previous = current && current.id !== account.id ? current : null;
   switchFlow.open = true;
   switchFlow.account = account;
   switchFlow.method = method;
@@ -110,6 +129,7 @@ export function closeSwitch(): void {
   switchFlow.report = null;
   switchFlow.error = null;
   switchFlow.account = null;
+  switchFlow.previous = null;
   switchFlow.slots = [];
   switchFlow.slot = "";
 }

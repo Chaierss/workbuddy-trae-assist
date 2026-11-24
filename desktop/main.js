@@ -12,7 +12,7 @@
  *  - 托盘图标（Windows 多尺寸 ico / macOS 模板图 / Linux png）
  *  - macOS 关窗不退出、Dock 点击唤起
  */
-const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, nativeImage, nativeTheme, session, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, dialog, ipcMain, globalShortcut, nativeImage, nativeTheme, session, Notification } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn, spawnSync } = require('child_process');
 const path = require('path');
@@ -115,6 +115,12 @@ let trayAccounts = [];
 let trayCurrentId = '';
 /** 需处理凭据的账号数：tooltip 与菜单都要在窗口不可见时也能看到。 */
 let trayAttention = 0;
+/**
+ * 已注册成功的全局快捷键：accountId -> accelerator。
+ * 只记录真正注册成功的键位 —— 被系统占用或 Wayland 不允许时，
+ * 菜单里不显示提示，避免给出一个按了没反应的键位。
+ */
+const switchShortcuts = new Map();
 /** 凭据提醒节流：每号每天最多一次系统通知（id -> YYYY-MM-DD）。 */
 const healthNotified = new Map();
 /** 最近一次凭据通知：留引用，否则对象被回收后 click 回调失效。 */
@@ -521,6 +527,43 @@ function createTray() {
 }
 
 /**
+ * 账号快捷键提示：Windows / Linux 用 Ctrl+Alt+N，macOS 用 ⌘⌥N。
+ * 只在注册成功后显示（见 switchShortcuts）。
+ */
+function shortcutHint(index) {
+  return IS_MAC ? `⌘⌥${index + 1}` : `Ctrl+Alt+${index + 1}`;
+}
+
+/**
+ * 注册 / 刷新 Ctrl+Alt+1..8 全局快捷键。
+ *
+ * 和托盘菜单共用同一份 `trayAccounts` 与同一条 `tray:switch-account` 通道：
+ * 快捷键只是「窗口藏着时也能点到托盘菜单」，不另开一条切换路径。
+ * 注册失败（系统占用、Wayland 限制）就跳过，不影响其他号。
+ */
+function refreshSwitchShortcuts() {
+  for (const accelerator of switchShortcuts.values()) {
+    globalShortcut.unregister(accelerator);
+  }
+  switchShortcuts.clear();
+  if (!app.isReady()) return;
+  trayAccounts.forEach((account, index) => {
+    const accelerator = `CommandOrControl+Alt+${index + 1}`;
+    try {
+      const registered = globalShortcut.register(accelerator, () => {
+        showWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('tray:switch-account', account.id);
+        }
+      });
+      if (registered) switchShortcuts.set(account.id, accelerator);
+    } catch {
+      // Wayland 等环境可能直接抛错：当作没有这个快捷键。
+    }
+  });
+}
+
+/**
  * 托盘右键菜单。
  *
  * 平时只有「打开」「切换账号」和「退出」—— 更新是一年点不了几次的事，不该常驻占一格。
@@ -546,17 +589,20 @@ function refreshTrayMenu() {
     items.push({
       label: '切换账号',
       submenu: [
-        ...trayAccounts.map((account) => ({
-          label: account.needsAttention ? `${account.name}（需处理）` : account.name,
-          type: 'radio',
-          checked: account.id === trayCurrentId,
-          click: () => {
-            showWindow();
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('tray:switch-account', account.id);
-            }
-          },
-        })),
+        ...trayAccounts.map((account, index) => {
+          const hint = switchShortcuts.has(account.id) ? `（${shortcutHint(index)}）` : '';
+          return {
+            label: `${account.needsAttention ? `${account.name}（需处理）` : account.name}${hint}`,
+            type: 'radio',
+            checked: account.id === trayCurrentId,
+            click: () => {
+              showWindow();
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('tray:switch-account', account.id);
+              }
+            },
+          };
+        }),
         { type: 'separator' },
         { label: '打开号池', click: () => showWindow() },
       ],
@@ -1136,6 +1182,8 @@ ipcMain.on('tray:sync-accounts', (event, payload) => {
     }));
   trayCurrentId = typeof payload?.currentId === 'string' ? payload.currentId : '';
   trayAttention = trayAccounts.filter((item) => item.needsAttention).length;
+  // 账号顺序变了，键位跟着重排：先注销旧键位再按新顺序注册。
+  refreshSwitchShortcuts();
   refreshTrayStatus();
 });
 /**
@@ -1465,6 +1513,8 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+  // 全局快捷键必须在退出时显式注销，否则热重载/重启后可能残留。
+  globalShortcut.unregisterAll();
   // 定时器不清掉的话，退出前那段延迟里计时还在跑，可能在拆后端的同时去查更新。
   if (autoCheckTimer) {
     clearTimeout(autoCheckTimer);

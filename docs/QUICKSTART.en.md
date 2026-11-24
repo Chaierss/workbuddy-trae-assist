@@ -87,6 +87,10 @@ Seeing an account in the pool means step 2 is done.
 - **Top bar and command palette**: the search button in the desktop title bar opens the same
   palette as `Ctrl+K` — type `hc` for the account pool, `sz` for settings, or an account name;
   the Edit / View / Help menus label every action with its shortcut.
+- **Quick switching**: on desktop, `Ctrl+Alt+1..8` jumps to the 8 most recently used accounts;
+  after a successful switch you can switch straight back to the previous one.
+- **Run today's tasks**: the button at the top right of the overview renews due credentials and
+  runs every automatable activity in one go, then shows a receipt.
 - **Groups**: tag accounts ("primary", "backup", …), filter the pool by group, assign in bulk,
   and pick a scheduled task's accounts by group with one click.
 - **Activities**: the official catalogue lists rules and rewards; automatable ones run in one
