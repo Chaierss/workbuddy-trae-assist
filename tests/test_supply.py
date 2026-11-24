@@ -272,12 +272,13 @@ class _Repo:
 
 
 class _Gateway:
-    def __init__(self, snapshots=None, logs=None) -> None:
+    def __init__(self, snapshots=None, logs=None, excluded=None) -> None:
         self._snapshots = snapshots or {}
         self._logs = logs or []
+        self._excluded = set(excluded or ())
 
     def excluded_accounts(self):
-        return set()
+        return set(self._excluded)
 
     def credit_snapshots(self, account_id):
         return self._snapshots.get(account_id, [])
@@ -313,6 +314,21 @@ def test_pool_health_alerts_when_not_enough_healthy_accounts():
     # 没有任何积分快照 / 网关请求 → null，而不是 0。
     assert payload["creditsDays"] is None
     assert payload["successRate24h"] is None
+
+
+def test_pool_health_counts_gateway_excluded_separately():
+    """网关排除的号仍能切号，不该混进「不健康」，但要单独报出来对上总数。"""
+    now = datetime.now(UTC)
+    repo = _Repo(
+        [_Account("a"), _Account("b")],
+        logins={"a": {"state": "valid"}, "b": {"state": "valid"}},
+        expiries={"a": (now + timedelta(days=10)).isoformat()},
+    )
+    service = PoolHealthService(repo, _Gateway(excluded={"b"}), preferences=_Prefs(healthy=1))
+    payload = service.health()
+    assert payload["healthyAccounts"] == 1
+    assert payload["excluded"] == 1
+    assert payload["accounts"] == 2
 
 
 def test_pool_health_success_rate_uses_recent_logs():

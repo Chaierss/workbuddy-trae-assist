@@ -4,6 +4,7 @@ import {
   api,
   type Account,
   type ClientDetection,
+  type CredentialHealth,
   type CreditInfo,
   type Detection,
   type HealthInfo,
@@ -229,6 +230,21 @@ export async function loadAccounts(): Promise<void> {
   accounts.value = data.accounts;
 }
 
+/**
+ * 凭据完整性体检：返回全部账号，`gaps` 为空表示这个号凭据完整。
+ * 和账号列表放在同一次 refreshAll 里刷新，避免「号池说缺凭据、健康中心没事件」。
+ */
+export const credentialHealth = ref<CredentialHealth | null>(null);
+
+export async function loadCredentialHealth(): Promise<void> {
+  try {
+    credentialHealth.value = await api.credentialHealth();
+  } catch {
+    // 体检失败不影响号池，顶多不显示凭据提示。
+    credentialHealth.value = null;
+  }
+}
+
 export async function loadBackups(): Promise<void> {
   const data = await api.backups(scope.value);
   snapshots.value = data.snapshots;
@@ -259,6 +275,7 @@ export async function refreshAll(): Promise<void> {
     await Promise.all([
       loadDetections(),
       loadAccounts(),
+      loadCredentialHealth(),
       loadBackups(),
       loadActivityActionable(),
       loadHealthBadge(),

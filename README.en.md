@@ -103,6 +103,9 @@ Grouped by the four things you actually use, keeping only the hardest bullets in
 - **One line tells you whether to care**: the top of the Workbench gives a verdict (all good / an account needs attention /
   health events remain) and also flags accounts that failed a switch or renewal in the last 7 days — click the right side
   to jump to that page
+- **One number, one definition**: the pool, the health center and the supply figures read the same
+  credential checkup, so only accounts with real gaps count as pending; accounts excluded or isolated by the
+  gateway are counted separately as "N excluded", and healthy + cooling + excluded adds up to the total
 - **What needs handling surfaces on its own**: the Workbench "needs attention" area shows only the top 3 groups, with
   one-click renew / rerun and an immediate "done / needs manual" verdict; the policy itself still lives only in
   Settings → Automation
@@ -311,6 +314,10 @@ the device that issued it. So:
   another device" — scan or import again on this machine;
 - when the upstream clearly refuses (`20101` / `20403` and similar), the app stops pretending the account is usable and
   downgrades it to "needs re-login".
+
+Trae is in the middle of merging accounts: the login envelope now carries `uidFusionInfo` (businessUid / oldUid /
+newUid), while the uid in the token is still the old one. The app recognizes any of those uids, keeps the pool entry's
+identifier as it was at import time, and never mixes up the target account during a switch precheck.
 
 **Patrol cadence**: 08:00 / 20:00 daily (can be disabled). Before each patrol it pulls the login state of "the account the
 client is currently signed in with" back into the pool, so the client's own refreshToken rotation cannot invalidate the

@@ -44,7 +44,6 @@ import {
   formatAmount,
   type Account,
   type ActivityBrief,
-  type CredentialHealth,
   type CredentialRefreshReport,
   type MigrationPreview,
   type OverviewPulse,
@@ -60,6 +59,7 @@ import {
   accounts,
   attentionCount,
   clientDetections,
+  credentialHealth,
   credentialIssueAccounts,
   credentialIssueCounts,
   credits,
@@ -454,7 +454,6 @@ async function runPoolCheckup(): Promise<void> {
     });
     checkupOpen.value = true;
     await refreshAll();
-    void loadCredentialHealth();
   } catch (error) {
     showToast((error as Error).message);
   } finally {
@@ -640,23 +639,18 @@ function askPurgeAll(): void {
 /**
  * 只报「缺字段」的账号（目前是缺 refresh token）。
  * 这类账号能切号、能导出，但 token 一过期就要重新扫码 —— 早说比晚说好。
+ *
+ * 接口返回的是**全部账号**（健康号也在内），这里必须自己筛 `gaps`：
+ * 直接把 `accounts` 当缺口列表，会把每个正常号都算成凭据异常，
+ * 和健康中心的空事件流对不上。
  */
-const credentialHealth = ref<CredentialHealth | null>(null);
-
-async function loadCredentialHealth(): Promise<void> {
-  try {
-    credentialHealth.value = await api.credentialHealth();
-  } catch {
-    // 体检失败不影响号池，顶多不显示这条提示。
-    credentialHealth.value = null;
-  }
-}
-
-const gapAccounts = computed(() => credentialHealth.value?.accounts ?? []);
+const gapAccounts = computed(() =>
+  (credentialHealth.value?.accounts ?? []).filter((item) => item.gaps.length > 0),
+);
 
 /** 登录真的失效的号：活动/签到遇 401 已经回写，续期也救不回来，只能重新扫码。 */
 const reloginAccounts = computed(() =>
-  gapAccounts.value.filter((item) => item.credentialState === "relogin_required"),
+  accounts.value.filter((item) => item.credentialState === "relogin_required"),
 );
 
 /**
@@ -675,13 +669,17 @@ const expiredAccounts = computed(() =>
 /** 只报「过期」而没被 relogin_required 覆盖的那部分，避免同一个号提示两次。 */
 const expiredOnlyAccounts = computed(() =>
   expiredAccounts.value.filter(
-    (item) => !reloginAccounts.value.some((other) => other.accountId === item.id),
+    (item) => !reloginAccounts.value.some((other) => other.id === item.id),
   ),
 );
 
-/** 缺口账号：能切号但凭据不完整，过期后只能重登。 */
+/** 缺口账号：能切号但凭据不完整，过期后只能重登；已算进过期/重登的不再重复报。 */
 const gapOnlyAccounts = computed(() =>
-  gapAccounts.value.filter((item) => item.credentialState !== "relogin_required"),
+  gapAccounts.value.filter(
+    (item) =>
+      item.credentialState !== "relogin_required" &&
+      !expiredOnlyAccounts.value.some((other) => other.id === item.accountId),
+  ),
 );
 
 /**
@@ -1445,7 +1443,6 @@ onMounted(() => {
   void loadSyncStatus();
   // 回收站只在打开弹层时才需要明细，但按钮上的角标要有数，所以启动时拉一次。
   void loadRecycleBin();
-  void loadCredentialHealth();
   void loadStability();
   scrollToFocused();
 });
@@ -1570,7 +1567,6 @@ async function onImport(): Promise<void> {
     showToast(result.created ? t("accounts.importedNew") : result.restored ? t("accounts.importedRestored") : t("accounts.importedUpdated"));
     track("account_imported", { method: "scan" });
     await refreshAll();
-    void loadCredentialHealth();
   } catch (error) {
     showToast((error as Error).message);
   } finally {
@@ -1596,8 +1592,6 @@ async function onJsonImport(): Promise<void> {
           : t("accounts.importBundleDone", { imported: result.imported }),
       );
       await refreshAll();
-      // 新导进来的号凭据是否完整，只有体检接口知道；立刻刷一次别让用户等。
-      void loadCredentialHealth();
       track("account_imported", { method: "bundle" });
       return;
     }
@@ -1606,7 +1600,6 @@ async function onJsonImport(): Promise<void> {
     jsonDialog.open = false;
     track("account_imported", { method: "json" });
     await refreshAll();
-    void loadCredentialHealth();
   } catch (error) {
     showToast((error as Error).message);
   } finally {

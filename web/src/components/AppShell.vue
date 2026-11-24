@@ -20,6 +20,7 @@ import {
   clientDetections,
   isImplementedScope,
   loadAccounts,
+  loadCredentialHealth,
   resolvedTheme,
   scope,
   scopedPath,
@@ -48,7 +49,7 @@ const navCollapsed = ref(false);
 const paletteOpen = ref(false);
 /** 菜单按钮 / 面板 / 菜单项的共用样式，避免四份菜单各写一遍。 */
 const menuBtnClass =
-  "flex h-6 items-center gap-0.5 rounded-[6px] px-2 text-caption text-ink-soft transition-colors hover:bg-line-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35";
+  "flex h-[22px] items-center rounded-[6px] px-1 text-caption text-muted transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35";
 const menuPanelClass =
   "absolute left-0 top-[calc(100%+4px)] z-[320] max-h-[70vh] w-60 overflow-y-auto rounded-control border border-line bg-surface py-1 shadow-float";
 const menuItemClass =
@@ -214,13 +215,29 @@ const layoutMode = computed<"normal" | "focus" | "inline">(() => {
   return focusModule.value ? "focus" : "normal";
 });
 
+/**
+ * 自绘顶栏的设计高度。注意这里的单位是「设计像素」：
+ * 页面缩放（Ctrl+= / Ctrl+-）会把 CSS 像素一起放大，顶栏若跟着长高，
+ * 菜单会越缩越粗。所以顶栏内部按 1/缩放倍数 反向缩放，
+ * 高度也按 `32 / 倍数` 换算，保证任何缩放级别下物理高度都是 32px。
+ */
+const TITLEBAR_BASE_HEIGHT = 32;
+/** 页面缩放倍数（1 = 100%）。浏览器形态没有主进程，恒为 1。 */
+const uiZoom = ref(1);
+let unsubscribeZoom: (() => void) | null = null;
+
 /** 收展动画的唯一正确写法：改这一个变量，侧栏宽度与内容偏移同时消费它。 */
 const navRailVars = computed(() => ({
+  // 侧栏宽度同样按 1/缩放倍数 折算：放大页面时侧栏不跟着变宽，
+  // 内部再按 1/倍数 缩回设计尺寸（见 SidebarRail 的 railInnerStyle）。
   "--nav-rail-current": navCollapsed.value
-    ? "var(--nav-rail-width-collapsed)"
-    : "var(--nav-rail-width)",
-  // 桌面端自绘顶栏：单行 36px，放折叠、搜索、帮助，右侧让给系统窗口按钮。
-  "--titlebar-height": customTitlebar ? "36px" : "0px",
+    ? "calc(var(--nav-rail-width-collapsed) / var(--ui-zoom))"
+    : "calc(var(--nav-rail-width) / var(--ui-zoom))",
+  "--sider-current": "calc(var(--sider-width) / var(--ui-zoom))",
+  // 桌面端自绘顶栏：单行 32px 设计高度，放折叠、搜索、菜单，右侧让给系统窗口按钮。
+  "--titlebar-height": customTitlebar ? `${TITLEBAR_BASE_HEIGHT / uiZoom.value}px` : "0px",
+  // 顶栏内容用它做反向缩放，缩放倍数变了只改这一个变量。
+  "--ui-zoom": String(uiZoom.value),
   // 右上角原生窗口按钮的占位宽度（macOS 红绿灯在左边，占位为 0）。
   "--window-controls-width": customTitlebar && desktop?.platform !== "darwin" ? "138px" : "0px",
 }));
@@ -232,6 +249,16 @@ const navRailVars = computed(() => ({
 const titlebarPadding = {
   paddingLeft: desktop?.platform === "darwin" ? "86px" : "0px",
   paddingRight: "calc(var(--window-controls-width) + 4px)",
+};
+
+/**
+ * 顶栏内容的反向缩放：外层按 `32 / 倍数` 留出高度，内层先按倍数撑宽再用 1/倍数 缩回，
+ * 结果就是内容始终以设计像素呈现，页面放大时顶栏不会被一起吹大。
+ */
+const titlebarScale = {
+  width: "calc(100% * var(--ui-zoom))",
+  transform: "scale(calc(1 / var(--ui-zoom)))",
+  transformOrigin: "top left",
 };
 
 /** 命令面板的快捷键提示：帮助菜单和侧栏用同一份，别一处 ⌘K 一处 Ctrl K。 */
@@ -253,7 +280,7 @@ function syncTitlebarTheme(): void {
 const contentOffsetClass = computed(() => {
   if (layoutMode.value === "inline") return "";
   return layoutMode.value === "focus"
-    ? "ml-[var(--sider-width)]"
+    ? "ml-[var(--sider-current)]"
     : "ml-[var(--nav-rail-current)]";
 });
 
@@ -262,8 +289,9 @@ const mainClasses = computed(() => {
   // 专注模式的 main 必须 overflow-hidden，滚动交给页面自持，
   // 否则页面里固定在底部的输入框会被滚走。
   if (layoutMode.value === "focus") return "min-h-0 flex-1 overflow-hidden bg-canvas px-6 py-6";
-  // 常规布局：内容是一块圆角面板，左上角留一个倒角，和侧栏/顶栏的浅色底咬合。
-  return "min-h-0 flex-1 overflow-y-auto rounded-tl-[14px] bg-canvas px-8 py-7";
+  // 常规布局：顶栏、侧栏、内容共用同一张画布底色，层次只交给卡片与留白，
+  // 左边不再留页边距，卡片直接贴在侧栏边缘，右侧保留呼吸位。
+  return "min-h-0 flex-1 overflow-y-auto bg-canvas pl-0 pr-3 py-6";
 });
 
 // ---------- 作用域写进 URL ----------
@@ -469,10 +497,28 @@ onMounted(() => {
   initUpdateStore();
   void initTelemetry();
   subscribeTraySwitch();
+  // 顶栏高度与页面缩放反向挂钩：先取一次初值，再订阅主进程推送（菜单缩放 + Ctrl 滚轮）。
+  if (customTitlebar) {
+    const chrome = desktop?.chrome;
+    if (chrome?.getZoom) {
+      void chrome
+        .getZoom()
+        .then((factor) => {
+          if (factor > 0) uiZoom.value = factor;
+        })
+        .catch(() => {});
+    }
+    unsubscribeZoom =
+      chrome?.onZoom?.((factor) => {
+        if (factor > 0) uiZoom.value = factor;
+      }) ?? null;
+  }
   // 只有桌面端有系统通知；浏览器形态不做这次轮询。
   if (desktop) {
     backgroundRefresh = window.setInterval(() => {
-      void loadAccounts().catch(() => {});
+      // 凭据体检跟着账号列表一起拉：否则后台换了登录态，
+      // 号池的「凭据不完整」提示会一直停在旧的结论上。
+      void Promise.all([loadAccounts(), loadCredentialHealth()]).catch(() => {});
     }, BACKGROUND_REFRESH_MS);
   }
 });
@@ -485,6 +531,8 @@ onBeforeUnmount(() => {
   unsubscribeTray = null;
   unsubscribeTrayFocus?.();
   unsubscribeTrayFocus = null;
+  unsubscribeZoom?.();
+  unsubscribeZoom = null;
   if (backgroundRefresh !== null) {
     window.clearInterval(backgroundRefresh);
     backgroundRefresh = null;
@@ -541,46 +589,50 @@ watch(
 <template>
   <div
     class="app-canvas relative h-screen overflow-hidden"
-    :style="[navRailVars, { background: 'var(--color-surface)' }]"
+    :style="navRailVars"
   >
     <!--
-      自绘顶栏（36px 单行）：左折叠 / 搜索 + 文件·编辑·查看·帮助 菜单，
+      自绘顶栏（32px 单行，页面缩放时高度不变）：左折叠 / 搜索 + 文件·编辑·查看·帮助 菜单，
       末端是系统窗口按钮的预留位。品牌与版本在侧栏顶部，不在这里重复。
     -->
     <header
       v-if="customTitlebar"
-      class="app-titlebar fixed inset-x-0 top-0 z-[300] flex h-[var(--titlebar-height)] items-center bg-surface"
-      :style="titlebarPadding"
+      class="app-titlebar fixed inset-x-0 top-0 z-[300] h-[var(--titlebar-height)]"
     >
-      <div class="flex min-w-0 items-center gap-0.5 pl-2">
+      <!-- 内层按 1/缩放倍数 反向缩放：页面放大时菜单条保持 32px，不跟着变高变粗 -->
+      <div
+        class="flex h-8 min-w-0 items-center gap-0.5 pl-2"
+        :style="[titlebarPadding, titlebarScale]"
+      >
         <button
           type="button"
-          class="grid size-6 shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-line-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+          class="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           :title="navCollapsed ? t('shell.expandRail') : t('shell.collapseRail')"
           @click="navCollapsed = !navCollapsed"
         >
-          <PanelLeft :size="15" :stroke-width="1.9" />
+          <PanelLeft :size="14" :stroke-width="1.9" />
         </button>
         <button
           type="button"
-          class="grid size-6 shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-line-soft hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+          class="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-muted transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
           :title="`${t('shell.commandHint')} · ${paletteShortcut}`"
           @click="paletteOpen = true"
         >
-          <Search :size="15" :stroke-width="1.9" />
+          <Search :size="14" :stroke-width="1.9" />
         </button>
 
-        <span class="mx-1 h-4 w-px shrink-0 bg-line-soft" aria-hidden="true" />
+        <span class="w-2 shrink-0" aria-hidden="true" />
 
         <div v-for="menu in menus" :key="menu.key" class="app-menu relative">
           <button
             type="button"
-            :class="[menuBtnClass, openMenu === menu.key ? 'bg-line-soft text-ink' : '']"
+            :class="[menuBtnClass, openMenu === menu.key ? 'bg-surface text-ink' : '']"
             :aria-expanded="openMenu === menu.key"
+            :title="`${menu.label} · Alt+${menu.mnemonic}`"
             @click="toggleMenu(menu.key)"
             @mouseenter="hoverMenu(menu.key)"
           >
-            {{ menu.label }}<span class="text-muted">({{ menu.mnemonic }})</span>
+            {{ menu.label }}
           </button>
           <div v-if="openMenu === menu.key" role="menu" :class="menuPanelClass">
             <template v-for="(entry, index) in menu.items" :key="index">
@@ -604,10 +656,10 @@ watch(
             </template>
           </div>
         </div>
-      </div>
 
-      <!-- 右侧整段留白：窗口拖拽区，末端是系统窗口按钮的预留位 -->
-      <div class="h-full min-w-0 flex-1" aria-hidden="true" />
+        <!-- 右侧整段留白：窗口拖拽区，末端是系统窗口按钮的预留位 -->
+        <div class="h-full min-w-0 flex-1" aria-hidden="true" />
+      </div>
     </header>
 
     <div

@@ -20,6 +20,7 @@ avatars/
 
 # 本地截图（验证用）
 .shot-*.png
+.screenshots/
 
 # 前端
 web/node_modules/

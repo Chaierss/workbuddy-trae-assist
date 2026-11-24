@@ -98,6 +98,15 @@ async function loadBaseline(): Promise<void> {
   if (compatResult.status === "fulfilled") compat.value = compatResult.value;
 }
 
+/**
+ * 事件列表和基线必须一起刷新：
+ * 处置完一个号（续期 / 重新登录）后，上面的「供给」数字要跟着变，
+ * 否则刚修好的号在健康中心还是旧的「不健康」，和号池对不上。
+ */
+async function refresh(): Promise<void> {
+  await Promise.allSettled([load(), loadBaseline()]);
+}
+
 async function probeUpstream(): Promise<void> {
   if (compatBusy.value) return;
   compatBusy.value = true;
@@ -312,7 +321,7 @@ async function runAction(event: HealthEvent, action: HealthAction): Promise<void
   try {
     const result = await api.actHealthEvent(event.id, action.id);
     flash.value = { text: t("health.done", { message: result.message }), tone: "ok" };
-    await load();
+    await refresh();
     if (auditOpen.value === event.id) await loadAudit(event.id);
   } catch (exc) {
     flash.value = { text: t("health.actionError", { error: (exc as Error).message }), tone: "bad" };
@@ -325,7 +334,7 @@ async function ack(event: HealthEvent): Promise<void> {
   busy.value = event.id;
   try {
     await api.ackHealthEvent(event.id);
-    await load();
+    await refresh();
   } catch (exc) {
     flash.value = { text: t("health.actionError", { error: (exc as Error).message }), tone: "bad" };
   } finally {
@@ -337,7 +346,7 @@ async function snooze(event: HealthEvent, hours: number): Promise<void> {
   busy.value = event.id;
   try {
     await api.snoozeHealthEvent(event.id, hours);
-    await load();
+    await refresh();
   } catch (exc) {
     flash.value = { text: t("health.actionError", { error: (exc as Error).message }), tone: "bad" };
   } finally {
@@ -355,7 +364,7 @@ async function bulk(op: "ack" | "snooze", hours = 24): Promise<void> {
       text: t("health.bulkDone", { done: result.done, skipped: result.skipped }),
       tone: "ok",
     };
-    await load();
+    await refresh();
   } catch (exc) {
     flash.value = { text: t("health.actionError", { error: (exc as Error).message }), tone: "bad" };
   } finally {
@@ -410,8 +419,7 @@ function isAuto(log: HealthActionLog): boolean {
 }
 
 onMounted(() => {
-  void load();
-  void loadBaseline();
+  void refresh();
 });
 </script>
 
@@ -423,7 +431,7 @@ onMounted(() => {
           type="button"
           class="inline-flex items-center gap-2 rounded-control border border-line bg-surface px-3.5 py-2 text-body-sm font-medium text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
           :disabled="loading"
-          @click="load"
+          @click="refresh"
         >
           <RefreshCw :size="15" :stroke-width="1.9" :class="loading ? 'animate-spin' : ''" />
           {{ t("health.refresh") }}
@@ -507,6 +515,7 @@ onMounted(() => {
             <span>{{ t("overview.supply.healthy", { count: poolHealth.healthyAccounts, total: poolHealth.accounts }) }}</span>
             <span>{{ t("overview.supply.expiring", { count: poolHealth.expiring24h }) }}</span>
             <span>{{ t("overview.supply.cooling", { count: poolHealth.cooling }) }}</span>
+            <span v-if="poolHealth.excluded">{{ t("overview.supply.excluded", { count: poolHealth.excluded }) }}</span>
             <span>{{ t("overview.supply.credits", { days: supplyDaysText(poolHealth.creditsDays) }) }}</span>
             <span>{{ t("overview.supply.success", { rate: supplyRateText(poolHealth.successRate24h) }) }}</span>
           </div>

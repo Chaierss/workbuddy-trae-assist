@@ -1047,6 +1047,8 @@ export interface PoolHealth {
   accounts: number;
   expiring24h: number;
   cooling: number;
+  /** 网关排除 / 隔离中的号：仍能切号，但当前不参与转发，不计入健康数。 */
+  excluded: number;
   creditsDays: number | null;
   successRate24h: number | null;
   thresholds: { minHealthyAccounts: number; minCreditsDays: number };
@@ -2043,7 +2045,7 @@ export const api = {
   /** 合并号池：所有已实现作用域的账号合成一张表，平台在 account.platform 里。 */
   mergedAccounts: () => request<{ accounts: Account[] }>("/api/accounts/merged"),
 
-  /** 凭据体检：只返回有缺口的账号（缺 refresh token 之类），不含任何凭据内容。 */
+  /** 凭据体检：返回全部账号，`gaps` 为空即凭据完整；不含任何凭据内容。 */
   credentialHealth: () =>
     request<CredentialHealth>("/api/accounts/credential-health"),
 

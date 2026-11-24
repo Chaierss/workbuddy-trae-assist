@@ -70,6 +70,10 @@ export interface DesktopBridge {
   /** 自绘标题栏：把原生窗口按钮配色同步成浅色 / 深色。 */
   chrome?: {
     setTheme: (dark: boolean) => void;
+    /** 页面缩放倍数（1 = 100%）；浏览器端没有。 */
+    getZoom?: () => Promise<number>;
+    /** 订阅缩放变化，返回取消订阅函数；浏览器端没有。 */
+    onZoom?: (handler: (factor: number) => void) => () => void;
   };
   /** 顶栏菜单的窗口级动作：缩放、全屏、开发者工具、日志目录、关于、退出。 */
   appMenu?: {

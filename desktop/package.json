@@ -1,6 +1,6 @@
 {
   "name": "chaierww-desktop",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "WorkBuddy / Trae 多账号本地切换工作台（桌面端）",
   "author": "Chaierss",
   "homepage": "https://github.com/Chaierss/workbuddy-trae-assist",
@@ -22,7 +22,7 @@
   "//platform-hint": "PyInstaller 不能交叉编译：打哪个平台的包就要在哪个平台上跑（CI 用 .github/workflows/build-desktop.yml 的矩阵）。",
   "//nsis-hint": "向导语言由 build.nsis 的 language=2052 + installerLanguages=[zh_CN] 决定（不设就是 1033 英文界面）；各页文案在 build/installer.nsh 的 MUI_* define 里。",
   "devDependencies": {
-    "electron": "^43.8.3",
+    "electron": "^43.8.12",
     "electron-builder": "^26.18.0"
   },
   "dependencies": {

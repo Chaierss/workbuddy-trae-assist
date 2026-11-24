@@ -89,6 +89,17 @@ function toggleCollapsed(): void {
   emit("update:collapsed", !props.collapsed);
 }
 
+/**
+ * 缩放补偿层：外层宽度已按 1/倍数 折算，这里把内层按倍数撑宽再缩回，
+ * 保证放大页面时侧栏仍是固定物理宽度，导航文字不会被吹大挤出。
+ */
+const railInnerStyle = {
+  width: "calc(var(--nav-rail-current) * var(--ui-zoom))",
+  height: "calc(100% * var(--ui-zoom))",
+  transform: "scale(calc(1 / var(--ui-zoom)))",
+  transformOrigin: "top left",
+};
+
 /** 任务中心角标：进行中优先；没有进行中时提醒失败数。 */
 const taskBadge = computed(() => taskRunning.value + taskFailed.value);
 const taskBadgeTitle = computed(() =>
@@ -112,10 +123,11 @@ const updateBadgeTitle = computed(() => {
 
 <template>
   <aside
-    class="fixed bottom-0 left-0 top-[var(--titlebar-height)] z-[200] flex w-[var(--nav-rail-current)] flex-col border-r border-line bg-surface transition-[width] duration-200 ease-out"
+    class="fixed bottom-0 left-0 top-[var(--titlebar-height)] z-[200] flex w-[var(--nav-rail-current)] flex-col transition-[width] duration-200 ease-out"
   >
+    <div class="flex min-h-0 shrink-0 flex-col" :style="railInnerStyle">
     <!-- 品牌头：桌面端与浏览器形态都保留，版本号唯一来源是 /api/health。 -->
-    <div class="flex h-14 shrink-0 items-center gap-2.5 border-b border-line-soft px-3">
+    <div class="flex h-14 shrink-0 items-center gap-2.5" :class="collapsed ? 'px-1.5' : 'px-3'">
       <!-- 品牌块本身就是折叠按钮：logo 图标即展开/收起入口，不再单独摆一个折叠箭头 -->
       <button
         type="button"
@@ -165,12 +177,13 @@ const updateBadgeTitle = computed(() => {
           >
             <button
               type="button"
-              class="relative flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-body transition-[background-color,color] duration-150"
-              :class="
+              class="relative flex w-full items-center gap-2.5 rounded-control py-2 text-body transition-[background-color,color] duration-150"
+              :class="[
+                collapsed ? 'justify-center px-1' : 'px-2.5',
                 isActive
                   ? 'bg-brand-soft font-medium text-brand-dark'
-                  : 'text-ink-soft hover:bg-line-soft hover:text-ink'
-              "
+                  : 'text-ink-soft hover:bg-surface hover:text-ink',
+              ]"
               :title="collapsed ? item.label : undefined"
               @click="navigate"
             >
@@ -199,7 +212,7 @@ const updateBadgeTitle = computed(() => {
 
     <!-- 左下角：设置（与主导航同构）+ 任务 / 搜索 / 主题，一行并排。折叠时都退成图标。 -->
     <div
-      class="flex shrink-0 items-center gap-1 border-t border-line-soft p-2"
+      class="flex shrink-0 items-center gap-1 p-2"
       :class="collapsed ? 'flex-col' : ''"
     >
       <RouterLink
@@ -211,12 +224,12 @@ const updateBadgeTitle = computed(() => {
       >
         <button
           type="button"
-          class="relative flex w-full items-center gap-2.5 rounded-control px-2.5 py-2 text-body transition-colors"
+          class="relative flex w-full items-center gap-2 rounded-control py-2 text-body transition-colors"
           :class="[
-            collapsed ? 'justify-center' : '',
+            collapsed ? 'justify-center px-1' : 'px-2',
             isActive
               ? 'bg-brand-soft font-medium text-brand-dark'
-              : 'text-ink-soft hover:bg-line-soft hover:text-ink',
+              : 'text-ink-soft hover:bg-surface hover:text-ink',
           ]"
           :title="collapsed ? t(SETTINGS_DESTINATION.labelKey) : undefined"
           @click="navigate"
@@ -228,7 +241,7 @@ const updateBadgeTitle = computed(() => {
           <!-- 更新小圆点：只作提示，点击行为不变（仍跳设置）。有新版/已下载待重启时亮。 -->
           <span
             v-if="updateBadge"
-            class="absolute right-1.5 top-1.5 size-2 rounded-full bg-brand ring-2 ring-surface"
+            class="absolute right-1.5 top-1.5 size-2 rounded-full bg-brand ring-2 ring-canvas"
             :title="updateBadgeTitle"
           />
         </button>
@@ -236,7 +249,7 @@ const updateBadgeTitle = computed(() => {
 
       <button
         type="button"
-        class="relative grid size-8 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+        class="relative grid size-8 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-surface hover:text-ink"
         :title="taskBadgeTitle"
         :aria-label="taskBadgeTitle"
         @click="taskDrawerOpen = true"
@@ -253,7 +266,7 @@ const updateBadgeTitle = computed(() => {
 
       <button
         type="button"
-        class="grid size-8 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-line-soft hover:text-ink"
+        class="grid size-8 shrink-0 place-items-center rounded-control text-ink-soft transition-colors hover:bg-surface hover:text-ink"
         :title="themeTitle"
         :aria-label="themeTitle"
         @click="toggleTheme"
@@ -261,6 +274,7 @@ const updateBadgeTitle = computed(() => {
         <Moon v-if="isDark" :size="16" :stroke-width="1.9" />
         <Sun v-else :size="16" :stroke-width="1.9" />
       </button>
+    </div>
     </div>
   </aside>
 </template>

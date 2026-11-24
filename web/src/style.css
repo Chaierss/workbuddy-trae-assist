@@ -85,9 +85,9 @@ body,
    三个宽度必须互相自洽：侧栏宽度与内容列偏移共用 --nav-rail-current，
    否则收展时内容列会晚一帧、抖 1~2px。 */
 :root {
-  --sider-width: 240px; /* 沉浸式（shell）模块左栏 */
-  --nav-rail-width: 208px; /* 全局侧栏展开 */
-  --nav-rail-width-collapsed: 64px; /* 全局侧栏收起 */
+  --sider-width: 192px; /* 沉浸式（shell）模块左栏 */
+  --nav-rail-width: 160px; /* 全局侧栏展开 */
+  --nav-rail-width-collapsed: 48px; /* 全局侧栏收起 */
   --nav-rail-current: var(--nav-rail-width); /* 运行期由 AppShell 改写 */
 
   --header-height: 56px;
@@ -708,8 +708,8 @@ body {
 }
 
 
-/* ---------- ҳ��Ǽܹ����ࣨ2.1.0 ���������ţ� ---------- */
-/* �����Ҹ�������̨���� + ϵͳ״̬խ����1180px �����۳ɵ��С� */
+/* ---------- 页面骨架工具类（2.1.0 收敛与重排） ---------- */
+/* 左主右副：工作台主卡 + 系统状态窄栏；1180px 以下折成单列。 */
 .page-hero {
   display: grid;
   gap: 1rem;
@@ -722,7 +722,7 @@ body {
   }
 }
 
-/* ָ������Ŀ��ָ��һ���̿���խ����Ϊ���С� */
+/* 指标条：目标指标一排铺开，窄屏降为两列。 */
 .metric-ribbon {
   display: grid;
   gap: 0.75rem;
@@ -734,7 +734,7 @@ body {
   }
 }
 
-/* ϵͳ״̬խ��������ճ�ԣ������ܳ�ʱ���ſ��� */
+/* 系统状态窄栏：桌面粘性，主卡很长时跟着看。 */
 .status-aside {
   position: sticky;
   top: 1rem;

@@ -264,20 +264,56 @@ def _cloudide_expiry(data: dict) -> str | None:
     return moment.astimezone(UTC).replace(microsecond=0).isoformat()
 
 
+def _as_id(value: object) -> str | None:
+    """把信封里的 ID 字段规整成字符串；空值 / 非 ID 类型返回 None。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _cloudide_business_uid(info: dict) -> str | None:
+    """cloudide 信封里的账号 ID。
+
+    账号合并（``uidFusionInfo``）期间，``userId`` 可能被上游换成融合后的新 ID，
+    而 ``businessUid`` 仍是号池一直在用的业务账号 ID。优先取 businessUid，
+    避免账号合并后同一个号在号池里变成两个、或者切换校验突然对不上。
+    """
+    fusion = info.get("uidFusionInfo")
+    if isinstance(fusion, dict):
+        business = _as_id(fusion.get("businessUid"))
+        if business:
+            return business
+    return _as_id(info.get("userId"))
+
+
+def _cloudide_uid_aliases(info: dict) -> set[str]:
+    """同一个账号在账号合并期间可能出现的全部 ID（userId + 融合信息里的新旧 ID）。"""
+    aliases: set[str] = set()
+    uid = _as_id(info.get("userId"))
+    if uid:
+        aliases.add(uid)
+    fusion = info.get("uidFusionInfo")
+    if isinstance(fusion, dict):
+        for key in ("businessUid", "oldUid", "newUid"):
+            text = _as_id(fusion.get(key))
+            if text:
+                aliases.add(text)
+    return aliases
+
+
 def _cloudide_user_id(data: dict) -> str | None:
-    """从 storage.json 里解出 cloudide 信封的 ``userId``（真正账号 ID）。
+    """从 storage.json 里解出 cloudide 信封的账号 ID（账号合并时取 businessUid）。
 
     解密失败（信封形态变化/损坏）时返回 ``None``，由调用方决定是否回退设备 ID。
     """
     info = _cloudide_payload(data)
     if info is None:
         return None
-    uid = info.get("userId")
-    if isinstance(uid, str) and uid.strip():
-        return uid.strip()
-    if isinstance(uid, int):
-        return str(uid)
-    return None
+    return _cloudide_business_uid(info)
 
 
 def _device_id_from(data: dict) -> str | None:
@@ -385,6 +421,7 @@ class TraeAdapter:
 
         storage.json 里大量是用户界面设置，只有 `iCubeAuthInfo*` 与登录相关；
         但结构指纹只关心「键路径有没有变」，因此不需要挑字段，也不会泄露设置值。
+        登录态是加密信封，外层键不会随信封内部字段变化，所以解密后的结构也一并纳入。
         """
         storage = self._paths.storage_file
         missing: list[str] = []
@@ -401,11 +438,22 @@ class TraeAdapter:
                 detail = f"登录态文件暂时不可读（{exc.strerror or exc}）"
             except json.JSONDecodeError:
                 detail = "登录态文件不是有效 JSON，客户端可能正在写入"
+        fingerprint = ""
+        if isinstance(document, dict):
+            auth = _cloudide_payload(document)
+            if auth is None:
+                # 外层能读但登录信封解不开：客户端可能正在写入，也可能上游改了信封格式。
+                # 本次不计入指纹（避免写入瞬间被当成“新结构”），只把情况挂到 detail 上。
+                detail = detail or "登录信封暂时读不出，本次不计入结构指纹"
+            else:
+                # 只算 storage.json 外层会漏掉信封内部的变化（例如账号合并的 uidFusionInfo，
+                # 外层键一个都没变）。把解密后的信封结构一起算进来，值仍然不参与。
+                fingerprint = fingerprint_of({"storage": document, "auth": auth})
         return ClientProbe(
             platform="trae",
             scope=self.scope,
             client_version=client_file_version(self.app_path()),
-            fingerprint=fingerprint_of(document) if isinstance(document, dict) else "",
+            fingerprint=fingerprint,
             state_paths_ok=not missing,
             missing_paths=tuple(missing),
             detail=detail,
@@ -558,8 +606,8 @@ class TraeAdapter:
         info = _cloudide_payload(data)
         if not info:
             return None
-        uid = str(info.get("userId") or "").strip()
-        if not uid or uid != expected_external_id:
+        # 账号合并期间同一个号会有多个 uid；只要其中一个对上号池里的标识就认。
+        if expected_external_id not in _cloudide_uid_aliases(info):
             return None
         token = str(info.get("token") or "").strip()
         if not token:
@@ -579,7 +627,10 @@ class TraeAdapter:
         host = str(info.get("host") or "").strip()
         if host:
             merged["host"] = host
-        merged["uid"] = uid
+        # 沿用号池里的标识写回（切号校验也按它比对）。
+        # 不能直接抄信封里的 userId：账号合并时它可能已经换成融合后的新 ID，
+        # 抄过来会让 verify_switch 认不出目标账号。
+        merged["uid"] = expected_external_id
 
         device_id = _device_id_from(data)
         if device_id:
@@ -709,21 +760,27 @@ class TraeAdapter:
             return True  # 交给 apply_switch 报「凭据损坏」
         if not isinstance(incoming, dict):
             return True
-        # 从目标凭据里解出真正的账号 ID（cloudide userId 优先，回退 icube-dc 设备 ID）。
-        actual = _cloudide_user_id(incoming)
-        if not actual:
-            actual = _device_id_from(incoming)
+        # 从目标凭据里解出真正的账号 ID（cloudide 优先，回退 icube-dc 设备 ID）。
+        info = _cloudide_payload(incoming)
+        if info is not None:
+            aliases = _cloudide_uid_aliases(info)
+            if aliases:
+                # 账号合并期间新旧 uid 并存，命中任意一个都算同一个号。
+                return expected_external_id in aliases
+        actual = _device_id_from(incoming)
         if not actual:
             return True
         return actual == expected_external_id
 
     def verify_switch(self, expected_external_id: str) -> bool:
         try:
-            raw = self._paths.storage_file.read_bytes()
-            external_id, _, _ = parse_identity(raw)
-        except (OSError, StateUnreadable, NotLoggedIn):
+            data = self._read_storage()
+        except (OSError, AdapterError):
             return False
-        return external_id == expected_external_id
+        info = _cloudide_payload(data)
+        if info is None:
+            return False
+        return expected_external_id in _cloudide_uid_aliases(info)
 
     # ---------- token 凭据切换（扫码/老项目导入的明文账号） ----------
 

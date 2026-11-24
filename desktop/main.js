@@ -35,16 +35,17 @@ const IS_MAC = process.platform === 'darwin';
 // 系统标题栏在 Windows 上是一条独立的白条，会把窗口切成「系统外壳 + 应用」
 // 两截。这里改成 hidden：窗口按钮仍由系统绘制（位置、DPI、贴边吸附、最大化的
 // Snap Layouts 全部保持原生），但标题栏底色与按钮颜色由我们给，前端在同样
-// 36px 高的位置画一条单行功能顶栏（Trae 式：左侧身份、居中命令、右侧工具），
-// 两者拼成一条完整的顶栏。
+// 32px 高的位置画一条单行功能顶栏（左侧折叠 / 搜索 / 菜单），两者拼成一条完整的顶栏。
 //
-// 配色必须和应用语义色一致：浅色 = surface #FFFDF7 / 墨字 #20231E，
-// 深色 = surface #1C1E19 / 纸字 #E9EBE3（见 web/src/style.css）。
+// 配色必须和应用语义色一致：浅色 = canvas #F3F1EA / 墨字 #20231E，
+// 深色 = canvas #141511 / 纸字 #E9EBE3（见 web/src/style.css）。
+// 顶栏和侧栏、内容共用画布底色，覆盖层也必须跟着用 canvas，否则右上角窗口按钮
+// 会残留一块 surface 色的方块。
 // 主题切换时由渲染进程经 titlebar:set-theme 通知主进程重设。
-const TITLEBAR_HEIGHT = 36;
+const TITLEBAR_HEIGHT = 32;
 const TITLEBAR_COLORS = {
-  light: { color: '#FFFDF7', symbolColor: '#20231E' },
-  dark: { color: '#1C1E19', symbolColor: '#E9EBE3' },
+  light: { color: '#F3F1EA', symbolColor: '#20231E' },
+  dark: { color: '#141511', symbolColor: '#E9EBE3' },
 };
 
 // GPU 兼容性说明：部分老显卡驱动（如 AMD Radeon 停更驱动）会让 Electron 的
@@ -514,6 +515,8 @@ function createWindow() {
   mainWindow.on('close', saveWindowState);
 
   mainWindow.loadURL(APP_URL);
+  // Ctrl + 滚轮缩放不会走 app:menu-action，这里补一次，保证顶栏高度跟着重算。
+  mainWindow.webContents.on('zoom-changed', () => pushZoom(mainWindow));
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -1324,6 +1327,24 @@ ipcMain.handle('app:relaunch', () => {
   return true;
 });
 /**
+ * 把当前缩放倍数推给渲染进程。
+ *
+ * 自绘顶栏要按 1/倍数 反向缩放，才能在 Ctrl+= 放大页面后仍然保持 32px 的物理高度
+ * ——页面缩放会连标题栏一起放大，不补偿的话菜单条会越缩越高。
+ */
+function pushZoom(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.webContents.send('app:zoom', win.webContents.getZoomFactor());
+  } catch {
+    /* 渲染进程还没就绪：首次读取走 app:get-zoom */
+  }
+}
+ipcMain.handle('app:get-zoom', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return 1;
+  return mainWindow.webContents.getZoomFactor();
+});
+/**
  * 顶栏菜单里的窗口级动作。菜单是自绘的，这些能力只能回主进程做：
  * 缩放读的是 webContents 的缩放级别，全屏 / 开发者工具 / 关于弹窗同理。
  */
@@ -1355,14 +1376,17 @@ ipcMain.handle('app:menu-action', async (_event, action) => {
   if (!win || win.isDestroyed()) return false;
   if (action === 'zoom-in') {
     win.webContents.setZoomLevel(Math.min(win.webContents.getZoomLevel() + 0.5, 4));
+    pushZoom(win);
     return true;
   }
   if (action === 'zoom-out') {
     win.webContents.setZoomLevel(Math.max(win.webContents.getZoomLevel() - 0.5, -3));
+    pushZoom(win);
     return true;
   }
   if (action === 'zoom-reset') {
     win.webContents.setZoomLevel(0);
+    pushZoom(win);
     return true;
   }
   if (action === 'fullscreen') {

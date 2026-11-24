@@ -27,6 +27,7 @@ def _cloudide(
     *,
     username: str | None = None,
     expired_at: str | None = "2026-11-02T01:08:09.789Z",
+    fusion: dict | None = None,
 ) -> str:
     """造一个真实可解的 cloudide 信封，userId = uid。
 
@@ -49,6 +50,8 @@ def _cloudide(
     }
     if expired_at is not None:
         plain["expiredAt"] = expired_at
+    if fusion is not None:
+        plain["uidFusionInfo"] = fusion
     return tc_encrypt(json.dumps(plain, ensure_ascii=False))
 
 
@@ -86,6 +89,76 @@ def test_parse_identity_extracts_uid_from_cloudide():
     # 展示名取信封里的 account.username，跟着 UID_A 走，避免换测试值时再漏改。
     assert display_name == f"用户{UID_A[-8:]}"
     assert detail["uid"] == UID_A
+
+
+def test_parse_identity_keeps_business_uid_when_accounts_fused():
+    """账号合并（uid 融合）后 userId 会变成新 ID，号池标识仍取 businessUid。"""
+    fusion = {
+        "businessUid": UID_A,
+        "oldUid": UID_A,
+        "newUid": UID_B,
+        "businessStatus": 0,
+    }
+    cloudide = _cloudide(UID_B, fusion=fusion)
+    external_id, _, detail = parse_identity(storage(UID_B, cloudide=cloudide))
+    assert external_id == UID_A
+    assert detail["uid"] == UID_A
+
+
+def test_client_probe_fingerprint_sees_inside_auth_envelope(adapter):
+    """兼容雷达不能只看 storage.json 外层：信封内部加字段也要能被发现。"""
+    adapter._paths.storage_file.write_bytes(
+        storage(UID_A, cloudide=_cloudide(UID_A))
+    )
+    before = adapter.probe_client().fingerprint
+    assert before
+
+    fusion = {
+        "businessUid": UID_A,
+        "oldUid": UID_A,
+        "newUid": UID_B,
+        "businessStatus": 0,
+    }
+    adapter._paths.storage_file.write_bytes(
+        storage(UID_A, cloudide=_cloudide(UID_A, fusion=fusion))
+    )
+    after = adapter.probe_client().fingerprint
+    assert after and after != before
+
+
+def test_sync_oauth_credential_accepts_fused_uid(adapter):
+    """客户端信封换成新 uid 后，老号池记录仍能收回最新会话。"""
+    fusion = {
+        "businessUid": UID_A,
+        "oldUid": UID_A,
+        "newUid": UID_B,
+        "businessStatus": 0,
+    }
+    adapter._paths.storage_file.write_bytes(
+        storage(UID_B, cloudide=_cloudide(UID_B, fusion=fusion))
+    )
+    merged = adapter.sync_oauth_credential(
+        UID_A,
+        {"format": "oauth-token", "accessToken": "old", "uid": UID_A},
+    )
+    assert merged is not None
+    # 号池标识保持不变：切号写回后 verify_switch 还能按它认出目标账号。
+    assert merged["uid"] == UID_A
+
+
+def test_verify_switch_accepts_fused_uid(adapter):
+    """切换后校验：信封里只留新 uid 时，老 externalId 也要认。"""
+    fusion = {
+        "businessUid": UID_A,
+        "oldUid": UID_A,
+        "newUid": UID_B,
+        "businessStatus": 0,
+    }
+    adapter._paths.storage_file.write_bytes(
+        storage(UID_B, cloudide=_cloudide(UID_B, fusion=fusion))
+    )
+    assert adapter.verify_switch(UID_A) is True
+    assert adapter.verify_switch("0000000000000000") is False
 
 
 def test_parse_identity_prefers_client_username():

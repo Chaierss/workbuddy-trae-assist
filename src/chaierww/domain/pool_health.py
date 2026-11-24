@@ -141,6 +141,7 @@ class PoolHealthService:
         healthy = 0
         expiring = 0
         cooling = 0
+        excluded_count = 0
         for account in accounts:
             state = logins.get(account.id, "unknown")
             if state in (LOGIN_INVALID, LOGIN_BLOCKED):
@@ -151,6 +152,9 @@ class PoolHealthService:
             if moment is not None and moment <= now:
                 continue
             if account.id in excluded:
+                # 账号本身没坏，只是被网关排除 / 隔离；单独计数，
+                # 好让「健康数 + 冷却 + 已排除」能和各页面上的号池总数对上。
+                excluded_count += 1
                 continue
             if self._cooling(account.id):
                 cooling += 1
@@ -189,6 +193,7 @@ class PoolHealthService:
             "accounts": len(accounts),
             "expiring24h": expiring,
             "cooling": cooling,
+            "excluded": excluded_count,
             "creditsDays": days,
             "successRate24h": rate,
             "thresholds": {

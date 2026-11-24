@@ -33,6 +33,16 @@ contextBridge.exposeInMainWorld('chaierwwDesktop', {
   /** 自绘标题栏：把窗口按钮配色同步成当前主题（macOS 无此能力，调了也不报错）。 */
   chrome: {
     setTheme: (dark) => ipcRenderer.send('titlebar:set-theme', { dark: dark === true }),
+    /**
+     * 页面缩放倍数：顶栏按 1/倍数 反向缩放，放大页面时不让菜单条跟着变高。
+     * 返回取消订阅函数，组件卸载时必须调用。
+     */
+    getZoom: () => ipcRenderer.invoke('app:get-zoom'),
+    onZoom: (handler) => {
+      const listener = (_event, factor) => handler(factor);
+      ipcRenderer.on('app:zoom', listener);
+      return () => ipcRenderer.removeListener('app:zoom', listener);
+    },
   },
 
   /**

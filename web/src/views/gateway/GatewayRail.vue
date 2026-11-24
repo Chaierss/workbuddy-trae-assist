@@ -24,15 +24,27 @@ function openTab(key: string): void {
 function backToMain(): void {
   void router.push("/overview");
 }
+
+/**
+ * 缩放补偿层：外层宽度按 1/倍数 折算，内层反向缩回，
+ * 页面放大时网关页左栏同样保持固定宽度。
+ */
+const railInnerStyle = {
+  width: "calc(var(--sider-current) * var(--ui-zoom))",
+  height: "calc(100% * var(--ui-zoom))",
+  transform: "scale(calc(1 / var(--ui-zoom)))",
+  transformOrigin: "top left",
+};
 </script>
 
 <template>
   <aside
-    class="fixed bottom-0 left-0 top-[var(--titlebar-height)] z-[200] flex w-[var(--sider-width)] flex-col border-r border-line bg-surface"
+    class="fixed bottom-0 left-0 top-[var(--titlebar-height)] z-[200] flex w-[var(--sider-current)] flex-col"
   >
+    <div class="flex min-h-0 shrink-0 flex-col" :style="railInnerStyle">
     <button
       type="button"
-      class="block w-full border-b border-line-soft px-4 pb-3 pt-5 text-left transition-colors hover:bg-line-soft"
+      class="block w-full px-4 pb-3 pt-5 text-left transition-colors hover:bg-surface"
       @click="backToMain"
     >
       <h1 class="text-body font-semibold tracking-tight text-ink">{{ t("gateway.shell.title") }}</h1>
@@ -48,7 +60,7 @@ function backToMain(): void {
         :class="
           activeKey === tab.key
             ? 'bg-brand-soft text-brand-dark'
-            : 'text-ink-soft hover:bg-line-soft hover:text-ink'
+            : 'text-ink-soft hover:bg-surface hover:text-ink'
         "
         @click="openTab(tab.key)"
       >
@@ -61,5 +73,6 @@ function backToMain(): void {
         </span>
       </button>
     </nav>
+    </div>
   </aside>
 </template>
