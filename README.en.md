@@ -126,8 +126,8 @@ Grouped by the four things you actually use, keeping only the hardest bullets in
   "re-check"
 - **Visible returns**: the usage page overview shows today / last 7 days totals, a mini trend and the top 3 accounts;
   it counts only rewards this tool performed and recorded — manual claims are not counted
-- **Run today's work in one click**: renewals that are due plus every automatable activity across all accounts in one go,
-  with a "done / needs manual" receipt
+- **Run today's work in one click**: renewals that are due plus every automatable activity across all accounts in one go;
+  a fully successful run updates silently and only skipped / failed / unknown items produce a receipt
 
 ### Gateway: lend your quota to other local AI tools
 

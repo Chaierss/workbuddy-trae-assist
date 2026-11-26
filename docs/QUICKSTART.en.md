@@ -90,7 +90,8 @@ Seeing an account in the pool means step 2 is done.
 - **Quick switching**: on desktop, `Ctrl+Alt+1..8` jumps to the 8 most recently used accounts;
   after a successful switch you can switch straight back to the previous one.
 - **Run today's tasks**: the button at the top right of the activity page renews due credentials
-  and runs every automatable activity in one go, then shows a receipt.
+  and runs every automatable activity in one go. A fully successful run is silent; only skipped / failed /
+  unknown items produce a receipt.
 - **Groups**: tag accounts ("primary", "backup", …), filter the pool by group, assign in bulk,
   and pick a scheduled task's accounts by group with one click.
 - **Activities**: the official catalogue lists rules and rewards; automatable ones run in one

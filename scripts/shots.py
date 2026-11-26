@@ -458,6 +458,13 @@ def demo_fixtures() -> dict[str, dict[str, object]]:
         # /api/detect 返回单个客户端，/api/detection 返回 {clients}，两者不能共用同一份结构。
         "/api/detect": detection["clients"][0],
         "/api/detection": detection,
+        # 侧栏版本号的唯一来源；演示数据必须跟着当前版本走，否则截图会停在旧版本。
+        "/api/health": {
+            "status": "ok",
+            "version": "2.7.0",
+            "secrets": "keyring",
+            "dataDir": r"C:\Users\demo\AppData\Roaming\chaierww",
+        },
         "/api/preferences": {
             "migrateMemory": True,
             "migrateConnectors": True,
