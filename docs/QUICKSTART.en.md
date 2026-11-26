@@ -43,7 +43,7 @@ Open the app → **Accounts** → **WorkBuddy QR** (or **Trae QR**) → scan wit
 
 Already signed in somewhere? Two shortcuts:
 
-- **Add current client account**: the overview page offers it when the client is signed in.
+- **Add current client account**: the accounts page offers it when the client is signed in.
 - **JSON import**: drop the session file into the import box; the platform is detected
   automatically. A `chaierww-accounts-*.json` bundle exported by this tool restores as a whole.
 
@@ -89,14 +89,14 @@ Seeing an account in the pool means step 2 is done.
   the Edit / View / Help menus label every action with its shortcut.
 - **Quick switching**: on desktop, `Ctrl+Alt+1..8` jumps to the 8 most recently used accounts;
   after a successful switch you can switch straight back to the previous one.
-- **Run today's tasks**: the button at the top right of the overview renews due credentials and
-  runs every automatable activity in one go, then shows a receipt.
+- **Run today's tasks**: the button at the top right of the activity page renews due credentials
+  and runs every automatable activity in one go, then shows a receipt.
 - **Groups**: tag accounts ("primary", "backup", …), filter the pool by group, assign in bulk,
   and pick a scheduled task's accounts by group with one click.
 - **Activities**: the official catalogue lists rules and rewards; automatable ones run in one
   click, and manual ones say exactly how to finish them. Run **Re-check** afterwards to
   refresh that account's state on the spot.
-- **Rewards**: the overview card totals today / last 7 days with a mini trend and the top 3
+- **Rewards**: the usage page overview totals today / last 7 days with a mini trend and the top 3
   accounts — only rewards this tool performed and recorded, not manual claims.
 - **Usage**: requests and credits grouped by model and by day, so you can see which account is
   running low.

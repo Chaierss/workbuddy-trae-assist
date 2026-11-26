@@ -37,6 +37,22 @@ describe("任务中心", () => {
     expect(failedCount.value).toBe(0);
   });
 
+  it("同一动作连续成功只保留最近一条回执", async () => {
+    for (const round of [1, 2, 3]) {
+      await runTask({
+        kind: "activity-run",
+        title: "执行活动",
+        run: async () => round,
+        message: `第 ${round} 次`,
+      });
+    }
+    const receipts = taskItems.value.filter(
+      (item) => item.status === "ok" && item.kind === "activity-run",
+    );
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0].message).toBe("第 3 次");
+  });
+
   it("同一动作进行中不允许重复发起", async () => {
     const gate: { release: () => void } = { release: () => undefined };
     const first = runTask({

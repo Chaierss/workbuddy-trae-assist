@@ -7,6 +7,8 @@ import { computed, ref } from "vue";
  * - 只做**结果回执**，不做进度百分比：这些动作都没有可靠的百分比来源，编一个数字只会骗人；
  * - 「进行中」只在当前进程内有效，刷新后不复活（这些动作不可续跑）；
  * - 最近 20 条终态回执存 localStorage，刷新后仍能回看；
+ * - 同一动作成功只保留最近一条回执：周期任务成功不该在任务中心堆成一列，
+ *   失败仍逐条保留（每条都可能对应不同的重试）；
  * - 同一动作进行中时不允许重复发起，避免连点把上游打两遍。
  */
 
@@ -151,6 +153,11 @@ export async function runTask<T>(options: {
     item.finishedAt = Date.now();
     item.message = options.message ?? "";
     item.retry = undefined;
+    // 成功回执按动作去重，只留最新一条。活动/续期这类动作可能一天跑很多次，
+    // 每次成功都追加一行只会把任务中心变成同一条「已执行 N 个账号」的复读机。
+    taskItems.value = taskItems.value.filter(
+      (row) => row.id === id || !(row.status === "ok" && row.kind === options.kind),
+    );
     return result;
   } catch (cause) {
     item.status = "failed";

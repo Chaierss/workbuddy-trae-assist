@@ -20,8 +20,8 @@ const { matchPalette } = await import("./paletteResults");
 const icon = {} as NavDestination["icon"];
 
 const nav: NavDestination[] = [
-  { key: "overview", labelKey: "nav.overview", path: "/overview", icon },
   { key: "accounts", labelKey: "nav.accounts", path: "/accounts", icon },
+  { key: "activity", labelKey: "nav.activity", path: "/activity", icon },
 ];
 
 function account(id: string, name: string): Account {

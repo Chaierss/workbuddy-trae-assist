@@ -22,11 +22,11 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 
-# 顺序即播放顺序：总览 → 号池 → 活动目录。三张都是脱敏后的演示数据。
+# 顺序即播放顺序：号池 → 活动目录 → 用量。三张都是脱敏后的演示数据。
 SOURCES = [
-    ("overview.png", "总览"),
     ("accounts.png", "号池"),
     ("activity.png", "活动"),
+    ("usage.png", "用量"),
 ]
 
 # 画布比例固定 16:10，和 GitHub 首图在窄屏下的裁切习惯接近。

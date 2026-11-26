@@ -8,7 +8,7 @@
  * 只确认一次：记在 localStorage，之后不再打扰。隐私模式下 localStorage 读写会抛错，
  * 这里全部吞掉 —— 大不了下次再提示一遍，不能因为存储不可用就阻断功能。
  *
- * 之所以抽成模块：活动页（ActivityView）和概览页快捷操作（OverviewView）是两个
+ * 之所以抽成模块：活动页（ActivityView）和号池批量执行（AccountsView）是两个
  * 独立入口，同一份告知必须共用同一个 ack 标记，否则用户会在两个页面各被问一次。
  */
 const KEY = "chaierww.growthNoticeAck";

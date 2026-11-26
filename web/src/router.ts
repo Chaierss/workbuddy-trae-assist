@@ -7,12 +7,9 @@ import { createRouter, createWebHistory } from "vue-router";
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", redirect: "/overview" },
-    {
-      path: "/overview",
-      name: "overview",
-      component: () => import("./views/OverviewView.vue"),
-    },
+    // 号池是首页：工作台已下线，旧地址与根路径都落到号池。
+    { path: "/", redirect: "/accounts" },
+    { path: "/overview", redirect: "/accounts" },
     /**
      * `alias` 给出「作用域写进 URL」的规范地址 `/s/<scope>/…`：
      * 同一条路由记录、同一个 name，进别名时 `route.params.scope` 有值。
@@ -67,6 +64,6 @@ export const router = createRouter({
       component: () => import("./views/SettingsView.vue"),
       meta: { focus: "settings" },
     },
-    { path: "/:pathMatch(.*)*", redirect: "/overview" },
+    { path: "/:pathMatch(.*)*", redirect: "/accounts" },
   ],
 });

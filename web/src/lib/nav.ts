@@ -2,7 +2,6 @@ import type { Component } from "vue";
 import {
   Activity,
   HeartPulse,
-  LayoutDashboard,
   Network,
   Settings,
   Sparkles,
@@ -22,7 +21,7 @@ export interface NavDestination {
   /** 不带作用域前缀的短路径；实际跳转地址由 `scopedPath()` 补前缀。 */
   path: string;
   icon: Component;
-  /** 侧栏分组：工作台 / 运营 / 运维。命令面板不需要，故为可选。 */
+  /** 侧栏分组：账号 / 运营 / 运维。命令面板不需要，故为可选。 */
   section?: NavSection;
   /**
    * 命令面板的补充检索词：英文名、拼音全拼、拼音首字母。
@@ -35,20 +34,24 @@ export type NavSection = "workbench" | "ops" | "infra";
 
 export const NAV_DESTINATIONS: NavDestination[] = [
   {
-    key: "overview",
-    labelKey: "nav.overview",
-    path: "/overview",
-    icon: LayoutDashboard,
-    section: "workbench",
-    keywords: ["overview", "workbench", "home", "gongzuotai", "gzt"],
-  },
-  {
     key: "accounts",
     labelKey: "nav.accounts",
     path: "/accounts",
     icon: Users,
     section: "workbench",
-    keywords: ["accounts", "account", "pool", "haochi", "hc"],
+    // 号池是首页：工作台下线后，旧用户敲「工作台 / overview / home」也应落到这里。
+    keywords: [
+      "accounts",
+      "account",
+      "pool",
+      "haochi",
+      "hc",
+      "overview",
+      "workbench",
+      "home",
+      "gongzuotai",
+      "gzt",
+    ],
   },
   {
     key: "activity",

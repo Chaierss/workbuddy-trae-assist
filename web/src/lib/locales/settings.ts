@@ -260,7 +260,6 @@ export const settingsZh = {
   "settings.components.summary.searchInput": "带图标与清空按钮的搜索框，列表页共用",
   "settings.components.summary.toastHost": "全局轻提示，统一成功 / 失败 / 信息的出现与消失",
   "settings.components.summary.skeleton": "加载占位骨架，数据到达前不让页面跳动",
-  "settings.components.summary.officialActivityStrip": "主站顶部的官方活动横幅，展示进度与入口",
   "settings.components.summary.officialCampaignCard": "单个官方活动的卡片，展示状态与可执行操作",
   "settings.components.summary.officialCampaignDrawer": "官方活动详情抽屉，集中展示规则与步骤",
   "settings.components.summary.activityRunsPanel": "活动执行记录面板，按时间列出每次运行结果",
@@ -650,8 +649,6 @@ export const settingsEn = {
   "settings.components.summary.searchInput": "Search field with icon and clear button, shared by list pages",
   "settings.components.summary.toastHost": "Global toasts for success, failure and info messages",
   "settings.components.summary.skeleton": "Loading skeleton that keeps the layout from jumping",
-  "settings.components.summary.officialActivityStrip":
-    "Official activity banner on the main page with progress and entry",
   "settings.components.summary.officialCampaignCard":
     "Card for one official campaign with status and actions",
   "settings.components.summary.officialCampaignDrawer":

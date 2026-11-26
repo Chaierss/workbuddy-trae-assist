@@ -20,7 +20,9 @@ import {
   clientDetections,
   isImplementedScope,
   loadAccounts,
+  loadActivityActionable,
   loadCredentialHealth,
+  loadHealthBadge,
   resolvedTheme,
   scope,
   scopedPath,
@@ -518,7 +520,13 @@ onMounted(() => {
     backgroundRefresh = window.setInterval(() => {
       // 凭据体检跟着账号列表一起拉：否则后台换了登录态，
       // 号池的「凭据不完整」提示会一直停在旧的结论上。
-      void Promise.all([loadAccounts(), loadCredentialHealth()]).catch(() => {});
+      // 两个角标也一起回落：计划任务或自动处置跑完后，不让侧栏还挂着旧的点。
+      void Promise.all([
+        loadAccounts(),
+        loadCredentialHealth(),
+        loadActivityActionable(),
+        loadHealthBadge(),
+      ]).catch(() => {});
     }, BACKGROUND_REFRESH_MS);
   }
 });

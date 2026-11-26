@@ -44,6 +44,7 @@ import {
   formatAmount,
   formatTime,
   type AccountUsage,
+  type ActivityRewards,
   type ConversationMessage,
   type ConversationUsage,
   type RequestRow,
@@ -1025,6 +1026,36 @@ const overviewStats = computed(() => [
   },
 ]);
 
+// ---------- 活动收益（从工作台迁入） ----------
+/** 只含本工具代做并记录下来的奖励，手动领取不计；读不到如实说失败。 */
+const rewards = ref<ActivityRewards | null>(null);
+const rewardsLoading = ref(true);
+const rewardsError = ref("");
+
+async function loadRewards(): Promise<void> {
+  rewardsLoading.value = true;
+  rewardsError.value = "";
+  try {
+    rewards.value = await api.activityRewards(7);
+  } catch (cause) {
+    rewardsError.value = (cause as Error).message;
+  } finally {
+    rewardsLoading.value = false;
+  }
+}
+
+/** 迷你柱高度：按当周最大值归一；0 也留 2px，免得整排看起来像缺数据。 */
+function rewardBarHeight(reward: number): string {
+  const days = rewards.value?.daysSeries ?? [];
+  const max = Math.max(1, ...days.map((day) => day.reward));
+  const ratio = Math.max(reward > 0 ? 0.08 : 0.02, reward / max);
+  return `${Math.round(ratio * 100)}%`;
+}
+
+function rewardDayLabel(day: string, reward: number): string {
+  return `${day} · ${formatAmount(reward)}`;
+}
+
 // ---------- 加载 ----------
 
 async function load(refresh = false): Promise<void> {
@@ -1043,6 +1074,7 @@ async function load(refresh = false): Promise<void> {
 
 onMounted(() => {
   void load();
+  void loadRewards();
 });
 </script>
 
@@ -1110,6 +1142,74 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 活动收益：从工作台迁入用量页总览，口径只含本工具代做记录，手动领取不计。 -->
+    <SectionCard
+      v-if="view === 'overview'"
+      class="mt-4"
+      :title="t('overview.rewards.title')"
+      :subtitle="t('overview.rewards.hint')"
+    >
+      <div v-if="rewardsLoading" class="space-y-1">
+        <Skeleton variant="row" :lines="2" />
+      </div>
+      <div
+        v-else-if="rewardsError"
+        class="flex flex-wrap items-center gap-2 text-body-sm text-danger"
+      >
+        <span class="min-w-0 flex-1">{{ t("overview.rewards.error", { message: rewardsError }) }}</span>
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center rounded-badge border border-line px-2 py-1 text-caption text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+          @click="loadRewards"
+        >
+          {{ t("common.retry") }}
+        </button>
+      </div>
+      <div
+        v-else-if="!rewards || (!rewards.total && !rewards.byAccount.length)"
+        class="text-body-sm text-muted"
+      >
+        {{ t("overview.rewards.empty") }}
+      </div>
+      <div v-else-if="rewards" class="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <div>
+          <div class="text-caption text-muted">{{ t("overview.rewards.today") }}</div>
+          <div class="mt-0.5 font-ledger text-metric font-semibold leading-none text-ink">
+            {{ formatAmount(rewards.today) }}
+          </div>
+        </div>
+        <div>
+          <div class="text-caption text-muted">
+            {{ t("overview.rewards.week", { days: rewards.days }) }}
+          </div>
+          <div class="mt-0.5 text-title font-semibold leading-none text-ink">
+            {{ formatAmount(rewards.total) }}
+          </div>
+        </div>
+
+        <div class="ml-auto flex h-12 items-end gap-[3px]">
+          <span
+            v-for="day in rewards.daysSeries"
+            :key="day.day"
+            class="w-[7px] rounded-full bg-brand/70 transition-colors hover:bg-brand"
+            :style="{ height: rewardBarHeight(day.reward) }"
+            :title="rewardDayLabel(day.day, day.reward)"
+          />
+        </div>
+
+        <RouterLink
+          v-for="row in rewards.byAccount.slice(0, 3)"
+          :key="row.accountId"
+          :to="`${scopedPath('/accounts')}?account=${row.accountId}`"
+          class="inline-flex items-center gap-1.5 rounded-full border border-line-soft bg-line-soft px-2.5 py-1 text-caption text-ink-soft transition-colors hover:border-brand/40 hover:text-brand-dark"
+          :title="t('overview.rewards.accountHint', { name: row.displayName })"
+        >
+          <span class="max-w-[7rem] truncate">{{ row.displayName }}</span>
+          <span class="shrink-0 font-medium tabular-nums">{{ formatAmount(row.reward) }}</span>
+        </RouterLink>
+      </div>
+    </SectionCard>
 
     <div
       v-if="error"

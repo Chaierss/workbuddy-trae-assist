@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="chaierww: workbench, account pool and activity catalog" width="880">
+  <img src="docs/images/demo.gif" alt="chaierww: account pool, activity catalog and usage" width="880">
 </p>
 
 <p align="center">
@@ -100,17 +100,16 @@ Grouped by the four things you actually use, keeping only the hardest bullets in
 - **Credentials renew themselves**: dynamic early renewal based on token lifetime (minimum 30 minutes, maximum 6 hours);
   failures back off at 1 hour / 6 hours, consecutive failures trip a breaker, and after a trip you can resume auto-renewal
   in one click
-- **One line tells you whether to care**: the top of the Workbench gives a verdict (all good / an account needs attention /
-  health events remain) and also flags accounts that failed a switch or renewal in the last 7 days — click the right side
-  to jump to that page
+- **One glance tells you whether to care**: the pool header keeps only four asset dimensions (total / usable /
+  credential issues / to do today); the last two jump straight to the health center or activity page, and credential
+  details are no longer recomputed in the pool
 - **One number, one definition**: the pool, the health center and the supply figures read the same
   credential checkup, so only accounts with real gaps count as pending; accounts excluded or isolated by the
   gateway are counted separately as "N excluded", and healthy + cooling + excluded adds up to the total
-- **What needs handling surfaces on its own**: the Workbench "needs attention" area shows only the top 3 groups, with
-  one-click renew / rerun and an immediate "done / needs manual" verdict; the policy itself still lives only in
-  Settings → Automation
-- **One-click pool checkup**: login recheck, credential liveness, supply and isolation in one pass, with a next step per
-  finding (re-login / renew / diagnose / release isolation / open the health center) — no scoring or recommendations
+- **What needs handling surfaces on its own**: the health center lays out issues as events, with renew / rerun /
+  confirm / snooze per event and an audit trail; the policy itself still lives only in Settings → Automation
+- **One-click pool diagnosis**: login recheck, credential liveness, supply and isolation in one read-only pass;
+  repairs always go through the health center's allowlist
 - **Diagnose before guessing**: a six-step read-only diagnosis (credential readable, renewable, device is this machine,
   remaining lifetime, backoff/breaker, read-only liveness) with a verdict and advice for each step; it writes no data and
   rotates no tokens
@@ -125,8 +124,8 @@ Grouped by the four things you actually use, keeping only the hardest bullets in
 - **Progress per account**: how far each account got, which item it is stuck on and which items can run automatically, on
   one screen; items that cannot run explain "how to" by family, and a manual step can be verified on the spot with
   "re-check"
-- **Visible returns**: today / last 7 days totals, a mini trend and the top 3 accounts; it counts only rewards this tool
-  performed and recorded — manual claims are not counted
+- **Visible returns**: the usage page overview shows today / last 7 days totals, a mini trend and the top 3 accounts;
+  it counts only rewards this tool performed and recorded — manual claims are not counted
 - **Run today's work in one click**: renewals that are due plus every automatable activity across all accounts in one go,
   with a "done / needs manual" receipt
 
@@ -336,7 +335,7 @@ read-only checks.
 ## FAQ
 
 **The client does not start after a switch, or exits immediately?**
-Check the install state under "Workbench → Client". Switching uses the same system call as double-clicking the icon; if it
+Check the install state under "Settings → Client & environment". Switching uses the same system call as double-clicking the icon; if it
 still fails, the path is usually wrong or the client is updating — verify the login directory under
 Settings → Client & environment.
 

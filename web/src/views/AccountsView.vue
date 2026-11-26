@@ -38,6 +38,7 @@ import NoteDialog from "../components/NoteDialog.vue";
 import PageHeader from "../components/PageHeader.vue";
 import SectionCard from "../components/SectionCard.vue";
 import OAuthLoginDialog from "../components/OAuthLoginDialog.vue";
+import OnboardingChecklist from "../components/onboarding/OnboardingChecklist.vue";
 import SelectMenu from "../components/SelectMenu.vue";
 import {
   api,
@@ -61,7 +62,6 @@ import {
   clientDetections,
   credentialHealth,
   credentialIssueAccounts,
-  credentialIssueCounts,
   credits,
   creditsLoading,
   detection,
@@ -69,6 +69,7 @@ import {
   loadDetection,
   loading,
   refreshAll,
+  scopedPath,
   switchBlockedAction,
   switchBlockedReason,
 } from "../stores/app";
@@ -391,8 +392,8 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 /* ---------- 号池一键体检 ---------- */
 
 /**
- * 体检 = 登录复检 + 凭据验活 + 供给/隔离汇总 + 一次安全修复。
- * 修复只走健康中心白名单（续期到期凭据、补跑当天失败活动），不切号、不删资料。
+ * 体检 = 登录复检 + 凭据验活 + 供给/隔离汇总，只读诊断。
+ * 修复统一去健康中心走白名单（续期到期凭据、补跑当天失败活动），不切号、不删资料。
  */
 const checkupBusy = ref(false);
 const checkupOpen = ref(false);
@@ -449,7 +450,8 @@ async function runPoolCheckup(): Promise<void> {
     checkup.value = await runTask({
       kind: "pool-checkup",
       title: t("tasks.poolCheckup"),
-      run: () => api.poolCheckup({ fix: true }),
+      // 号池只诊断，不在这里续期/补跑：修复入口只有一个，在健康中心。
+      run: () => api.poolCheckup({ fix: false }),
       message: t("tasks.receiptPoolCheckup", { count: accounts.value.length }),
     });
     checkupOpen.value = true;
@@ -647,76 +649,6 @@ function askPurgeAll(): void {
 const gapAccounts = computed(() =>
   (credentialHealth.value?.accounts ?? []).filter((item) => item.gaps.length > 0),
 );
-
-/** 登录真的失效的号：活动/签到遇 401 已经回写，续期也救不回来，只能重新扫码。 */
-const reloginAccounts = computed(() =>
-  accounts.value.filter((item) => item.credentialState === "relogin_required"),
-);
-
-/**
- * 凭据已经过期、又不能自动续期的号：上游不会再认这个令牌，只能重新扫码。
- * 能续期的号会被续期链路救回来，不进这里；这类号 credentialState 可能还是 usable
- * （没人去撞 401 就不知道），所以单独看时间。
- */
-const expiredAccounts = computed(() =>
-  accounts.value.filter((item) => {
-    if (item.credentialRefreshable || !item.credentialExpiresAt) return false;
-    const at = new Date(item.credentialExpiresAt).getTime();
-    return Number.isFinite(at) && at <= Date.now();
-  }),
-);
-
-/** 只报「过期」而没被 relogin_required 覆盖的那部分，避免同一个号提示两次。 */
-const expiredOnlyAccounts = computed(() =>
-  expiredAccounts.value.filter(
-    (item) => !reloginAccounts.value.some((other) => other.id === item.id),
-  ),
-);
-
-/** 缺口账号：能切号但凭据不完整，过期后只能重登；已算进过期/重登的不再重复报。 */
-const gapOnlyAccounts = computed(() =>
-  gapAccounts.value.filter(
-    (item) =>
-      item.credentialState !== "relogin_required" &&
-      !expiredOnlyAccounts.value.some((other) => other.id === item.accountId),
-  ),
-);
-
-/**
- * 凭据异常只在号池提示一次，处置统一去健康中心：
- * 概览与号池不再各摆一套续期 / 重登按钮，避免同一个号出现三种叫法。
- */
-const credentialIssueTotal = computed(
-  () =>
-    reloginAccounts.value.length +
-    expiredOnlyAccounts.value.length +
-    gapOnlyAccounts.value.length,
-);
-
-const credentialIssueBrief = computed(() => {
-  const parts: string[] = [];
-  const relogin = reloginAccounts.value.length;
-  const expired = expiredOnlyAccounts.value.length;
-  const gap = gapOnlyAccounts.value.length;
-  if (relogin) parts.push(t("accounts.credential.summaryRelogin", { count: relogin }));
-  if (expired) parts.push(t("accounts.credential.summaryExpired", { count: expired }));
-  if (gap) parts.push(t("accounts.credential.summaryGap", { count: gap }));
-  return parts.join(" · ");
-});
-
-const credentialIssueNames = computed(() => {
-  const names = [
-    ...reloginAccounts.value,
-    ...expiredOnlyAccounts.value,
-    ...gapOnlyAccounts.value,
-  ].map((item) => item.displayName);
-  if (names.length <= 3) return names.join("、");
-  return `${names.slice(0, 3).join("、")} 等 ${names.length} 个`;
-});
-
-function openCredentialHealth(): void {
-  void router.push("/health?group=credential");
-}
 
 /** 选中项里凭据残缺的个数：导出确认里点明它，免得用户以为导出的是完整登录态。 */
 const selectedGapCount = computed(() => {
@@ -983,14 +915,21 @@ function onKeydown(event: KeyboardEvent): void {
   clearSelection();
 }
 
-/** 顶部「号池健康度」：只用本地已有数据，不额外打上游。 */
+/**
+ * 顶部「号池健康度」：只留 4 个资产维度。
+ * 待续期 / 需重登 / 积分到期 / 低积分这些凭据明细归健康中心，
+ * 号池只保留一个总数与一个跳转入口，避免和健康中心各算一套。
+ */
 interface HealthStat {
   key: string;
   label: string;
   value: number;
   hint: string;
   tone: "neutral" | "brand" | "warn" | "danger";
+  /** 点在号池内筛选。 */
   risk?: FilterKey;
+  /** 点去别的页面处理；与 risk 二选一。 */
+  go?: string;
 }
 
 /** 数值配色：只按语义走，异常才着色，正常一律墨色。 */
@@ -1003,24 +942,7 @@ const TONE_TEXT: Record<HealthStat["tone"], string> = {
 
 const health = computed<HealthStat[]>(() => {
   const usable = accounts.value.filter((item) => item.credentialState === "usable").length;
-  const relogin = accounts.value.filter(
-    (item) => item.credentialState === "relogin_required",
-  ).length;
-  // 待续期：可自动续期且 6 小时内到期（与后端提前窗口上限一致）。
-  const renewSoon = accounts.value.filter((item) => {
-    if (!item.credentialRefreshable || !item.credentialExpiresAt) return false;
-    const at = Date.parse(item.credentialExpiresAt);
-    if (Number.isNaN(at)) return false;
-    const left = at - Date.now();
-    return left > 0 && left <= 6 * 3600 * 1000;
-  }).length;
-  const expiring = Object.values(credits.value).filter((item) => item.expiringSoon).length;
-  const low = accounts.value.filter((item) => {
-    const info = credits.value[item.id];
-    if (!info?.available || info.error || info.credits === null) return false;
-    return info.credits < LOW_CREDITS;
-  }).length;
-  const stats: HealthStat[] = [
+  return [
     {
       key: "total",
       label: t("accounts.health.total"),
@@ -1042,53 +964,29 @@ const health = computed<HealthStat[]>(() => {
       key: "credential",
       label: t("accounts.health.credential"),
       value: attentionCount.value,
-      hint: t("accounts.health.credentialHint", credentialIssueCounts.value),
+      hint: t("accounts.health.credentialGo"),
       tone: attentionCount.value ? "warn" : "neutral",
-      risk: attentionCount.value ? "credential" : undefined,
-    },
-    {
-      key: "renew",
-      label: t("accounts.health.renew"),
-      value: renewSoon,
-      hint: t("accounts.health.renewHint"),
-      tone: renewSoon ? "warn" : "neutral",
-      risk: renewSoon ? "renew" : undefined,
-    },
-    {
-      key: "relogin",
-      label: t("accounts.health.relogin"),
-      value: relogin,
-      hint: t("accounts.health.reloginHint"),
-      tone: relogin ? "danger" : "neutral",
-      risk: relogin ? "relogin" : undefined,
-    },
-    {
-      key: "expiring",
-      label: t("accounts.health.expiring"),
-      value: expiring,
-      hint: t("accounts.health.expiringHint"),
-      tone: expiring ? "danger" : "neutral",
-      risk: expiring ? "expiring" : undefined,
-    },
-    {
-      key: "low",
-      label: t("accounts.health.low"),
-      value: low,
-      hint: t("accounts.health.lowHint", { threshold: LOW_CREDITS }),
-      tone: low ? "warn" : "neutral",
-      risk: low ? "low" : undefined,
+      go: "/health?group=credential",
     },
     {
       key: "today",
       label: t("accounts.health.today"),
       value: pulse.value?.activityActionable ?? 0,
-      hint: t("accounts.health.todayHint"),
+      hint: t("accounts.health.todayGo"),
       tone: (pulse.value?.activityActionable ?? 0) ? "brand" : "neutral",
-      risk: "today",
+      go: "/activity",
     },
   ];
-  return stats;
 });
+
+/** 指标块点击：跳转类去对应页面，筛选类留在号池内筛。 */
+function onStatClick(stat: HealthStat): void {
+  if (stat.go) {
+    void router.push(scopedPath(stat.go));
+    return;
+  }
+  applyRisk(stat.risk);
+}
 
 function applyRisk(risk?: FilterKey): void {
   if (!risk) return;
@@ -1823,40 +1721,12 @@ const confirmText = computed(() => {
       </template>
     </PageHeader>
 
+    <!-- 首启清单跟着首页走：工作台下线后，号池是新用户第一屏。 -->
+    <OnboardingChecklist class="mt-4" />
+
     <p v-if="localPortsNote" class="mt-2 text-caption text-muted">
       {{ localPortsNote }}
     </p>
-
-    <!-- 凭据异常只提示一次：续期 / 重登 / 诊断统一去健康中心，号池不再摆第二套处置入口 -->
-    <div
-      v-if="credentialIssueTotal"
-      class="mt-4 flex items-start gap-2 rounded-card border px-4 py-2.5 text-body-sm leading-relaxed"
-      :class="
-        reloginAccounts.length || expiredOnlyAccounts.length
-          ? 'border-danger/30 bg-danger-soft text-danger-dark'
-          : 'border-warn/30 bg-warn-soft text-warn'
-      "
-    >
-      <AlertTriangle :size="15" :stroke-width="1.9" class="mt-0.5 shrink-0" />
-      <div class="min-w-0 flex-1">
-        <p>{{ credentialIssueBrief }}</p>
-        <p class="mt-0.5 text-caption opacity-85">
-          {{ credentialIssueNames }} · {{ t("accounts.credential.summaryBannerHint") }}
-        </p>
-      </div>
-      <button
-        type="button"
-        class="shrink-0 rounded-control border bg-surface px-2.5 py-1 text-caption transition-colors hover:border-current"
-        :class="
-          reloginAccounts.length || expiredOnlyAccounts.length
-            ? 'border-danger/40 text-danger-dark'
-            : 'border-warn/40 text-warn'
-        "
-        @click="openCredentialHealth"
-      >
-        {{ t("accounts.credential.summaryAction") }}
-      </button>
-    </div>
 
     <!-- 客户端扫描入池：已登录的客户端账号不在号池时提示 -->
     <div
@@ -1875,8 +1745,8 @@ const confirmText = computed(() => {
       </button>
     </div>
 
-    <!-- 号池健康度：一张卡装下 8 个指标，发丝线分隔；能筛的整块可点
-         数字是异步到的，用 AnimatedNumber 滚动 + 跳动，异常项点一颗静态圆点 -->
+    <!-- 号池健康度：只留 4 个资产维度；凭据明细与今日活动的处置各去对应页面，
+         号池不再长出第二套事件列表。 -->
     <SectionCard class="mt-4" :title="t('accounts.health.title')" flush>
       <template #actions>
         <button
@@ -1892,17 +1762,17 @@ const confirmText = computed(() => {
         </button>
       </template>
 
-      <div class="grid grid-cols-2 gap-px bg-line-soft sm:grid-cols-4 xl:grid-cols-8">
+      <div class="grid grid-cols-2 gap-px bg-line-soft sm:grid-cols-4">
         <component
-          :is="stat.risk ? 'button' : 'div'"
+          :is="stat.risk || stat.go ? 'button' : 'div'"
           v-for="(stat, index) in health"
           :key="stat.key"
-          :type="stat.risk ? 'button' : undefined"
+          :type="stat.risk || stat.go ? 'button' : undefined"
           class="stat-tile min-w-0 px-4 py-3 text-left transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand/60"
           :class="[
             stat.risk && riskFilter === stat.risk
               ? 'bg-brand-soft'
-              : stat.risk
+              : stat.risk || stat.go
                 ? 'bg-surface hover:bg-line-soft/60'
                 : 'cursor-default bg-surface',
           ]"
@@ -1914,7 +1784,7 @@ const confirmText = computed(() => {
                 ? t('accounts.health.filterHint')
                 : stat.hint
           "
-          @click="applyRisk(stat.risk)"
+          @click="onStatClick(stat)"
         >
           <div class="flex items-center gap-1.5 text-caption text-muted">
             <span class="truncate">{{ stat.label }}</span>

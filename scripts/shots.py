@@ -14,7 +14,7 @@
     # 2. 截图
     python scripts/shots.py                    # 浅色，输出到 docs/images/
     python scripts/shots.py --theme dark       # 深色，输出到 docs/images-dark/
-    python scripts/shots.py --only overview    # 只截某几张
+    python scripts/shots.py --only accounts    # 只截某几张
 
 依赖：playwright（`pip install playwright && playwright install chromium`）。
 原始截图不含敏感信息，产物可直接进公开仓库。
@@ -72,7 +72,6 @@ VIEWPORT_W = 1440
 # 刻意**不截**的页面：网关的「日志」tab 会显示真实的 prompt 预览，
 # 那是用户的提问原文，再怎么正则也挡不全，所以不进公开仓库。
 SHOTS: list[dict[str, object]] = [
-    {"name": "overview", "path": "/overview", "height": 1280},
     # 号池默认是紧凑视图，公开截图用宽松视图：分组徽标、凭据到期、会话同步都在这一档，
     # 和 README 里「账号、积分、凭据状态一屏看全」的说法对得上。
     {
@@ -913,7 +912,7 @@ def capture_titlebar(args: argparse.Namespace, executable: str | None) -> int:
             page.add_init_script(TITLEBAR_STUB)
             if args.demo:
                 install_demo_routes(page, demo_fixtures())
-            page.goto(f"{args.base.rstrip('/')}/overview", wait_until="networkidle", timeout=45000)
+            page.goto(f"{args.base.rstrip('/')}/accounts", wait_until="networkidle", timeout=45000)
             page.wait_for_timeout(1800)
             page.get_by_role("button", name=re.compile("查看")).click()
             page.wait_for_timeout(320)

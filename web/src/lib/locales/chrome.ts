@@ -4,7 +4,6 @@
  */
 
 export const chromeZh = {
-  "nav.overview": "工作台",
   "nav.accounts": "号池",
   "nav.activity": "活动",
   "shell.activityBadge": "{count} 个活动可执行",
@@ -16,7 +15,7 @@ export const chromeZh = {
   "shell.collapseRail": "收起侧栏",
   "shell.localMode": "本地模式",
   "shell.accountCount": "{count} 个账号",
-  "shell.sectionWorkbench": "工作台",
+  "shell.sectionWorkbench": "账号",
   "shell.sectionOps": "运营",
   "shell.sectionInfra": "运维",
   "shell.toggleTheme": "切换主题（当前：{mode}）",
@@ -198,8 +197,8 @@ export const chromeZh = {
   "tasks.credentialRefresh": "凭据续期",
   "tasks.receiptLoginProbe": "已复检 {count} 个账号",
   "tasks.receiptCredential": "已处理 {count} 个账号",
-  "tasks.poolCheckup": "号池一键体检",
-  "tasks.receiptPoolCheckup": "已体检 {count} 个账号，并尝试安全修复",
+  "tasks.poolCheckup": "号池一键诊断",
+  "tasks.receiptPoolCheckup": "已诊断 {count} 个账号",
   "tasks.runActivities": "执行活动",
   "tasks.receiptRun": "已执行 {count} 个账号",
   "tasks.backup": "创建备份",
@@ -231,7 +230,6 @@ export const chromeZh = {
 };
 
 export const chromeEn = {
-  "nav.overview": "Workbench",
   "nav.accounts": "Accounts",
   "nav.activity": "Activity",
   "shell.activityBadge": "{count} activities runnable",
@@ -243,7 +241,7 @@ export const chromeEn = {
   "shell.collapseRail": "Collapse sidebar",
   "shell.localMode": "Local mode",
   "shell.accountCount": "{count} accounts",
-  "shell.sectionWorkbench": "Workspace",
+  "shell.sectionWorkbench": "Accounts",
   "shell.sectionOps": "Operations",
   "shell.sectionInfra": "Infrastructure",
   "shell.toggleTheme": "Toggle theme (current: {mode})",
@@ -436,8 +434,8 @@ export const chromeEn = {
   "tasks.credentialRefresh": "Credential refresh",
   "tasks.receiptLoginProbe": "Checked {count} accounts",
   "tasks.receiptCredential": "Processed {count} accounts",
-  "tasks.poolCheckup": "Pool checkup",
-  "tasks.receiptPoolCheckup": "Checked {count} accounts and attempted safe fixes",
+  "tasks.poolCheckup": "Pool diagnosis",
+  "tasks.receiptPoolCheckup": "Diagnosed {count} accounts",
   "tasks.runActivities": "Run activities",
   "tasks.receiptRun": "Ran {count} accounts",
   "tasks.backup": "Create backup",

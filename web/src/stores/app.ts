@@ -3,6 +3,7 @@ import { t } from "../lib/i18n";
 import {
   api,
   type Account,
+  type ActivityCampaign,
   type ClientDetection,
   type CredentialHealth,
   type CreditInfo,
@@ -121,12 +122,18 @@ export async function loadHealthBadge(): Promise<void> {
   }
 }
 
+/**
+ * 活动角标的唯一口径：有可执行项的活动个数。
+ * 活动页执行完会直接用它回写，不必再打一次 overview 接口。
+ */
+export function setActivityActionable(campaigns: ActivityCampaign[]): void {
+  activityActionable.value = campaigns.filter((item) => item.actionable > 0).length;
+}
+
 export async function loadActivityActionable(): Promise<void> {
   try {
     const data = await api.overviewActionables();
-    activityActionable.value = (data.campaigns ?? []).filter(
-      (item) => item.actionable > 0,
-    ).length;
+    setActivityActionable(data.campaigns ?? []);
   } catch {
     // 角标是辅助信息，取不到就不亮，不影响主界面。
     activityActionable.value = 0;
@@ -143,7 +150,7 @@ function credentialExpiryMs(account: Account): number | null {
 
 /**
  * 凭据问题号的唯一口径：状态不可用，或 7 天内到期 / 已过期。
- * 概览 KPI、号池健康卡与号池筛选都从这里取，避免三处数字各算各的。
+ * 号池健康卡的「凭据问题」与号池筛选都从这里取。
  */
 export const credentialIssueAccounts = computed(() => {
   const now = Date.now();
@@ -152,24 +159,6 @@ export const credentialIssueAccounts = computed(() => {
     const expiresAt = credentialExpiryMs(item);
     return expiresAt !== null && expiresAt <= now + CREDENTIAL_WARN_MS;
   });
-});
-
-/** 互斥拆分：需重登 / 已过期 / 7 天内到期。 */
-export const credentialIssueCounts = computed(() => {
-  const now = Date.now();
-  const counts = { relogin: 0, expired: 0, expiring: 0 };
-  for (const item of credentialIssueAccounts.value) {
-    if (item.credentialState === "relogin_required") {
-      counts.relogin += 1;
-      continue;
-    }
-    if (item.credentialState !== "usable") continue;
-    const expiresAt = credentialExpiryMs(item);
-    if (expiresAt === null) continue;
-    if (expiresAt < now) counts.expired += 1;
-    else counts.expiring += 1;
-  }
-  return counts;
 });
 
 export const attentionCount = computed(() => credentialIssueAccounts.value.length);

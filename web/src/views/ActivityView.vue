@@ -43,6 +43,7 @@ import { safeActivityUrl } from "../lib/activity";
 import { normalizeActivityReport } from "../lib/runReport";
 import { acknowledgeGrowthNotice, growthNoticeAcknowledged } from "../lib/growthNotice";
 import { runTask, taskDrawerOpen, taskDrawerTab } from "../stores/tasks";
+import { setActivityActionable } from "../stores/app";
 import { t, type MessageKey } from "../lib/i18n";
 import { refreshOnboardingSignals } from "../lib/onboarding";
 import {
@@ -569,6 +570,9 @@ async function load(refresh = false): Promise<void> {
     pool.value = data.accounts;
     summary.value = data.summary;
     campaigns.value = data.campaigns ?? [];
+    // 侧栏角标跟着这一份检测结果走：执行完活动、重新检测后角标立即回落，
+    // 不必等下一次整页刷新，避免「已经处理过还一直挂个 1」。
+    setActivityActionable(campaigns.value);
     detectedAt.value = data.detectedAt;
     void loadRuns();
     void loadCatalogVersion();
@@ -723,12 +727,17 @@ async function runTargets(targets: string[], keys?: string[]): Promise<void> {
         ),
       message: t("tasks.receiptRun", { count: targets.length || 0 }),
     });
-    runReport.value = report;
-    const { ok, skipped, failed } = report.summary;
+    const { skipped, failed, unknown = 0 } = report.summary;
+    // 全部成功的执行不再弹回执与 toast：卡片进度、侧栏角标会立刻更新，
+    // 再叠一个「执行完成」只是重复告知。只有跳过 / 失败 / 未知才需要说明。
     if (!report.summary.total) {
+      runReport.value = null;
       showToast(t("activity.toastNothingToRun"));
+    } else if (skipped || failed || unknown) {
+      runReport.value = report;
+      showToast(t("activity.toastRunDone", { ok: report.summary.ok, skipped, failed }));
     } else {
-      showToast(t("activity.toastRunDone", { ok, skipped, failed }));
+      runReport.value = null;
     }
     // 勾选已经兑现，清掉避免下次误跑同一批。
     selectedAccountIds.value = new Set();

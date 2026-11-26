@@ -26,7 +26,6 @@
   { "key": "command-palette", "name": "CommandPalette", "path": "web/src/components/CommandPalette.vue", "category": "feedback", "summaryKey": "settings.components.summary.commandPalette", "status": "stable", "demo": null },
   { "key": "toast-host", "name": "ToastHost", "path": "web/src/components/ToastHost.vue", "category": "feedback", "summaryKey": "settings.components.summary.toastHost", "status": "stable", "demo": null },
   { "key": "skeleton", "name": "Skeleton", "path": "web/src/components/Skeleton.vue", "category": "feedback", "summaryKey": "settings.components.summary.skeleton", "status": "stable", "demo": null },
-  { "key": "official-activity-strip", "name": "OfficialActivityStrip", "path": "web/src/components/OfficialActivityStrip.vue", "category": "business", "summaryKey": "settings.components.summary.officialActivityStrip", "status": "stable", "demo": null },
 
   { "key": "official-campaign-card", "name": "OfficialCampaignCard", "path": "web/src/components/activity/OfficialCampaignCard.vue", "category": "business", "summaryKey": "settings.components.summary.officialCampaignCard", "status": "stable", "demo": null },
   { "key": "official-campaign-drawer", "name": "OfficialCampaignDrawer", "path": "web/src/components/activity/OfficialCampaignDrawer.vue", "category": "business", "summaryKey": "settings.components.summary.officialCampaignDrawer", "status": "stable", "demo": null },
